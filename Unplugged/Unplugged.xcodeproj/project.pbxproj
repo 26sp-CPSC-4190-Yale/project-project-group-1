@@ -31,7 +31,7 @@
 		FF5125B22F63055A00B3F774 /* Unplugged.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unplugged.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		FF51265C2F6316A000B3F774 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = .gitignore; sourceTree = "<group>"; };
+		FF5128112F6342A200B3F774 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -96,7 +96,7 @@
 		FF5125A92F63055A00B3F774 = {
 			isa = PBXGroup;
 			children = (
-				FF51265C2F6316A000B3F774 /* .gitignore */,
+				FF5128112F6342A200B3F774 /* README.md */,
 				FF51260C2F63118500B3F774 /* Docker */,
 				FF51261A2F63118900B3F774 /* UnpluggedServer */,
 				FF5126342F63118D00B3F774 /* UnpluggedShared */,
