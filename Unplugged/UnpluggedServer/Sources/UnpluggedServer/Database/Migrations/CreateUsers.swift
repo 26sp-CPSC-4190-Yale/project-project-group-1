@@ -5,4 +5,20 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Implement AsyncMigration — create "users" table with id (UUID, primary key), apple_user_id (String, unique), username (String, unique), display_name (String), avatar_url (String, optional), created_at (Timestamp)
+import Fluent
+
+struct CreateUsers: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema("users")
+            .id()
+            .field("username", .string, .required)
+            .unique(on: "username")
+            .field("password_hash", .string, .required)
+            .field("created_at", .datetime)
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema("users").delete()
+    }
+}

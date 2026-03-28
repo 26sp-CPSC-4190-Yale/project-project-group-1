@@ -5,4 +5,17 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Define User struct (Codable, Identifiable) — id (UUID), username, displayName, avatarURL, createdAt; shared between client and server
+import Foundation
+
+public struct User: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let username: String
+    public let createdAt: Date
+
+    public init(id: UUID, username: String, createdAt: Date) {
+        self.id = id
+        self.username = username
+        self.createdAt = createdAt
+    }
+}
+
