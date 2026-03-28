@@ -7,6 +7,8 @@
 
 import Fluent
 import FluentPostgresDriver
+import Foundation
+import JWT
 import Vapor
 
 public func configure(_ app: Application) async throws {
@@ -34,4 +36,9 @@ public func configure(_ app: Application) async throws {
     // app.migrations.add(CreateSessionLocations()) // location is now in the rooms table
 
     try await app.autoMigrate()
+
+    let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret-change-in-production"
+    await app.jwt.keys.add(hmac: HMACKey(key: SymmetricKey(data: Data(jwtSecret.utf8))), digestAlgorithm: .sha256)
+
+    try routes(app)
 }

@@ -18,8 +18,6 @@ struct CreateSessions: AsyncMigration {
             .field("is_active", .bool, .required)
             .create()
 
-        try await database.schema("rooms")
-            .createIndex(on: "is_active")
     }
 
     func revert(on database: Database) async throws {
