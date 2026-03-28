@@ -1,8 +1,23 @@
 //
-//  CreateParticipants.swift
+//  CreateParticipants.swift (Creates member_info table)
 //  UnpluggedServer.Database.Migrations
 //
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Implement AsyncMigration — create "participants" table with id (UUID), session_id (UUID, FK -> sessions), user_id (UUID, FK -> users), status (String/enum), joined_at, completed_at (optional); unique on (session_id, user_id)
+import Fluent
+
+struct CreateParticipants: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema("member_info")
+            .id()
+            .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
+            .field("room_id", .uuid, .required, .references("rooms", "id", onDelete: .cascade))
+            .field("config", .string)
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema("member_info").delete()
+    }
+}

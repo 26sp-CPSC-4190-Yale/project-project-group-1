@@ -5,4 +5,8 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Define ScreenTimeProviding protocol — requestAuthorization(), lockApps(), unlockApps(), isLocked publisher; abstraction over FamilyControls for testability
+public protocol ScreenTimeProviding: AnyObject, Sendable {
+    func lockApps() async throws
+    func unlockApps() async throws
+}
+

@@ -5,4 +5,20 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Implement AsyncMigration — create "friendships" table with id (UUID), user_id (UUID, FK -> users), friend_id (UUID, FK -> users), status (String: pending/accepted), created_at; unique on (user_id, friend_id)
+import Fluent
+
+struct CreateFriendships: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema("friendships")
+            .id()
+            .field("user_1_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
+            .field("user_2_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
+            .field("status", .string, .required)
+            .field("created_at", .datetime)
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema("friendships").delete()
+    }
+}

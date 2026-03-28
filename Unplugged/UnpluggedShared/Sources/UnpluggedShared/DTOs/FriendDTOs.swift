@@ -5,4 +5,22 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Define friend DTOs (all Codable) — AddFriendRequest (userID or username), FriendListResponse (array of User), SearchUsersRequest (query string), SearchUsersResponse (array of User)
+import Foundation
+
+public struct AddFriendRequest: Codable, Sendable {
+    public let username: String
+
+    public init(username: String) {
+        self.username = username
+    }
+}
+
+public struct FriendResponse: Codable, Sendable {
+    public let id: UUID
+    public let username: String
+
+    public init(id: UUID, username: String) {
+        self.id = id
+        self.username = username
+    }
+}
