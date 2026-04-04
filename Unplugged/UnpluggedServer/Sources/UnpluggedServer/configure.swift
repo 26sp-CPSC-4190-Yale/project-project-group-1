@@ -12,18 +12,20 @@ import JWT
 import Vapor
 
 public func configure(_ app: Application) async throws {
-    app.databases.use(
-        .postgres(configuration: .init(
-            hostname: Environment.get("DB_HOST") ?? "localhost", //server and DB on same machine?
-            port: Int(Environment.get("DB_PORT") ?? "5432") ?? 5432,
-            username: Environment.get("DB_USER") ?? "unplugged",
-            password: Environment.get("DB_PASSWORD") ?? "unplugged",
-            database: Environment.get("DB_NAME") ?? "unplugged",
-            //TODO: change to .require after
-            tls: .disable
-        )),
-        as: .psql
+    let dbHost = Environment.get("DB_HOST") ?? "localhost"
+    let dbPort = Int(Environment.get("DB_PORT") ?? "") ?? 5432
+    let dbUser = Environment.get("DB_USER") ?? "unplugged"
+    let dbPass = Environment.get("DB_PASSWORD") ?? "unplugged"
+    let dbName = Environment.get("DB_NAME") ?? "unplugged"
+    let dbConfig = SQLPostgresConfiguration(
+        hostname: dbHost,
+        port: dbPort,
+        username: dbUser,
+        password: dbPass,
+        database: dbName,
+        tls: .disable // change to .require before production
     )
+    app.databases.use(.postgres(configuration: dbConfig), as: .psql)
 
     // Register migrations in dependency order
     app.migrations.add(CreateUsers())

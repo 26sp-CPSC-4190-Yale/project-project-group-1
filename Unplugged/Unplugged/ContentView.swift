@@ -5,18 +5,23 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Add onboarding gate (check first launch); persist auth state across app restarts
-
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(DependencyContainer.self) private var container
     @State private var authViewModel = AuthViewModel()
 
     var body: some View {
-        if authViewModel.isAuthenticated {
-            MainTabView(authViewModel: authViewModel)
-        } else {
-            AuthView(viewModel: authViewModel)
+        Group {
+            if authViewModel.isAuthenticated {
+                MainTabView(authViewModel: authViewModel)
+            } else {
+                AuthView(viewModel: authViewModel)
+            }
+        }
+        .task {
+            authViewModel.configure(authService: container.auth, cache: container.cache)
+            authViewModel.restoreSession()
         }
     }
 }
@@ -42,4 +47,5 @@ struct MainTabView: View {
 
 #Preview {
     ContentView()
+        .environment(DependencyContainer())
 }

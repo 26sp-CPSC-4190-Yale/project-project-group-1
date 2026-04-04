@@ -5,5 +5,17 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Implement create room, join room, list open rooms, end session, fetch history API calls
+import Foundation
+import UnpluggedShared
 
+struct SessionAPIService {
+    let client: APIClient
+
+    func createSession() async throws -> SessionResponse {
+        try await client.send(.createSession(CreateSessionRequest()))
+    }
+
+    func listSessions() async throws -> [SessionResponse] {
+        try await client.send(.listSessions)
+    }
+}

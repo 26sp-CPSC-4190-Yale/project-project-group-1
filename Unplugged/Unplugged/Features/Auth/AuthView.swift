@@ -5,13 +5,12 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Wire SignInWithAppleButton credential to backend; add loading/error states
-
 import SwiftUI
 import AuthenticationServices
 
 struct AuthView: View {
     var viewModel: AuthViewModel
+    @State private var showUsernameLogin = false
 
     var body: some View {
         ZStack {
@@ -55,10 +54,20 @@ struct AuthView: View {
                         .foregroundColor(.primaryColor)
                         .cornerRadius(.cornerRadiusSm)
                     }
+
+                    // Login with username
+                    Button("Login with username") {
+                        showUsernameLogin = true
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .frame(height: 50)
                 }
                 .padding(.horizontal, .spacingXl)
                 .padding(.bottom, .spacingXl)
             }
+        }
+        .sheet(isPresented: $showUsernameLogin) {
+            UsernameLoginView(viewModel: viewModel)
         }
     }
 }
