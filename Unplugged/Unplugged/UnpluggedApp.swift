@@ -5,15 +5,16 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Initialize DependencyContainer; inject into environment; set up AppDelegate adaptor
-
 import SwiftUI
 
 @main
 struct UnpluggedApp: App {
+    @State private var container = DependencyContainer()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(container)
         }
     }
 }

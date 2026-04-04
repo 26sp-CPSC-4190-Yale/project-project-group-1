@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		FF5127252F63258500B3F774 /* UnpluggedShared in Frameworks */ = {isa = PBXBuildFile; productRef = FF5127242F63258500B3F774 /* UnpluggedShared */; };
+		0F3A23942F818300002A4860 /* UnpluggedShared in Frameworks */ = {isa = PBXBuildFile; productRef = 0F3A23932F818300002A4860 /* UnpluggedShared */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,12 +32,6 @@
 		FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5128112F6342A200B3F774 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = README.md; sourceTree = "<group>"; };
-		FFDB4D092F762666007024D1 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
-		FFDB544E2F762669007024D1 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
-		FFDB60CD2F762673007024D1 /* Algorithms.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Algorithms.xcodeproj; sourceTree = "<group>"; };
-		FFDBE2D22F782B6C007024D1 /* Algorithms.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Algorithms.xcodeproj; sourceTree = "<group>"; };
-		FFDBE50B2F782B6C007024D1 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
-		FFDBE90B2F782B6C007024D1 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -66,11 +60,6 @@
 			path = UnpluggedServer;
 			sourceTree = "<group>";
 		};
-		FF5126342F63118D00B3F774 /* UnpluggedShared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = UnpluggedShared;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,7 +67,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FF5127252F63258500B3F774 /* UnpluggedShared in Frameworks */,
+				0F3A23942F818300002A4860 /* UnpluggedShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,7 +94,6 @@
 				FF5128112F6342A200B3F774 /* README.md */,
 				FF51260C2F63118500B3F774 /* Docker */,
 				FF51261A2F63118900B3F774 /* UnpluggedServer */,
-				FF5126342F63118D00B3F774 /* UnpluggedShared */,
 				FF5125B42F63055A00B3F774 /* Unplugged */,
 				FF5125C22F63055C00B3F774 /* UnpluggedTests */,
 				FF5125CC2F63055C00B3F774 /* UnpluggedUITests */,
@@ -119,48 +107,6 @@
 				FF5125B22F63055A00B3F774 /* Unplugged.app */,
 				FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */,
 				FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDB4D1E2F762666007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDB545C2F762669007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDB60DC2F762673007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDBFF812F782B6C007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDBFF832F782B6C007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		FFDBFF852F782B6C007024D1 /* Products */ = {
-			isa = PBXGroup;
-			children = (
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -185,7 +131,7 @@
 			);
 			name = Unplugged;
 			packageProductDependencies = (
-				FF5127242F63258500B3F774 /* UnpluggedShared */,
+				0F3A23932F818300002A4860 /* UnpluggedShared */,
 			);
 			productName = Unplugged;
 			productReference = FF5125B22F63055A00B3F774 /* Unplugged.app */;
@@ -270,37 +216,11 @@
 			mainGroup = FF5125A92F63055A00B3F774;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				FF5127232F63258500B3F774 /* XCLocalSwiftPackageReference "UnpluggedShared" */,
+				0F3A23922F81830C002A4860 /* XCLocalSwiftPackageReference "UnpluggedShared" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FF5125B32F63055A00B3F774 /* Products */;
 			projectDirPath = "";
-			projectReferences = (
-				{
-					ProductGroup = FFDB60DC2F762673007024D1 /* Products */;
-					ProjectRef = FFDB60CD2F762673007024D1 /* Algorithms.xcodeproj */;
-				},
-				{
-					ProductGroup = FFDBFF812F782B6C007024D1 /* Products */;
-					ProjectRef = FFDBE2D22F782B6C007024D1 /* Algorithms.xcodeproj */;
-				},
-				{
-					ProductGroup = FFDB545C2F762669007024D1 /* Products */;
-					ProjectRef = FFDB544E2F762669007024D1 /* Atomics.xcodeproj */;
-				},
-				{
-					ProductGroup = FFDBFF852F782B6C007024D1 /* Products */;
-					ProjectRef = FFDBE50B2F782B6C007024D1 /* Atomics.xcodeproj */;
-				},
-				{
-					ProductGroup = FFDB4D1E2F762666007024D1 /* Products */;
-					ProjectRef = FFDB4D092F762666007024D1 /* Collections.xcodeproj */;
-				},
-				{
-					ProductGroup = FFDBFF832F782B6C007024D1 /* Products */;
-					ProjectRef = FFDBE90B2F782B6C007024D1 /* Collections.xcodeproj */;
-				},
-			);
 			projectRoot = "";
 			targets = (
 				FF5125B12F63055A00B3F774 /* Unplugged */,
@@ -683,15 +603,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		FF5127232F63258500B3F774 /* XCLocalSwiftPackageReference "UnpluggedShared" */ = {
+		0F3A23922F81830C002A4860 /* XCLocalSwiftPackageReference "UnpluggedShared" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = UnpluggedShared;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		FF5127242F63258500B3F774 /* UnpluggedShared */ = {
+		0F3A23932F818300002A4860 /* UnpluggedShared */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 0F3A23922F81830C002A4860 /* XCLocalSwiftPackageReference "UnpluggedShared" */;
 			productName = UnpluggedShared;
 		};
 /* End XCSwiftPackageProductDependency section */
