@@ -133,11 +133,18 @@ struct SessionController: RouteCollection {
     // MARK: helpers
 
     private func requireRoom(req: Request) async throws -> RoomModel {
-        guard let idString = req.parameters.get("sessionID"),
-              let roomID = UUID(uuidString: idString) else {
+        guard let idString = req.parameters.get("sessionID") else {
             throw Abort(.badRequest)
         }
-        guard let room = try await RoomModel.find(roomID, on: req.db) else {
+        if let roomID = UUID(uuidString: idString) {
+            guard let room = try await RoomModel.find(roomID, on: req.db) else {
+                throw Abort(.notFound)
+            }
+            return room
+        }
+        let prefix = idString.lowercased()
+        let rooms = try await RoomModel.query(on: req.db).all()
+        guard let room = rooms.first(where: { $0.id?.uuidString.lowercased().hasPrefix(prefix) ?? false }) else {
             throw Abort(.notFound)
         }
         return room

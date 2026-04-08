@@ -88,7 +88,7 @@ struct HomeView: View {
             .presentationBackground(.ultraThinMaterial)
         }
         .fullScreenCover(item: $viewModel.activeSession) { session in
-            ActiveRoomView(session: session, currentUserID: currentUserID) {
+            ActiveRoomView(session: session, sessions: deps.sessions, currentUserID: currentUserID) {
                 viewModel.activeSession = nil
             }
         }

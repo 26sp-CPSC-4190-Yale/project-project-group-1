@@ -29,7 +29,7 @@ enum APIRouter {
     case createSession(CreateSessionRequest)
     case listSessions
     case getSession(id: UUID)
-    case joinSession(id: UUID)
+    case joinSession(code: String)
 
     // Friends
     case listFriends
@@ -43,7 +43,7 @@ enum APIRouter {
         case .getMe, .updateMe:  return "/users/me"
         case .createSession, .listSessions: return "/sessions"
         case .getSession(let id): return "/sessions/\(id)"
-        case .joinSession(let id): return "/sessions/\(id)/join"
+        case .joinSession(let code): return "/sessions/\(code)/join"
         case .listFriends, .addFriend: return "/friends"
         case .removeFriend(let id): return "/friends/\(id)"
         }

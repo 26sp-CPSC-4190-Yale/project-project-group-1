@@ -5,7 +5,7 @@ import UnpluggedShared
 @MainActor
 @Observable
 class ActiveRoomViewModel {
-    let session: SessionResponse
+    var session: SessionResponse
     let currentUserID: UUID
     var showEndConfirmation = false
 
@@ -20,5 +20,13 @@ class ActiveRoomViewModel {
     init(session: SessionResponse, currentUserID: UUID) {
         self.session = session
         self.currentUserID = currentUserID
+    }
+
+    func refresh(sessions: SessionAPIService) async {
+        do {
+            session = try await sessions.getSession(id: session.session.id)
+        } catch {
+            // leave stale state; refresh is best-effort
+        }
     }
 }

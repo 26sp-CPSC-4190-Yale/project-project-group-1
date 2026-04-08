@@ -19,7 +19,11 @@ struct SessionAPIService {
         try await client.send(.listSessions)
     }
 
-    func joinSession(id: UUID) async throws -> SessionResponse {
-        try await client.send(.joinSession(id: id))
+    func getSession(id: UUID) async throws -> SessionResponse {
+        try await client.send(.getSession(id: id))
+    }
+
+    func joinSession(code: String) async throws -> SessionResponse {
+        try await client.send(.joinSession(code: code))
     }
 }

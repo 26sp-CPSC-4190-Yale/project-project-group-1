@@ -3,13 +3,15 @@ import UnpluggedShared
 
 struct ActiveRoomView: View {
     let session: SessionResponse
+    let sessions: SessionAPIService
     var onEnd: () -> Void
 
     @State private var viewModel: ActiveRoomViewModel
     @Environment(\.dismiss) private var dismiss
 
-    init(session: SessionResponse, currentUserID: UUID, onEnd: @escaping () -> Void) {
+    init(session: SessionResponse, sessions: SessionAPIService, currentUserID: UUID, onEnd: @escaping () -> Void) {
         self.session = session
+        self.sessions = sessions
         self.onEnd = onEnd
         _viewModel = State(initialValue: ActiveRoomViewModel(session: session, currentUserID: currentUserID))
     }
@@ -57,7 +59,7 @@ struct ActiveRoomView: View {
                         .foregroundColor(.tertiaryColor)
                         .padding(.horizontal, .spacingLg)
 
-                    VStack(spacing: .spacingSm) {
+                    List {
                         ForEach(viewModel.participants, id: \.id) { participant in
                             HStack(spacing: .spacingMd) {
                                 ParticipantAvatar(name: participant.username, size: 40)
@@ -74,9 +76,14 @@ struct ActiveRoomView: View {
 
                                 Spacer()
                             }
-                            .padding(.horizontal, .spacingLg)
-                            .padding(.vertical, .spacingSm)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .refreshable {
+                        await viewModel.refresh(sessions: sessions)
                     }
                 }
 

@@ -22,7 +22,7 @@ class JoinRoomViewModel {
         }
         touchTips.onRoomReceived = { roomID in
             Task { @MainActor in
-                await vm.joinRoom(id: roomID, sessions: sessions)
+                await vm.join(code: roomID.uuidString, sessions: sessions)
             }
         }
         touchTips.startBrowsing(userID: userID)
@@ -33,24 +33,24 @@ class JoinRoomViewModel {
         isBrowsing = false
     }
 
-    func joinRoom(id: UUID, sessions: SessionAPIService) async {
+    func joinWithCode(sessions: SessionAPIService) async {
+        let trimmed = manualCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            error = "Enter a room code"
+            return
+        }
+        await join(code: trimmed, sessions: sessions)
+    }
+
+    private func join(code: String, sessions: SessionAPIService) async {
         guard !isJoining else { return }
         isJoining = true
         error = nil
         do {
-            joinedSession = try await sessions.joinSession(id: id)
+            joinedSession = try await sessions.joinSession(code: code)
         } catch {
             self.error = "Failed to join room"
         }
         isJoining = false
-    }
-
-    func joinWithCode(sessions: SessionAPIService) async {
-        let trimmed = manualCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let roomID = UUID(uuidString: trimmed) else {
-            error = "Invalid room code"
-            return
-        }
-        await joinRoom(id: roomID, sessions: sessions)
     }
 }
