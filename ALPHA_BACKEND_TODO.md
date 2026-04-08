@@ -1,6 +1,3 @@
-- [ ] Fix SessionModel: add title and timeLimitMinutes to RoomModel
-- [ ] Write `AddTitleToSessions.swift` migration
-- [ ] Update `SessionController` create/update to accept and return these fields
 - [ ] add point system and medals?
 - [ ] device token for notifications
     - [ ] Add `PUT /users/device-token` endpoint to `UserController`

@@ -25,6 +25,8 @@ final class UserModel: Model, @unchecked Sendable {
 
     @Siblings(through: UserMedalPivot.self, from: \.$user, to: \.$medal)
     var medals: [MedalModel]
+    @OptionalField(key: "device_token") // for push notifs
+    var deviceToken: String?
 
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?

@@ -14,3 +14,11 @@ public struct UpdateUserRequest: Codable, Sendable {
         self.username = username
     }
 }
+
+public struct DeviceTokenRequest: Codable, Sendable {
+    public let deviceToken: String
+
+    public init(deviceToken: String) {
+        self.deviceToken = deviceToken
+    }
+}
