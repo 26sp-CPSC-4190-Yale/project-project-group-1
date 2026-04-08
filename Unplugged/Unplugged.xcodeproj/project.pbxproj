@@ -28,6 +28,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FF4A738F2F86D944009758D6 /* Algorithms.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Algorithms.xcodeproj; sourceTree = "<group>"; };
+		FF4A751A2F86D944009758D6 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
+		FF4A791A2F86D944009758D6 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
+		FF4AAF402F86D866009758D6 /* Algorithms.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Algorithms.xcodeproj; sourceTree = "<group>"; };
+		FF4AB4352F86D866009758D6 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
+		FF4AC2032F86D867009758D6 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
 		FF5125B22F63055A00B3F774 /* Unplugged.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unplugged.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -88,6 +94,48 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		FF4AB0422F86D866009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF4AB9D22F86D866009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF4AC2112F86D867009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF4AFC002F86D944009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF4AFC022F86D944009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF4AFC042F86D944009758D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		FF5125A92F63055A00B3F774 = {
 			isa = PBXGroup;
 			children = (
@@ -221,6 +269,32 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FF5125B32F63055A00B3F774 /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = FF4AFC042F86D944009758D6 /* Products */;
+					ProjectRef = FF4A738F2F86D944009758D6 /* Algorithms.xcodeproj */;
+				},
+				{
+					ProductGroup = FF4AB0422F86D866009758D6 /* Products */;
+					ProjectRef = FF4AAF402F86D866009758D6 /* Algorithms.xcodeproj */;
+				},
+				{
+					ProductGroup = FF4AFC022F86D944009758D6 /* Products */;
+					ProjectRef = FF4A751A2F86D944009758D6 /* Atomics.xcodeproj */;
+				},
+				{
+					ProductGroup = FF4AC2112F86D867009758D6 /* Products */;
+					ProjectRef = FF4AC2032F86D867009758D6 /* Atomics.xcodeproj */;
+				},
+				{
+					ProductGroup = FF4AB9D22F86D866009758D6 /* Products */;
+					ProjectRef = FF4AB4352F86D866009758D6 /* Collections.xcodeproj */;
+				},
+				{
+					ProductGroup = FF4AFC002F86D944009758D6 /* Products */;
+					ProjectRef = FF4A791A2F86D944009758D6 /* Collections.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				FF5125B12F63055A00B3F774 /* Unplugged */,
@@ -423,6 +497,10 @@
 				DEVELOPMENT_TEAM = D5G88BXT8Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
+				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -455,6 +533,10 @@
 				DEVELOPMENT_TEAM = D5G88BXT8Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
+				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
