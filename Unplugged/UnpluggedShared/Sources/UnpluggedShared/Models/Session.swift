@@ -14,18 +14,14 @@ public struct Session: Codable, Identifiable, Sendable {
     public let state: RoomState
     public let startedAt: Date?
     public let endedAt: Date?
-    public let title: String
-    public let timeLimitMinutes: Int
 
-    public init(id: UUID, code: String, hostID: UUID, state: RoomState, startedAt: Date?, endedAt: Date?, title: String, timeLimitMinutes: Int) {
+    public init(id: UUID, code: String, hostID: UUID, state: RoomState, startedAt: Date?, endedAt: Date?) {
         self.id = id
         self.code = code
         self.hostID = hostID
         self.state = state
         self.startedAt = startedAt
         self.endedAt = endedAt
-        self.title = title
-        self.timeLimitMinutes = timeLimitMinutes
     }
 }
 
