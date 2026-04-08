@@ -30,7 +30,7 @@ struct HomeView: View {
                     .padding(.top, .spacingMd)
 
                     Spacer()
-                        .frame(height: geo.size.height * 0.33 - 80)
+                        .frame(height: geo.size.height * 0.28 - 80)
 
                     // Create Room at 1/3
                     Button(action: { viewModel.showCreateRoom = true }) {
