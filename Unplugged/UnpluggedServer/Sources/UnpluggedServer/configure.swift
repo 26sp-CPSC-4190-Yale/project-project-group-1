@@ -35,6 +35,8 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateGroups())
     app.migrations.add(CreateGroupMembers())
     app.migrations.add(CreateJailbreaks())
+    app.migrations.add(CreateMedal())
+    app.migrations.add(CreateUserMedalPivot()) // must come after both user + medal migrations
     // app.migrations.add(CreateSessionLocations()) // location is now in the rooms table
 
     try await app.autoMigrate()

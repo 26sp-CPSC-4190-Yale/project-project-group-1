@@ -20,6 +20,12 @@ final class UserModel: Model, @unchecked Sendable {
     @Field(key: "password_hash")
     var passwordHash: String
 
+    @Field(key: "points")
+    var points: Int
+
+    @Siblings(through: UserMedalPivot.self, from: \.$user, to: \.$medal)
+    var medals: [MedalModel]
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 

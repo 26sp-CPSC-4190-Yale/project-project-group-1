@@ -9,6 +9,7 @@ import Vapor
 
 func routes(_ app: Application) throws {
     try app.register(collection: AuthController())
+    try app.register(collection: MedalsController())
 
     let protected = app.grouped(JWTAuthMiddleware())
     try protected.register(collection: UserController())
