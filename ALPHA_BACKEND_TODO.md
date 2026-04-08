@@ -1,0 +1,12 @@
+- [ ] Fix SessionModel: add title and timeLimitMinutes to RoomModel
+- [ ] Write `AddTitleToSessions.swift` migration
+- [ ] Update `SessionController` create/update to accept and return these fields
+- [ ] add point system and medals?
+- [ ] device token for notifications
+    - [ ] Add `PUT /users/device-token` endpoint to `UserController`
+    - [ ] Write `AddDeviceTokenToUsers.swift` migration
+- [ ] Implement friend request system
+    - [ ] add statuses such as pending
+    - [ ] Refactor `FriendController`
+- [ ] implement notifications through `apnswift` package
+- [ ] Write CompletionModel and CompletionController
