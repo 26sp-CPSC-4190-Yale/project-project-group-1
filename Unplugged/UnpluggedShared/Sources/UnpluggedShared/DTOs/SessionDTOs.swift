@@ -19,7 +19,8 @@ public struct JoinSessionRequest: Codable, Sendable {
     }
 }
 
-public struct SessionResponse: Codable, Sendable {
+public struct SessionResponse: Codable, Sendable, Identifiable {
+    public var id: UUID { session.id }
     public let session: Session
     public let participants: [ParticipantResponse]
 

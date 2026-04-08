@@ -1,14 +1,6 @@
-//
-//  CreateRoomViewModel.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// TODO: Replace mock createRoom() with async SessionAPIService.createRoom(); return real server room
-
 import Foundation
 import Observation
+import UnpluggedShared
 
 @MainActor
 @Observable
@@ -17,15 +9,36 @@ class CreateRoomViewModel {
     var selectedDuration: Int = 60
     let durationOptions = [30, 60, 90, 120]
 
-    var canCreate: Bool { !roomName.isEmpty }
+    var isCreating = false
+    var isAdvertising = false
+    var nearbyJoinerDistance: Double?
+    var createdSession: SessionResponse?
+    var error: String?
 
-    func createRoom() -> MockRoom {
-        MockRoom(
-            id: UUID().uuidString,
-            name: roomName,
-            host: "You",
-            participantCount: 1,
-            duration: selectedDuration
-        )
+    var canCreate: Bool { !roomName.isEmpty && !isCreating }
+
+    func createRoom(sessions: SessionAPIService) async {
+        isCreating = true
+        error = nil
+        do {
+            createdSession = try await sessions.createSession()
+        } catch {
+            self.error = "Failed to create room"
+        }
+        isCreating = false
+    }
+
+    func startAdvertising(touchTips: TouchTipsService, roomID: UUID, userID: UUID) {
+        isAdvertising = true
+        let vm = self
+        touchTips.onDistanceUpdate = { dist in
+            Task { @MainActor in vm.nearbyJoinerDistance = dist }
+        }
+        touchTips.startAdvertising(roomID: roomID, userID: userID)
+    }
+
+    func stopAdvertising(touchTips: TouchTipsService) {
+        touchTips.stop()
+        isAdvertising = false
     }
 }

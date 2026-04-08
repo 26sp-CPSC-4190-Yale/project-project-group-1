@@ -1,14 +1,13 @@
-//
-//  HomeView.swift
-//  Unplugged.Features.Home
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
+import UnpluggedShared
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
+    @Environment(DependencyContainer.self) private var deps
+
+    private var currentUserID: UUID {
+        deps.cache.readUser()?.id ?? UUID()
+    }
 
     var body: some View {
         ZStack {
@@ -17,7 +16,6 @@ struct HomeView: View {
 
             GeometryReader { geo in
                 VStack(spacing: 0) {
-                    // Header
                     HStack {
                         Text("UNPLUGGED")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
@@ -32,7 +30,6 @@ struct HomeView: View {
                     Spacer()
                         .frame(height: geo.size.height * 0.28 - 80)
 
-                    // Create Room at 1/3
                     Button(action: { viewModel.showCreateRoom = true }) {
                         VStack(spacing: .spacingSm) {
                             Image(systemName: "plus")
@@ -50,7 +47,6 @@ struct HomeView: View {
                     Spacer()
                         .frame(height: geo.size.height * 0.15)
 
-                    // Join Room at 2/3
                     Button(action: { viewModel.showJoinRoom = true }) {
                         VStack(spacing: .spacingSm) {
                             Image(systemName: "arrow.right")
@@ -70,22 +66,30 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $viewModel.showJoinRoom) {
-            JoinRoomView { room in
+            JoinRoomView(
+                sessions: deps.sessions,
+                touchTips: deps.touchTips,
+                userID: currentUserID
+            ) { session in
                 viewModel.showJoinRoom = false
-                viewModel.activeRoom = room
+                viewModel.activeSession = session
             }
             .presentationBackground(.ultraThinMaterial)
         }
         .sheet(isPresented: $viewModel.showCreateRoom) {
-            CreateRoomView { room in
+            CreateRoomView(
+                sessions: deps.sessions,
+                touchTips: deps.touchTips,
+                userID: currentUserID
+            ) { session in
                 viewModel.showCreateRoom = false
-                viewModel.activeRoom = room
+                viewModel.activeSession = session
             }
             .presentationBackground(.ultraThinMaterial)
         }
-        .fullScreenCover(item: $viewModel.activeRoom) { room in
-            ActiveRoomView(room: room) {
-                viewModel.activeRoom = nil
+        .fullScreenCover(item: $viewModel.activeSession) { session in
+            ActiveRoomView(session: session, currentUserID: currentUserID) {
+                viewModel.activeSession = nil
             }
         }
     }
@@ -93,4 +97,5 @@ struct HomeView: View {
 
 #Preview {
     HomeView()
+        .environment(DependencyContainer())
 }

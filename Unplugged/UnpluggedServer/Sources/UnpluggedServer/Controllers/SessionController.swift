@@ -23,6 +23,7 @@ struct SessionController: RouteCollection {
         sessions.get(":sessionID", use: get)
         sessions.patch(":sessionID", use: update)
         sessions.delete(":sessionID", use: delete)
+        sessions.post(":sessionID", "join", use: join)
     }
 
     @Sendable
@@ -103,6 +104,30 @@ struct SessionController: RouteCollection {
             .delete()
         try await room.delete(on: req.db)
         return .noContent
+    }
+
+    @Sendable
+    func join(req: Request) async throws -> SessionResponse {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        let room = try await requireRoom(req: req)
+
+        guard room.isActive else {
+            throw Abort(.gone, reason: "Room is no longer active")
+        }
+
+        let roomID = try room.requireID()
+        let existing = try await MemberModel.query(on: req.db)
+            .filter(\.$userID == userID)
+            .filter(\.$roomID == roomID)
+            .first()
+
+        if existing == nil {
+            let member = MemberModel(userID: userID, roomID: roomID)
+            try await member.save(on: req.db)
+        }
+
+        return try await buildSessionResponse(room: room, db: req.db)
     }
 
     // MARK: helpers

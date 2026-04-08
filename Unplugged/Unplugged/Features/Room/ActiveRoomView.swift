@@ -1,25 +1,17 @@
-//
-//  ActiveRoomView.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// TODO: Integrate CountdownView into center area; show remaining time instead of static icon
-
 import SwiftUI
+import UnpluggedShared
 
 struct ActiveRoomView: View {
-    let room: MockRoom
+    let session: SessionResponse
     var onEnd: () -> Void
 
     @State private var viewModel: ActiveRoomViewModel
     @Environment(\.dismiss) private var dismiss
 
-    init(room: MockRoom, onEnd: @escaping () -> Void) {
-        self.room = room
+    init(session: SessionResponse, currentUserID: UUID, onEnd: @escaping () -> Void) {
+        self.session = session
         self.onEnd = onEnd
-        _viewModel = State(initialValue: ActiveRoomViewModel(room: room))
+        _viewModel = State(initialValue: ActiveRoomViewModel(session: session, currentUserID: currentUserID))
     }
 
     var body: some View {
@@ -28,7 +20,6 @@ struct ActiveRoomView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: .spacingLg) {
-                // Header
                 HStack {
                     Button(action: {
                         onEnd()
@@ -39,7 +30,7 @@ struct ActiveRoomView: View {
                             .foregroundColor(.tertiaryColor)
                     }
                     Spacer()
-                    Text(room.name)
+                    Text("Room")
                         .font(.headlineFont)
                         .foregroundColor(.tertiaryColor)
                     Spacer()
@@ -51,7 +42,6 @@ struct ActiveRoomView: View {
 
                 Spacer()
 
-                // Center — large liquid glass circle
                 Button(action: {}) {
                     Image(systemName: "wifi.slash")
                         .font(.system(size: 48))
@@ -61,7 +51,6 @@ struct ActiveRoomView: View {
 
                 Spacer()
 
-                // Participants
                 VStack(alignment: .leading, spacing: .spacingMd) {
                     Text("Members")
                         .font(.headlineFont)
@@ -69,32 +58,21 @@ struct ActiveRoomView: View {
                         .padding(.horizontal, .spacingLg)
 
                     VStack(spacing: .spacingSm) {
-                        ForEach(viewModel.participants) { participant in
+                        ForEach(viewModel.participants, id: \.id) { participant in
                             HStack(spacing: .spacingMd) {
-                                ParticipantAvatar(name: participant.name, size: 40)
+                                ParticipantAvatar(name: participant.username, size: 40)
 
-                                Text(participant.name)
+                                Text(participant.username)
                                     .font(.bodyFont)
                                     .foregroundColor(.tertiaryColor)
 
-                                if participant.isHost {
+                                if participant.userID == viewModel.session.session.hostID {
                                     Text("Host")
                                         .font(.captionFont)
                                         .foregroundColor(.tertiaryColor.opacity(0.6))
                                 }
 
                                 Spacer()
-
-                                // Kick button (host only, not for self)
-                                if viewModel.isHost && !participant.isHost {
-                                    Button(action: {
-                                        viewModel.kickParticipant(participant)
-                                    }) {
-                                        Image(systemName: "minus.circle.fill")
-                                            .font(.system(size: 22))
-                                            .foregroundColor(.destructiveColor)
-                                    }
-                                }
                             }
                             .padding(.horizontal, .spacingLg)
                             .padding(.vertical, .spacingSm)
@@ -104,13 +82,14 @@ struct ActiveRoomView: View {
 
                 Spacer()
 
-                // End Room
-                Button("End Room") {
-                    viewModel.showEndConfirmation = true
+                if viewModel.isHost {
+                    Button("End Room") {
+                        viewModel.showEndConfirmation = true
+                    }
+                    .buttonStyle(DestructiveButtonStyle())
+                    .padding(.horizontal, .spacingLg)
+                    .padding(.bottom, .spacingMd)
                 }
-                .buttonStyle(DestructiveButtonStyle())
-                .padding(.horizontal, .spacingLg)
-                .padding(.bottom, .spacingMd)
             }
         }
         .alert("End Room?", isPresented: $viewModel.showEndConfirmation) {
@@ -123,8 +102,4 @@ struct ActiveRoomView: View {
             Text("This will end the session for everyone.")
         }
     }
-}
-
-#Preview {
-    ActiveRoomView(room: MockRoom(id: "1", name: "Study Session", host: "You", participantCount: 3, duration: 60)) {}
 }
