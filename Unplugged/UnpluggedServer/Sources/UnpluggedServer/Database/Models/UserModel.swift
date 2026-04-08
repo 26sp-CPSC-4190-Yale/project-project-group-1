@@ -37,5 +37,6 @@ final class UserModel: Model, @unchecked Sendable {
         self.id = id
         self.username = username
         self.passwordHash = passwordHash
+        self.points = 0
     }
 }
