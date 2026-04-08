@@ -52,7 +52,7 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest, reason: "Cannot add yourself as a friend.")
         }
         // check for existing relationship
-        if let existing = try await FriendshipModel.query(on: req.db)
+        let existingQuery = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
                     g.filter(\.$user1ID == userID)
@@ -63,7 +63,8 @@ struct FriendController: RouteCollection {
                     g.filter(\.$user2ID == userID)
                 }
             }
-            .first() {
+            .first()
+        if let existing = existingQuery {
             if existing.status == "accepted" {
                 throw Abort(.conflict, reason: "Already friends.")
             }
