@@ -85,6 +85,18 @@ struct FriendController: RouteCollection {
         friendship.status = "pending"
         try await friendship.save(on: req.db)
 
+        guard let sender = try await UserModel.find(userID, on: req.db) else {
+            throw Abort(.internalServerError)
+        }
+        await NotificationService.send(
+            to: targetID,
+            title: "New Friend Request",
+            body: "\(sender.username) sent you a friend request.",
+            type: NotificationService.NotificationType.friendRequest,
+            on: req.db,
+            application: req.application
+        )
+
         return FriendResponse(id: targetID, username: target.username, status: "pending")
     }
 
@@ -165,8 +177,15 @@ struct FriendController: RouteCollection {
             .filter(\.$id ~~ requesterIDs)
             .all()
 
-        return try users.map { user in
-            FriendResponse(id: try user.requireID(), username: user.username, status: "pending")
+        let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
+            guard let id = u.id else { return nil }
+            return (id, u)
+        })
+
+        return incoming.compactMap { friendship in
+            guard let friendshipID = friendship.id,
+                  let user = userMap[friendship.user1ID] else { return nil }
+            return FriendResponse(id: friendshipID, username: user.username, status: "pending")
         }
     }
 
@@ -220,6 +239,15 @@ struct FriendController: RouteCollection {
 
         let otherUser = try await UserModel.find(friendship.user1ID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
+
+        await NotificationService.send(
+            to: friendship.user1ID,
+            title: "Friend Request Accepted",
+            body: "\(otherUser.username) accepted your friend request.",
+            type: NotificationService.NotificationType.friendAccepted,
+            on: req.db,
+            application: req.application
+        )
 
         return FriendResponse(id: try otherUser.requireID(), username: otherUser.username, status: "accepted")
     }
@@ -277,6 +305,15 @@ struct FriendController: RouteCollection {
         let otherUser = try await UserModel.find(requesterID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
 
+        await NotificationService.send(
+            to: requesterID,
+            title: "Friend Request Accepted",
+            body: "\(otherUser.username) accepted your friend request.",
+            type: NotificationService.NotificationType.friendAccepted,
+            on: req.db,
+            application: req.application
+        )
+
         return FriendResponse(id: try otherUser.requireID(), username: otherUser.username, status: "accepted")
     }
 
@@ -301,7 +338,27 @@ struct FriendController: RouteCollection {
 
     @Sendable
     func nudge(req: Request) async throws -> NudgeResponse {
-        // APNs push not yet implemented - stub returns success
+        let payload = try req.auth.require(UserPayload.self)
+        let senderID = try payload.userID
+
+        guard let idString = req.parameters.get("friendID"),
+              let friendID = UUID(uuidString: idString) else {
+            throw Abort(.badRequest)
+        }
+
+        guard let sender = try await UserModel.find(senderID, on: req.db) else {
+            throw Abort(.notFound)
+        }
+
+        await NotificationService.send(
+            to: friendID,
+            title: "Lock In",
+            body: "\(sender.username) says: Lock in!",
+            type: NotificationService.NotificationType.nudge,
+            on: req.db,
+            application: req.application
+        )
+
         return NudgeResponse(message: "nudge sent")
     }
 }

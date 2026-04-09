@@ -20,6 +20,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/fluent-postgres-driver.git", from: "2.9.0"),
         .package(url: "https://github.com/vapor/jwt.git", from: "5.1.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"), // notifications
+        .package(url: "https://github.com/swift-server-community/APNSwift.git", from: "5.1.0"), // APNSCore types
         .package(path: "../UnpluggedShared"),
     ],
     targets: [
@@ -32,6 +33,7 @@ let package = Package(
                 .product(name: "JWT", package: "jwt"),
                 .product(name: "UnpluggedShared", package: "UnpluggedShared"),
                 .product(name: "VaporAPNS", package: "apns"),
+                .product(name: "APNS", package: "APNSwift"),
             ]
         ),
         .testTarget(

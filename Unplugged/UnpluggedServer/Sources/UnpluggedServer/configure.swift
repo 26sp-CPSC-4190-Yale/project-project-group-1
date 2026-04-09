@@ -10,6 +10,7 @@ import FluentPostgresDriver
 import Foundation
 import JWT
 import Vapor
+import VaporAPNS
 
 public func configure(_ app: Application) async throws {
     let dbHost = Environment.get("DB_HOST") ?? "localhost"
@@ -46,5 +47,6 @@ public func configure(_ app: Application) async throws {
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret-change-in-production"
     await app.jwt.keys.add(hmac: HMACKey(key: SymmetricKey(data: Data(jwtSecret.utf8))), digestAlgorithm: .sha256)
 
+    try app.configureAPNS()
     try routes(app)
 }

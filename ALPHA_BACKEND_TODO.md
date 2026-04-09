@@ -5,5 +5,5 @@
 - [x] Implement friend request system
     - [x] add statuses such as pending
     - [x] Refactor `FriendController`
-- [ ] implement notifications through `apnswift` package
+- [x] implement notifications through `apnswift` package
 - [ ] Write CompletionModel and CompletionController
