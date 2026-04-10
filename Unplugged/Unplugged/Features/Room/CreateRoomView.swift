@@ -25,6 +25,7 @@ struct CreateRoomView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.primaryColor.opacity(0.85))
+        .createRoomAlert(viewModel: viewModel)
         .onDisappear {
             viewModel.stopAdvertising(touchTips: touchTips)
         }
@@ -71,11 +72,7 @@ struct CreateRoomView: View {
                     }
                 }
 
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.captionFont)
-                        .foregroundColor(.destructiveColor)
-                }
+
 
                 Spacer()
 
@@ -139,5 +136,28 @@ struct CreateRoomView: View {
             .padding(.bottom, .spacingMd)
         }
         .padding(.horizontal, .spacingLg)
+    }
+}
+
+extension CreateRoomView {
+    private var alertBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.error != nil },
+            set: { if !$0 { viewModel.error = nil } }
+        )
+    }
+}
+
+extension View {
+    func createRoomAlert(viewModel: CreateRoomViewModel) -> some View {
+        self.alert(
+            "Error",
+            isPresented: Binding(
+                get: { viewModel.error != nil },
+                set: { if !$0 { viewModel.error = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) { viewModel.error = nil } },
+            message: { Text(viewModel.error ?? "Something went wrong.") }
+        )
     }
 }

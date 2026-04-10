@@ -55,11 +55,7 @@ struct JoinRoomView: View {
                     .background(Color.surfaceColor)
                     .cornerRadius(.cornerRadiusSm)
 
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.captionFont)
-                        .foregroundColor(.destructiveColor)
-                }
+
 
                 Button("Join") {
                     Task {
@@ -75,6 +71,7 @@ struct JoinRoomView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.primaryColor.opacity(0.85))
+        .joinRoomAlert(viewModel: viewModel)
         .onAppear {
             viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }
@@ -86,5 +83,28 @@ struct JoinRoomView: View {
                 onJoinRoom(session)
             }
         }
+    }
+}
+
+extension JoinRoomView {
+    private var alertBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.error != nil },
+            set: { if !$0 { viewModel.error = nil } }
+        )
+    }
+}
+
+extension View {
+    func joinRoomAlert(viewModel: JoinRoomViewModel) -> some View {
+        self.alert(
+            "Error",
+            isPresented: Binding(
+                get: { viewModel.error != nil },
+                set: { if !$0 { viewModel.error = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) { viewModel.error = nil } },
+            message: { Text(viewModel.error ?? "Something went wrong.") }
+        )
     }
 }

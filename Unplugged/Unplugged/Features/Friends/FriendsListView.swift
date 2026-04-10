@@ -27,6 +27,57 @@ struct FriendsListView: View {
                                 .padding(.top, .spacingLg)
                         }
 
+                        if !viewModel.incomingRequests.isEmpty {
+                            VStack(alignment: .leading, spacing: .spacingSm) {
+                                Text("Friend Requests")
+                                    .font(.headlineFont)
+                                    .foregroundColor(.tertiaryColor)
+                                    .padding(.top, .spacingSm)
+                                    .padding(.bottom, 4)
+                                
+                                ForEach(viewModel.incomingRequests) { request in
+                                    HStack(spacing: .spacingMd) {
+                                        ParticipantAvatar(name: request.username, size: 40)
+                                        Text(request.username)
+                                            .font(.bodyFont)
+                                            .foregroundColor(.tertiaryColor)
+                                        Spacer()
+                                        Button(action: {
+                                            Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
+                                        }) {
+                                            Text("Accept")
+                                                .font(.captionFont)
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.primaryColor)
+                                                .padding(.horizontal, 16)
+                                                .padding(.vertical, 8)
+                                                .background(Color.tertiaryColor)
+                                                .cornerRadius(16)
+                                        }
+                                        Button(action: {
+                                            Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
+                                        }) {
+                                            Image(systemName: "xmark")
+                                                .font(.bodyFont)
+                                                .foregroundColor(.tertiaryColor.opacity(0.6))
+                                                .padding(8)
+                                        }
+                                    }
+                                    .padding(.spacingMd)
+                                    .background(Color.surfaceColor)
+                                    .cornerRadius(.cornerRadiusSm)
+                                }
+                            }
+                            .padding(.bottom, .spacingLg)
+                        }
+
+                        if !viewModel.friends.isEmpty {
+                            Text("My Friends")
+                                .font(.headlineFont)
+                                .foregroundColor(.tertiaryColor)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         ForEach(viewModel.filteredFriends) { friend in
                             NavigationLink {
                                 FriendDetailView(friend: friend)
@@ -86,6 +137,15 @@ struct FriendsListView: View {
             .refreshable {
                 await viewModel.load(service: deps.friends)
             }
+            .alert(
+                "Error",
+                isPresented: Binding(
+                    get: { viewModel.error != nil },
+                    set: { if !$0 { viewModel.error = nil } }
+                ),
+                actions: { Button("OK", role: .cancel) { viewModel.error = nil } },
+                message: { Text(viewModel.error ?? "Something went wrong.") }
+            )
         }
     }
 

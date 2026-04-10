@@ -14,12 +14,10 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if authViewModel.isAuthenticated {
-                if onboardingComplete {
-                    MainTabView(authViewModel: authViewModel)
-                } else {
-                    OnboardingView(onFinish: { onboardingComplete = true })
-                }
+            if !onboardingComplete {
+                OnboardingView(onFinish: { onboardingComplete = true })
+            } else if authViewModel.isAuthenticated {
+                MainTabView(authViewModel: authViewModel)
             } else {
                 AuthView(viewModel: authViewModel)
             }

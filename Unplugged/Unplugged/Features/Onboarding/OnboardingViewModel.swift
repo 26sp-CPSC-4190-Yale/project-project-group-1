@@ -22,6 +22,7 @@ final class OnboardingViewModel {
     var currentStep: Step = .welcome
     var notificationsGranted = false
     var screenTimeGranted = false
+    var screenTimeAuthFailed = false
     var emergencyAllowlistSelected = false
 
     nonisolated static var hasCompleted: Bool {
@@ -54,16 +55,22 @@ final class OnboardingViewModel {
     }
 
     func requestScreenTime(service: ScreenTimeService) async {
+        screenTimeAuthFailed = false
         guard service.isAvailable else {
             // Free dev plan or simulator — degrade gracefully.
             screenTimeGranted = false
+            screenTimeAuthFailed = true
             return
         }
         do {
             try await service.requestAuthorization()
             screenTimeGranted = service.isAuthorized
+            if !screenTimeGranted {
+                screenTimeAuthFailed = true
+            }
         } catch {
             screenTimeGranted = false
+            screenTimeAuthFailed = true
         }
     }
 }

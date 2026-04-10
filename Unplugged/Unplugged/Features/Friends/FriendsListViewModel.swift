@@ -13,6 +13,7 @@ import UnpluggedShared
 @Observable
 class FriendsListViewModel {
     var friends: [FriendResponse] = []
+    var incomingRequests: [FriendResponse] = []
     var searchText = ""
     var showAddFriend = false
     var addFriendUsername = ""
@@ -30,7 +31,11 @@ class FriendsListViewModel {
         isLoading = true
         error = nil
         do {
-            friends = try await service.listFriends()
+            async let fetchFriends = service.listFriends()
+            async let fetchIncoming = service.listIncoming()
+            
+            self.friends = try await fetchFriends
+            self.incomingRequests = try await fetchIncoming
         } catch {
             self.error = "Could not load friends"
         }
@@ -47,6 +52,24 @@ class FriendsListViewModel {
             await load(service: service)
         } catch {
             self.error = "Could not send friend request"
+        }
+    }
+
+    func acceptRequest(service: FriendAPIService, requestID: UUID) async {
+        do {
+            _ = try await service.acceptRequest(friendID: requestID)
+            await load(service: service)
+        } catch {
+            self.error = "Failed to accept friend request"
+        }
+    }
+
+    func rejectRequest(service: FriendAPIService, requestID: UUID) async {
+        do {
+            try await service.rejectRequest(friendID: requestID)
+            await load(service: service)
+        } catch {
+            self.error = "Failed to reject friend request"
         }
     }
 }

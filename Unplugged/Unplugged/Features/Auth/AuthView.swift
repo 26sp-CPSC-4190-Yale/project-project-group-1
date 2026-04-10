@@ -69,6 +69,15 @@ struct AuthView: View {
         .sheet(isPresented: $showUsernameLogin) {
             UsernameLoginView(viewModel: viewModel)
         }
+        .alert(
+            "Authentication Error",
+            isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) { viewModel.errorMessage = nil } },
+            message: { Text(viewModel.errorMessage ?? "An error occurred.") }
+        )
     }
 }
 

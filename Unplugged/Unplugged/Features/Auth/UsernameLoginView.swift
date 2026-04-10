@@ -27,12 +27,7 @@ struct UsernameLoginView: View {
                         .textFieldStyle(UnpluggedTextFieldStyle())
                 }
 
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.captionFont)
-                        .foregroundColor(.destructiveColor)
-                        .multilineTextAlignment(.center)
-                }
+
 
                 Button(isRegistering ? "Create Account" : "Sign In") {
                     Task {
@@ -63,6 +58,15 @@ struct UsernameLoginView: View {
                     .scaleEffect(1.5)
             }
         }
+        .alert(
+            "Authentication Error",
+            isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            ),
+            actions: { Button("OK", role: .cancel) { viewModel.errorMessage = nil } },
+            message: { Text(viewModel.errorMessage ?? "An error occurred.") }
+        )
     }
 }
 

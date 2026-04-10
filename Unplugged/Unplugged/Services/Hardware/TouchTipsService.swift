@@ -20,6 +20,7 @@ final class TouchTipsService: @unchecked Sendable {
     nonisolated(unsafe) var onRoomReceived: (@Sendable (UUID) -> Void)?
 
     private var listenTask: Task<Void, Never>?
+    private var activeSession: GroupSession<UnpluggedRoomActivity>?
 
     func activate(roomID: UUID) async throws {
         let activity = UnpluggedRoomActivity(roomID: roomID)
@@ -30,6 +31,7 @@ final class TouchTipsService: @unchecked Sendable {
         listenTask?.cancel()
         listenTask = Task {
             for await session in UnpluggedRoomActivity.sessions() {
+                self.activeSession = session
                 let roomID = session.activity.roomID
                 session.join()
                 onRoomReceived?(roomID)
@@ -38,6 +40,9 @@ final class TouchTipsService: @unchecked Sendable {
     }
 
     func stop() {
+        activeSession?.leave()
+        activeSession = nil
+        
         listenTask?.cancel()
         listenTask = nil
         onRoomReceived = nil

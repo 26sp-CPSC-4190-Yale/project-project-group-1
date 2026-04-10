@@ -93,6 +93,14 @@ struct OnboardingView: View {
                     Task { await viewModel.requestScreenTime(service: deps.screenTime) }
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                
+                if viewModel.screenTimeAuthFailed {
+                    Text("We couldn't get Screen Time permissions. Make sure you don't have restrictions enabled. You can skip this step, but apps won't be shielded.")
+                        .font(.captionFont)
+                        .foregroundColor(.destructiveColor)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, .spacingSm)
+                }
             }
         }
     }
