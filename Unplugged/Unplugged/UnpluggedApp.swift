@@ -9,7 +9,14 @@ import SwiftUI
 
 @main
 struct UnpluggedApp: App {
-    @State private var container = DependencyContainer()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var container: DependencyContainer
+
+    init() {
+        let container = DependencyContainer()
+        _container = State(initialValue: container)
+        AppDelegate.sharedContainer = container
+    }
 
     var body: some Scene {
         WindowGroup {

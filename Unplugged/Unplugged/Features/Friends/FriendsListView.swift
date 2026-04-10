@@ -6,8 +6,10 @@
 //
 
 import SwiftUI
+import UnpluggedShared
 
 struct FriendsListView: View {
+    @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = FriendsListViewModel()
 
     var body: some View {
@@ -18,18 +20,25 @@ struct FriendsListView: View {
 
                 ScrollView {
                     VStack(spacing: .spacingSm) {
+                        if viewModel.friends.isEmpty && !viewModel.isLoading {
+                            Text("No friends yet")
+                                .font(.captionFont)
+                                .foregroundColor(.tertiaryColor.opacity(0.5))
+                                .padding(.top, .spacingLg)
+                        }
+
                         ForEach(viewModel.filteredFriends) { friend in
                             NavigationLink {
                                 FriendDetailView(friend: friend)
                             } label: {
                                 HStack(spacing: .spacingMd) {
-                                    ParticipantAvatar(name: friend.name, size: 48)
+                                    ParticipantAvatar(name: friend.username, size: 48)
 
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(friend.name)
+                                        Text(friend.username)
                                             .font(.bodyFont)
                                             .foregroundColor(.tertiaryColor)
-                                        Text(friend.status)
+                                        Text(statusLabel(for: friend))
                                             .font(.captionFont)
                                             .foregroundColor(.tertiaryColor.opacity(0.6))
                                     }
@@ -61,18 +70,40 @@ struct FriendsListView: View {
                 }
             }
             .alert("Add Friend", isPresented: $viewModel.showAddFriend) {
-                TextField("Username", text: .constant(""))
-                Button("Cancel", role: .cancel) {}
-                Button("Add") {}
+                TextField("Username", text: $viewModel.addFriendUsername)
+                Button("Cancel", role: .cancel) {
+                    viewModel.addFriendUsername = ""
+                }
+                Button("Add") {
+                    Task { await viewModel.addFriend(service: deps.friends) }
+                }
             } message: {
                 Text("Enter your friend's username")
             }
+            .task {
+                await viewModel.load(service: deps.friends)
+            }
+            .refreshable {
+                await viewModel.load(service: deps.friends)
+            }
+        }
+    }
+
+    private func statusLabel(for friend: FriendResponse) -> String {
+        switch friend.presence {
+        case .unplugged: return "Currently unplugged"
+        case .online:    return "Online"
+        case .offline:
+            if let last = friend.lastActiveAt {
+                return "Seen \(RelativeDateTimeFormatter().localizedString(for: last, relativeTo: Date()))"
+            }
+            return "Offline"
         }
     }
 }
 
 struct FriendDetailView: View {
-    let friend: MockFriend
+    let friend: FriendResponse
 
     var body: some View {
         ZStack {
@@ -80,21 +111,17 @@ struct FriendDetailView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: .spacingLg) {
-                ParticipantAvatar(name: friend.name, size: 80)
+                ParticipantAvatar(name: friend.username, size: 80)
                     .padding(.top, .spacingXl)
 
-                Text(friend.name)
+                Text(friend.username)
                     .font(.titleFont)
                     .foregroundColor(.tertiaryColor)
-
-                Text(friend.username)
-                    .font(.bodyFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.6))
 
                 StatBadge(value: "\(friend.hoursUnplugged)", label: "Hours Focused", valueSize: 28)
                     .padding(.horizontal, .spacingLg)
 
-                Text(friend.status)
+                Text(presenceLabel(for: friend.presence))
                     .font(.bodyFont)
                     .foregroundColor(.tertiaryColor.opacity(0.7))
 
@@ -103,8 +130,17 @@ struct FriendDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private func presenceLabel(for presence: PresenceStatus) -> String {
+        switch presence {
+        case .online:    return "Online"
+        case .unplugged: return "Currently unplugged"
+        case .offline:   return "Offline"
+        }
+    }
 }
 
 #Preview {
     FriendsListView()
+        .environment(DependencyContainer())
 }

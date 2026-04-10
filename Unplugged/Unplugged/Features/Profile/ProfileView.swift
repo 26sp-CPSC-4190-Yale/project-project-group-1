@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ProfileView: View {
     var authViewModel: AuthViewModel
+    @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = ProfileViewModel()
 
     var body: some View {
@@ -140,6 +141,9 @@ struct ProfileView: View {
                 }
             }
         }
+        .task {
+            await viewModel.load(stats: deps.stats, cache: deps.cache)
+        }
     }
 }
 
@@ -246,4 +250,5 @@ private struct SettingsSection: View {
 
 #Preview {
     ProfileView(authViewModel: AuthViewModel())
+        .environment(DependencyContainer())
 }

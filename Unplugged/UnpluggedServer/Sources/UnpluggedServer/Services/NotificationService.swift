@@ -20,10 +20,13 @@ struct NotificationService {
         static let friendAccepted = "friend_accepted"
         static let friendVerified = "friend_verified"
         static let sessionStartingSoon = "session_starting_soon"
+        static let sessionLocked = "session_locked"
+        static let sessionEnded = "session_ended"
+        static let sessionJailbreak = "session_jailbreak"
     }
 
-    /// Send a push notification to a user by id
-    /// does nothing if the user has no device token or APNs is not configured.
+    /// Send a visible push notification to a user.
+    /// No-op if the user has no device token or APNs is not configured.
     static func send(
         to userID: UUID,
         title: String,
@@ -55,6 +58,42 @@ struct NotificationService {
         )
 
         try? await application.apns.client(.default).sendAlertNotification(
+            notification,
+            deviceToken: token
+        )
+    }
+
+    /// Send a silent background push (content-available: 1) carrying a lifecycle event.
+    /// Used by session start/end broadcast so clients apply the shield even when
+    /// the WebSocket is not currently connected (e.g. backgrounded app).
+    static func sendSilent(
+        to userID: UUID,
+        type: String,
+        sessionID: UUID,
+        endsAt: Date? = nil,
+        on db: Database,
+        application: Application
+    ) async {
+        guard application.isAPNSConfigured,
+              let user = try? await UserModel.find(userID, on: db),
+              let token = user.deviceToken
+        else { return }
+
+        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+
+        struct SilentPayload: Codable & Sendable {
+            let type: String
+            let sessionID: String
+            let endsAt: Date?
+        }
+
+        let notification = APNSBackgroundNotification(
+            expiration: .immediately,
+            topic: bundleID,
+            payload: SilentPayload(type: type, sessionID: sessionID.uuidString, endsAt: endsAt)
+        )
+
+        try? await application.apns.client(.default).sendBackgroundNotification(
             notification,
             deviceToken: token
         )

@@ -10,11 +10,16 @@ import SwiftUI
 struct ContentView: View {
     @Environment(DependencyContainer.self) private var container
     @State private var authViewModel = AuthViewModel()
+    @State private var onboardingComplete = OnboardingViewModel.hasCompleted
 
     var body: some View {
         Group {
             if authViewModel.isAuthenticated {
-                MainTabView(authViewModel: authViewModel)
+                if onboardingComplete {
+                    MainTabView(authViewModel: authViewModel)
+                } else {
+                    OnboardingView(onFinish: { onboardingComplete = true })
+                }
             } else {
                 AuthView(viewModel: authViewModel)
             }

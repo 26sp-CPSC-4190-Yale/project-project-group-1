@@ -31,15 +31,15 @@ struct AuthView: View {
                     // Sign in with Apple
                     SignInWithAppleButton(.signIn) { request in
                         request.requestedScopes = [.fullName, .email]
-                    } onCompletion: { _ in
-                        viewModel.signInWithApple()
+                    } onCompletion: { result in
+                        Task { await viewModel.handleAppleSignInResult(result) }
                     }
                     .signInWithAppleButtonStyle(.white)
                     .frame(height: 50)
                     .cornerRadius(.cornerRadiusSm)
 
-                    // Sign in with Google
-                    Button(action: { viewModel.signInWithGoogle() }) {
+                    // Sign in with Google (stub until GoogleSignIn SDK is wired)
+                    Button(action: {}) {
                         HStack(spacing: .spacingSm) {
                             Image("GoogleLogo")
                                 .resizable()

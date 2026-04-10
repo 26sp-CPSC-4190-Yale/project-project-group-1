@@ -6,6 +6,7 @@ import UnpluggedShared
 @Observable
 class CreateRoomViewModel {
     var roomName = ""
+    /// Minutes selected from the duration picker.
     var selectedDuration: Int = 60
     let durationOptions = [30, 60, 90, 120]
 
@@ -20,7 +21,11 @@ class CreateRoomViewModel {
         isCreating = true
         error = nil
         do {
-            createdSession = try await sessions.createSession()
+            createdSession = try await sessions.createSession(
+                title: roomName,
+                durationSeconds: selectedDuration * 60,
+                location: nil
+            )
         } catch {
             self.error = "Failed to create room"
         }
