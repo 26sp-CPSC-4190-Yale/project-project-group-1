@@ -30,18 +30,30 @@ struct MainTabView: View {
     var authViewModel: AuthViewModel
 
     var body: some View {
-        TabView {
-            Tab("Home", systemImage: "house.fill") {
+        if #available(iOS 18.0, *) {
+            TabView {
+                Tab("Home", systemImage: "house.fill") {
+                    HomeView()
+                }
+                Tab("Friends", systemImage: "person.2.fill") {
+                    FriendsListView()
+                }
+                Tab("Profile", systemImage: "person.fill") {
+                    ProfileView(authViewModel: authViewModel)
+                }
+            }
+            .tint(Color.tertiaryColor)
+        } else {
+            TabView {
                 HomeView()
-            }
-            Tab("Friends", systemImage: "person.2.fill") {
+                    .tabItem { Label("Home", systemImage: "house.fill") }
                 FriendsListView()
-            }
-            Tab("Profile", systemImage: "person.fill") {
+                    .tabItem { Label("Friends", systemImage: "person.2.fill") }
                 ProfileView(authViewModel: authViewModel)
+                    .tabItem { Label("Profile", systemImage: "person.fill") }
             }
+            .tint(Color.tertiaryColor)
         }
-        .tint(Color.tertiaryColor)
     }
 }
 

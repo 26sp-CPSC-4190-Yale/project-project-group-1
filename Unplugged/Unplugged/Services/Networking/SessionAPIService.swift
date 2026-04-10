@@ -18,4 +18,8 @@ struct SessionAPIService {
     func listSessions() async throws -> [SessionResponse] {
         try await client.send(.listSessions)
     }
+
+    func joinSession(id: UUID) async throws -> SessionResponse {
+        try await client.send(.joinSession(id: id))
+    }
 }

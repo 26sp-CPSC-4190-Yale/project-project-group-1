@@ -1,32 +1,43 @@
-//
-//  CreateRoomView.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
+import UnpluggedShared
 
 struct CreateRoomView: View {
+    let sessions: SessionAPIService
+    let touchTips: TouchTipsService
+    let userID: UUID
+    var onCreateRoom: (SessionResponse) -> Void
+
     @State private var viewModel = CreateRoomViewModel()
     @Environment(\.dismiss) private var dismiss
-    var onCreateRoom: (MockRoom) -> Void
 
     var body: some View {
         VStack(spacing: .spacingMd) {
-            // Handle
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color.tertiaryColor.opacity(0.3))
                 .frame(width: 40, height: 5)
                 .padding(.top, .spacingSm)
 
+            if let session = viewModel.createdSession {
+                awaitingJoinView(session: session)
+            } else {
+                createFormView
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.primaryColor.opacity(0.85))
+        .onDisappear {
+            viewModel.stopAdvertising(touchTips: touchTips)
+        }
+    }
+
+    private var createFormView: some View {
+        VStack(spacing: .spacingMd) {
             Text("Create Room")
                 .font(.headlineFont)
                 .foregroundColor(.tertiaryColor)
                 .padding(.top, .spacingSm)
 
             VStack(spacing: .spacingLg) {
-                // Room Name
                 VStack(alignment: .leading, spacing: .spacingSm) {
                     Text("Room Name")
                         .font(.captionFont)
@@ -40,7 +51,6 @@ struct CreateRoomView: View {
                         .cornerRadius(.cornerRadiusSm)
                 }
 
-                // Duration
                 VStack(alignment: .leading, spacing: .spacingSm) {
                     Text("Duration")
                         .font(.captionFont)
@@ -61,12 +71,24 @@ struct CreateRoomView: View {
                     }
                 }
 
+                if let error = viewModel.error {
+                    Text(error)
+                        .font(.captionFont)
+                        .foregroundColor(.destructiveColor)
+                }
+
                 Spacer()
 
-                // Create Button
                 Button("Create") {
-                    let room = viewModel.createRoom()
-                    onCreateRoom(room)
+                    Task {
+                        await viewModel.createRoom(sessions: sessions)
+                        if let session = viewModel.createdSession {
+                            await viewModel.startAdvertising(
+                                touchTips: touchTips,
+                                roomID: session.session.id
+                            )
+                        }
+                    }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(!viewModel.canCreate)
@@ -74,11 +96,48 @@ struct CreateRoomView: View {
             }
             .padding(.horizontal, .spacingLg)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primaryColor.opacity(0.85))
     }
-}
 
-#Preview {
-    CreateRoomView { _ in }
+    private func awaitingJoinView(session: SessionResponse) -> some View {
+        VStack(spacing: .spacingLg) {
+            Text("Waiting for Players")
+                .font(.headlineFont)
+                .foregroundColor(.tertiaryColor)
+                .padding(.top, .spacingSm)
+
+            Spacer()
+
+            Image(systemName: "iphone.radiowaves.left.and.right")
+                .font(.system(size: 64))
+                .foregroundColor(.tertiaryColor)
+                .symbolEffect(.pulse, isActive: viewModel.isAdvertising)
+
+            Text("Bring phones together to invite")
+                .font(.bodyFont)
+                .foregroundColor(.tertiaryColor.opacity(0.7))
+
+            Spacer()
+
+            VStack(spacing: .spacingSm) {
+                Text("Room Code")
+                    .font(.captionFont)
+                    .foregroundColor(.tertiaryColor.opacity(0.6))
+
+                Text(session.session.id.uuidString.prefix(8).uppercased())
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .foregroundColor(.tertiaryColor)
+                    .kerning(4)
+            }
+
+            Spacer()
+
+            Button("Start Room") {
+                onCreateRoom(session)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .padding(.horizontal, .spacingLg)
+            .padding(.bottom, .spacingMd)
+        }
+        .padding(.horizontal, .spacingLg)
+    }
 }

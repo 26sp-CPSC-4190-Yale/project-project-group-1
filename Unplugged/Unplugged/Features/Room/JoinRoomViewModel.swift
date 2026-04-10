@@ -1,33 +1,52 @@
-//
-//  JoinRoomViewModel.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// TODO: Replace hardcoded rooms with SessionAPIService.listOpenRooms(); add pull-to-refresh
-
 import Foundation
 import Observation
-
-struct MockRoom: Identifiable {
-    let id: String
-    let name: String
-    let host: String
-    let participantCount: Int
-    let duration: Int
-}
+import UnpluggedShared
 
 @MainActor
 @Observable
 class JoinRoomViewModel {
-    var openRooms: [MockRoom] = [
-        MockRoom(id: "1", name: "Sean's Room", host: "Sean", participantCount: 3, duration: 60),
-        MockRoom(id: "2", name: "Michael's Room", host: "Michael", participantCount: 2, duration: 120),
-        MockRoom(id: "3", name: "Jeff's Room", host: "Jeff", participantCount: 4, duration: 90),
-        MockRoom(id: "4", name: "McDonald's Room", host: "McDonald", participantCount: 1, duration: 30),
-        MockRoom(id: "5", name: "Joseph's Room", host: "Joseph", participantCount: 5, duration: 60),
-        MockRoom(id: "6", name: "William's Room", host: "William", participantCount: 2, duration: 45),
-        MockRoom(id: "7", name: "Edward's Room", host: "Edward", participantCount: 3, duration: 60),
-    ]
+    var isListening = false
+    var manualCode = ""
+    var isJoining = false
+    var joinedSession: SessionResponse?
+    var error: String?
+
+    var canJoinManually: Bool { !manualCode.isEmpty && !isJoining }
+
+    func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
+        isListening = true
+        let vm = self
+        touchTips.onRoomReceived = { roomID in
+            Task { @MainActor in
+                await vm.joinRoom(id: roomID, sessions: sessions)
+            }
+        }
+        touchTips.startListening()
+    }
+
+    func stopListening(touchTips: TouchTipsService) {
+        touchTips.stop()
+        isListening = false
+    }
+
+    func joinRoom(id: UUID, sessions: SessionAPIService) async {
+        guard !isJoining else { return }
+        isJoining = true
+        error = nil
+        do {
+            joinedSession = try await sessions.joinSession(id: id)
+        } catch {
+            self.error = "Failed to join room"
+        }
+        isJoining = false
+    }
+
+    func joinWithCode(sessions: SessionAPIService) async {
+        let trimmed = manualCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let roomID = UUID(uuidString: trimmed) else {
+            error = "Invalid room code"
+            return
+        }
+        await joinRoom(id: roomID, sessions: sessions)
+    }
 }

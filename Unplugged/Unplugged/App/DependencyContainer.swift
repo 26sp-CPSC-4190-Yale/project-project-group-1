@@ -14,6 +14,7 @@ class DependencyContainer {
     let user: UserAPIService
     let sessions: SessionAPIService
     let friends: FriendAPIService
+    let touchTips: TouchTipsService
 
     init() {
         let cache = LocalCacheService()
@@ -23,5 +24,6 @@ class DependencyContainer {
         self.user = UserAPIService(client: client)
         self.sessions = SessionAPIService(client: client)
         self.friends = FriendAPIService(client: client)
+        self.touchTips = TouchTipsService()
     }
 }

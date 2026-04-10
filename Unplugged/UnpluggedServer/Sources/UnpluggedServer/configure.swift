@@ -9,6 +9,7 @@ import Fluent
 import FluentPostgresDriver
 import Foundation
 import JWT
+import NIOSSL
 import Vapor
 import VaporAPNS
 
@@ -24,7 +25,7 @@ public func configure(_ app: Application) async throws {
         username: dbUser,
         password: dbPass,
         database: dbName,
-        tls: .disable // change to .require before production
+        tls: try .require(.init(configuration: .makeClientConfiguration()))
     )
     app.databases.use(.postgres(configuration: dbConfig), as: .psql)
 
