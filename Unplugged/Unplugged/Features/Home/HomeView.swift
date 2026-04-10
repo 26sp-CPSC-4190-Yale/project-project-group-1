@@ -68,8 +68,7 @@ struct HomeView: View {
         .sheet(isPresented: $viewModel.showJoinRoom) {
             JoinRoomView(
                 sessions: deps.sessions,
-                touchTips: deps.touchTips,
-                userID: currentUserID
+                touchTips: deps.touchTips
             ) { session in
                 viewModel.showJoinRoom = false
                 viewModel.activeSession = session

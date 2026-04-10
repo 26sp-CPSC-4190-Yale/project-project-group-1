@@ -4,7 +4,6 @@ import UnpluggedShared
 struct JoinRoomView: View {
     let sessions: SessionAPIService
     let touchTips: TouchTipsService
-    let userID: UUID
     var onJoinRoom: (SessionResponse) -> Void
 
     @State private var viewModel = JoinRoomViewModel()
@@ -28,17 +27,11 @@ struct JoinRoomView: View {
                 Image(systemName: "iphone.radiowaves.left.and.right")
                     .font(.system(size: 56))
                     .foregroundColor(.tertiaryColor)
-                    .symbolEffect(.pulse, isActive: viewModel.isBrowsing)
+                    .symbolEffect(.pulse, isActive: viewModel.isListening)
 
                 Text("Bring your phone close to the host")
                     .font(.bodyFont)
                     .foregroundColor(.tertiaryColor.opacity(0.7))
-
-                if let distance = viewModel.nearbyHostDistance {
-                    Text(String(format: "%.0f cm away", distance * 100))
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.5))
-                }
 
                 if viewModel.isJoining {
                     ProgressView()
@@ -83,10 +76,10 @@ struct JoinRoomView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.primaryColor.opacity(0.85))
         .onAppear {
-            viewModel.startBrowsing(touchTips: touchTips, userID: userID, sessions: sessions)
+            viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }
         .onDisappear {
-            viewModel.stopBrowsing(touchTips: touchTips)
+            viewModel.stopListening(touchTips: touchTips)
         }
         .onChange(of: viewModel.joinedSession?.id) { _, id in
             if id != nil, let session = viewModel.joinedSession {

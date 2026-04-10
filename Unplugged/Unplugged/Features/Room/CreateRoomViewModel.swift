@@ -11,7 +11,6 @@ class CreateRoomViewModel {
 
     var isCreating = false
     var isAdvertising = false
-    var nearbyJoinerDistance: Double?
     var createdSession: SessionResponse?
     var error: String?
 
@@ -28,13 +27,14 @@ class CreateRoomViewModel {
         isCreating = false
     }
 
-    func startAdvertising(touchTips: TouchTipsService, roomID: UUID, userID: UUID) {
+    func startAdvertising(touchTips: TouchTipsService, roomID: UUID) async {
         isAdvertising = true
-        let vm = self
-        touchTips.onDistanceUpdate = { dist in
-            Task { @MainActor in vm.nearbyJoinerDistance = dist }
+        do {
+            try await touchTips.activate(roomID: roomID)
+        } catch {
+            self.error = "Failed to start sharing"
+            isAdvertising = false
         }
-        touchTips.startAdvertising(roomID: roomID, userID: userID)
     }
 
     func stopAdvertising(touchTips: TouchTipsService) {

@@ -5,8 +5,7 @@ import UnpluggedShared
 @MainActor
 @Observable
 class JoinRoomViewModel {
-    var isBrowsing = false
-    var nearbyHostDistance: Double?
+    var isListening = false
     var manualCode = ""
     var isJoining = false
     var joinedSession: SessionResponse?
@@ -14,23 +13,20 @@ class JoinRoomViewModel {
 
     var canJoinManually: Bool { !manualCode.isEmpty && !isJoining }
 
-    func startBrowsing(touchTips: TouchTipsService, userID: UUID, sessions: SessionAPIService) {
-        isBrowsing = true
+    func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
+        isListening = true
         let vm = self
-        touchTips.onDistanceUpdate = { dist in
-            Task { @MainActor in vm.nearbyHostDistance = dist }
-        }
         touchTips.onRoomReceived = { roomID in
             Task { @MainActor in
                 await vm.joinRoom(id: roomID, sessions: sessions)
             }
         }
-        touchTips.startBrowsing(userID: userID)
+        touchTips.startListening()
     }
 
-    func stopBrowsing(touchTips: TouchTipsService) {
+    func stopListening(touchTips: TouchTipsService) {
         touchTips.stop()
-        isBrowsing = false
+        isListening = false
     }
 
     func joinRoom(id: UUID, sessions: SessionAPIService) async {

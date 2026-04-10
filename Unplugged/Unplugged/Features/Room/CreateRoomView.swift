@@ -83,10 +83,9 @@ struct CreateRoomView: View {
                     Task {
                         await viewModel.createRoom(sessions: sessions)
                         if let session = viewModel.createdSession {
-                            viewModel.startAdvertising(
+                            await viewModel.startAdvertising(
                                 touchTips: touchTips,
-                                roomID: session.session.id,
-                                userID: userID
+                                roomID: session.session.id
                             )
                         }
                     }
@@ -116,12 +115,6 @@ struct CreateRoomView: View {
             Text("Bring phones together to invite")
                 .font(.bodyFont)
                 .foregroundColor(.tertiaryColor.opacity(0.7))
-
-            if let distance = viewModel.nearbyJoinerDistance {
-                Text(String(format: "%.0f cm away", distance * 100))
-                    .font(.captionFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.5))
-            }
 
             Spacer()
 

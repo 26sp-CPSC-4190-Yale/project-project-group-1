@@ -1,5 +1,5 @@
 
 enum Config {
     // Change if deploying to production
-    static let baseURL = "http://10.66.25.38:8080"
+    static let baseURL = "https://unplugged.name"
 }
