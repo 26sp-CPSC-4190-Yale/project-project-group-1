@@ -110,29 +110,33 @@ struct StatsService {
 
     /// Compute a user's rank among all users by total minutes unplugged.
     private static func computeRank(for userID: UUID, totalMinutes: Int, on db: Database) async throws -> Int {
-        let allUsers = try await UserModel.query(on: db).all()
-        var totals: [(UUID, Int)] = []
-        for user in allUsers {
-            guard let uid = user.id else { continue }
-            let memberships = try await MemberModel.query(on: db)
-                .filter(\.$userID == uid)
-                .all()
-            let roomIDs = memberships.map { $0.roomID }
-            guard !roomIDs.isEmpty else {
-                totals.append((uid, 0))
-                continue
+        let allMemberships = try await MemberModel.query(on: db).all()
+        let allEndedRooms = try await RoomModel.query(on: db)
+            .filter(\.$endedAt != nil)
+            .all()
+
+        var roomDurations: [UUID: Int] = [:]
+        for room in allEndedRooms {
+            guard let id = room.id else { continue }
+            roomDurations[id] = (room.durationSeconds ?? 0) / 60
+        }
+
+        var userTotals: [UUID: Int] = [:]
+        for member in allMemberships {
+            let mins = roomDurations[member.roomID] ?? 0
+            userTotals[member.userID, default: 0] += mins
+        }
+
+        let allTotals = userTotals.values.sorted(by: >)
+        // Find position where value > totalMinutes stops
+        var rank = 1
+        for val in allTotals {
+            if val > totalMinutes {
+                rank += 1
+            } else {
+                break
             }
-            let rooms = try await RoomModel.query(on: db)
-                .filter(\.$id ~~ roomIDs)
-                .filter(\.$endedAt != nil)
-                .all()
-            let minutes = rooms.reduce(0) { $0 + (($1.durationSeconds ?? 0) / 60) }
-            totals.append((uid, minutes))
         }
-        let sorted = totals.sorted { $0.1 > $1.1 }
-        if let idx = sorted.firstIndex(where: { $0.0 == userID }) {
-            return idx + 1
-        }
-        return sorted.count
+        return rank
     }
 }

@@ -15,6 +15,10 @@ struct UserAPIService {
         try await client.send(.getMe)
     }
 
+    func searchUsers(query: String) async throws -> [User] {
+        try await client.send(.searchUsers(query: query))
+    }
+
     func updateMe(username: String) async throws -> User {
         try await client.send(.updateMe(UpdateUserRequest(username: username)))
     }

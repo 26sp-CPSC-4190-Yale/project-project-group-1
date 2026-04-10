@@ -418,14 +418,26 @@ struct SessionController: RouteCollection {
     // MARK: - Helpers
 
     private func requireRoom(req: Request) async throws -> RoomModel {
-        guard let idString = req.parameters.get("sessionID"),
-              let roomID = UUID(uuidString: idString) else {
+        guard let idString = req.parameters.get("sessionID") else {
             throw Abort(.badRequest)
         }
-        guard let room = try await RoomModel.find(roomID, on: req.db) else {
-            throw Abort(.notFound)
+        if let roomID = UUID(uuidString: idString) {
+            if let room = try await RoomModel.find(roomID, on: req.db) {
+                return room
+            }
+        } else {
+            let normalizedCode = idString.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if normalizedCode.count >= 8 {
+                let activeRooms = try await RoomModel.query(on: req.db)
+                    .filter(\.$isActive == true)
+                    .filter(\.$endedAt == nil)
+                    .all()
+                if let room = activeRooms.first(where: { (try? $0.requireID().uuidString.uppercased().hasPrefix(normalizedCode)) == true }) {
+                    return room
+                }
+            }
         }
-        return room
+        throw Abort(.notFound)
     }
 
     private func buildSessionResponse(room: RoomModel, db: Database) async throws -> SessionResponse {

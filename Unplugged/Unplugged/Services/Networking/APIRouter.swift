@@ -26,6 +26,7 @@ enum APIRouter {
 
     // User
     case getMe
+    case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
 
@@ -38,6 +39,7 @@ enum APIRouter {
     case sessionHistory
     case getSession(id: UUID)
     case joinSession(id: UUID)
+    case joinSessionCode(code: String)
     case startSession(id: UUID)
     case endSession(id: UUID)
     case reportJailbreak(id: UUID, body: ReportJailbreakRequest)
@@ -68,6 +70,7 @@ enum APIRouter {
         case .signInWithApple:          return "/auth/apple"
         case .signInWithGoogle:         return "/auth/google"
         case .getMe, .updateMe:         return "/users/me"
+        case .searchUsers(let q):       return "/users/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         case .registerDeviceToken:      return "/users/device-token"
         case .getStats:                 return "/users/me/stats"
         case .createSession, .listSessions:
@@ -75,6 +78,7 @@ enum APIRouter {
         case .sessionHistory:           return "/sessions/history"
         case .getSession(let id):       return "/sessions/\(id)"
         case .joinSession(let id):      return "/sessions/\(id)/join"
+        case .joinSessionCode(let code): return "/sessions/\(code)/join"
         case .startSession(let id):     return "/sessions/\(id)/start"
         case .endSession(let id):       return "/sessions/\(id)/end"
         case .reportJailbreak(let id, _): return "/sessions/\(id)/jailbreaks"
@@ -96,7 +100,7 @@ enum APIRouter {
     var method: HTTPMethod {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
-             .createSession, .addFriend, .joinSession, .startSession, .endSession,
+             .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
              .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
              .createGroup, .addGroupMember:
             return .post
@@ -104,7 +108,7 @@ enum APIRouter {
             return .put
         case .getMe, .getStats, .listSessions, .sessionHistory, .getSession, .getRecap,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
-             .listGroups, .getGroup:
+             .listGroups, .getGroup, .searchUsers:
             return .get
         case .updateMe:
             return .patch

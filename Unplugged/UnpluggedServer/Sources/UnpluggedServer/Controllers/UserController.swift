@@ -15,6 +15,7 @@ struct UserController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let users = routes.grouped("users")
         users.get("me", use: getMe)
+        users.get("search", use: searchUsers)
         users.patch("me", use: updateMe)
         users.put("device-token", use: registerDeviceToken)
     }
@@ -28,6 +29,27 @@ struct UserController: RouteCollection {
             throw Abort(.notFound)
         }
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
+    }
+
+    @Sendable
+    func searchUsers(req: Request) async throws -> [User] {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        guard let query = req.query[String.self, at: "q"], !query.isEmpty else {
+            return []
+        }
+
+        let users = try await UserModel.query(on: req.db)
+            .filter(\.$username, .custom("ILIKE"), "%\(query)%")
+            .filter(\.$id != userID)
+            .limit(20)
+            .all()
+
+        return users.compactMap {
+            guard let id = try? $0.requireID() else { return nil }
+            return User(id: id, username: $0.username, createdAt: $0.createdAt ?? Date())
+        }
     }
 
     @Sendable

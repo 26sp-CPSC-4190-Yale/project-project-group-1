@@ -6,6 +6,7 @@ import UnpluggedShared
 @Observable
 class JoinRoomViewModel {
     var isListening = false
+    var hasFoundRoom = false
     var manualCode = ""
     var isJoining = false
     var joinedSession: SessionResponse?
@@ -15,9 +16,15 @@ class JoinRoomViewModel {
 
     func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
         isListening = true
+        hasFoundRoom = false
         let vm = self
         touchTips.onRoomReceived = { roomID in
             Task { @MainActor in
+                vm.hasFoundRoom = true
+                #if canImport(UIKit)
+                import UIKit
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                #endif
                 await vm.joinRoom(id: roomID, sessions: sessions)
             }
         }
@@ -43,10 +50,19 @@ class JoinRoomViewModel {
 
     func joinWithCode(sessions: SessionAPIService) async {
         let trimmed = manualCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let roomID = UUID(uuidString: trimmed) else {
+        guard trimmed.count >= 8 else {
             error = "Invalid room code"
             return
         }
-        await joinRoom(id: roomID, sessions: sessions)
+        
+        guard !isJoining else { return }
+        isJoining = true
+        error = nil
+        do {
+            joinedSession = try await sessions.joinSession(code: trimmed)
+        } catch {
+            self.error = "Failed to join room"
+        }
+        isJoining = false
     }
 }

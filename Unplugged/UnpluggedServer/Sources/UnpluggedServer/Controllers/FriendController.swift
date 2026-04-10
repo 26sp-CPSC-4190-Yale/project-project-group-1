@@ -38,7 +38,7 @@ struct FriendController: RouteCollection {
         let body = try req.content.decode(AddFriendRequest.self)
 
         guard let target = try await UserModel.query(on: req.db)
-            .filter(\.$username == body.username)
+            .filter(\.$username, .custom("ILIKE"), body.username)
             .first()
         else {
             throw Abort(.notFound, reason: "User not found.")
@@ -188,7 +188,7 @@ struct FriendController: RouteCollection {
             results.append(try await Self.buildFriendResponse(
                 user: user,
                 status: "pending",
-                overrideID: friendshipID,
+                overrideID: nil,
                 db: req.db
             ))
         }

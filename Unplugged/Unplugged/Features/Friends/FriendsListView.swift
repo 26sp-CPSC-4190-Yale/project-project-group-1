@@ -120,16 +120,11 @@ struct FriendsListView: View {
                     }
                 }
             }
-            .alert("Add Friend", isPresented: $viewModel.showAddFriend) {
-                TextField("Username", text: $viewModel.addFriendUsername)
-                Button("Cancel", role: .cancel) {
-                    viewModel.addFriendUsername = ""
+            .sheet(isPresented: $viewModel.showAddFriend) {
+                AddFriendSheet { username in
+                    viewModel.addFriendUsername = username
+                    await viewModel.addFriend(service: deps.friends)
                 }
-                Button("Add") {
-                    Task { await viewModel.addFriend(service: deps.friends) }
-                }
-            } message: {
-                Text("Enter your friend's username")
             }
             .task {
                 await viewModel.load(service: deps.friends)

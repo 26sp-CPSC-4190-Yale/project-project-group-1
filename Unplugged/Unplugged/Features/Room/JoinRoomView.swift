@@ -29,13 +29,13 @@ struct JoinRoomView: View {
                     .foregroundColor(.tertiaryColor)
                     .symbolEffect(.pulse, isActive: viewModel.isListening)
 
-                Text("Bring your phone close to the host")
+                Text(viewModel.hasFoundRoom ? "Connected to room!" : "Bring your phone close to the host")
                     .font(.bodyFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.7))
+                    .foregroundColor(viewModel.hasFoundRoom ? .green : .tertiaryColor.opacity(0.7))
 
                 if viewModel.isJoining {
                     ProgressView()
-                        .tint(.tertiaryColor)
+                        .tint(viewModel.hasFoundRoom ? .green : .tertiaryColor)
                 }
             }
 
