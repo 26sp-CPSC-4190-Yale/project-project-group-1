@@ -20,6 +20,14 @@ final class UserModel: Model, @unchecked Sendable {
     @Field(key: "password_hash")
     var passwordHash: String
 
+    @Field(key: "points")
+    var points: Int
+
+    @Siblings(through: UserMedalPivot.self, from: \.$user, to: \.$medal)
+    var medals: [MedalModel]
+    @OptionalField(key: "device_token") // for push notifs
+    var deviceToken: String?
+
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
@@ -29,5 +37,6 @@ final class UserModel: Model, @unchecked Sendable {
         self.id = id
         self.username = username
         self.passwordHash = passwordHash
+        self.points = 0
     }
 }

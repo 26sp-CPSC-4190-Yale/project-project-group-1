@@ -18,9 +18,12 @@ public struct AddFriendRequest: Codable, Sendable {
 public struct FriendResponse: Codable, Sendable {
     public let id: UUID
     public let username: String
+    // optional: "pending" | "accepted"
+    public let status: String?
 
-    public init(id: UUID, username: String) {
+    public init(id: UUID, username: String, status: String? = nil) {
         self.id = id
         self.username = username
+        self.status = status
     }
 }

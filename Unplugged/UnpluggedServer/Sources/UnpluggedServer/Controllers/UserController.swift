@@ -16,6 +16,7 @@ struct UserController: RouteCollection {
         let users = routes.grouped("users")
         users.get("me", use: getMe)
         users.patch("me", use: updateMe)
+        users.put("device-token", use: registerDeviceToken)
     }
 
     @Sendable
@@ -53,5 +54,21 @@ struct UserController: RouteCollection {
         user.username = body.username
         try await user.save(on: req.db)
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
+    }
+
+    @Sendable
+    func registerDeviceToken(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        let body = try req.content.decode(DeviceTokenRequest.self)
+
+        guard let user = try await UserModel.find(userID, on: req.db) else {
+            throw Abort(.notFound)
+        }
+
+        user.deviceToken = body.deviceToken
+        try await user.save(on: req.db)
+        return .noContent
     }
 }

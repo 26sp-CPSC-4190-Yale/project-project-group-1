@@ -10,6 +10,7 @@ import FluentPostgresDriver
 import Foundation
 import JWT
 import Vapor
+import VaporAPNS
 
 public func configure(_ app: Application) async throws {
     let dbHost = Environment.get("DB_HOST") ?? "localhost"
@@ -35,12 +36,17 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateGroups())
     app.migrations.add(CreateGroupMembers())
     app.migrations.add(CreateJailbreaks())
+    app.migrations.add(CreateMedal())
+    app.migrations.add(CreateUserMedalPivot()) // must come after both user + medal migrations
     // app.migrations.add(CreateSessionLocations()) // location is now in the rooms table
+    app.migrations.add(AddDeviceTokenToUsers())
+    app.migrations.add(AddPointsToUsers())
 
     try await app.autoMigrate()
 
     let jwtSecret = Environment.get("JWT_SECRET") ?? "dev-secret-change-in-production"
     await app.jwt.keys.add(hmac: HMACKey(key: SymmetricKey(data: Data(jwtSecret.utf8))), digestAlgorithm: .sha256)
 
+    try app.configureAPNS()
     try routes(app)
 }

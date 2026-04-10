@@ -16,3 +16,7 @@ Package.resolved
 docker-compose.override.yml
 
 **/xcuserdata/
+
+__pycache__
+
+.vscode

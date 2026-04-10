@@ -14,4 +14,5 @@ func routes(_ app: Application) throws {
     try protected.register(collection: UserController())
     try protected.register(collection: SessionController())
     try protected.register(collection: FriendController())
+    try protected.register(collection: MedalsController())
 }
