@@ -9,8 +9,9 @@ COPY UnpluggedServer/Package.swift UnpluggedServer/Package.resolved* ./Unplugged
 WORKDIR /app/UnpluggedServer
 RUN swift package resolve
 
-# Now copy source and build
+# Now copy source and tests, then build
 COPY UnpluggedServer/Sources/ ./Sources/
+COPY UnpluggedServer/Tests/ ./Tests/
 RUN swift build -c release
 
 CMD [".build/release/UnpluggedServer", "serve", "--hostname", "0.0.0.0", "--port", "8080"]
