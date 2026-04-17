@@ -72,7 +72,7 @@ struct AddFriendSheet: View {
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                             .onChange(of: viewModel.searchText) { _, _ in
-                                viewModel.search(usersService: deps.users)
+                                viewModel.search(usersService: deps.user)
                             }
                         if viewModel.isSearching {
                             ProgressView()

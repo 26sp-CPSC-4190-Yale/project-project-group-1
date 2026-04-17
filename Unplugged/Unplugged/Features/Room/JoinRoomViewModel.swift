@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UnpluggedShared
+import UIKit
 
 @MainActor
 @Observable
@@ -22,7 +23,6 @@ class JoinRoomViewModel {
             Task { @MainActor in
                 vm.hasFoundRoom = true
                 #if canImport(UIKit)
-                import UIKit
                 UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                 #endif
                 await vm.joinRoom(id: roomID, sessions: sessions)
