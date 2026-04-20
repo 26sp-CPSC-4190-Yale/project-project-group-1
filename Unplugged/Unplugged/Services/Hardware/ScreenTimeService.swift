@@ -22,7 +22,7 @@ import DeviceActivity
 /// (free account, Simulator, missing permission) every call no-ops and the service
 /// advertises `isAvailable == false` so the UI can degrade gracefully.
 final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
-    static let appGroup = "group.com.unplugged.shared"
+    static let appGroup = "group.com.unplugged.app.shared"
     static let allowlistKey = "emergencyAllowlist"
     static let monitorName = "unpluggedSession"
     static let storeName = "unpluggedSession"
