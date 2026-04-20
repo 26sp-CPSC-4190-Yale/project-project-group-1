@@ -28,7 +28,7 @@ struct LiquidGlassButtonStyle: ButtonStyle {
                     )
                     .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
             )
-            .clipShape(Circle())
+            .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }

@@ -7,6 +7,11 @@
 		<string>processing</string>
 		<string>remote-notification</string>
 		<string>nearby-interaction</string>
+		<string>bluetooth-peripheral</string>
+	</array>
+	<key>NSGroupActivityTypes</key>
+	<array>
+		<string>com.unplugged.room-join</string>
 	</array>
 </dict>
 </plist>

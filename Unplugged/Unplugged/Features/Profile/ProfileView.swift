@@ -103,21 +103,23 @@ struct ProfileView: View {
 
     // MARK: - Settings
 
+    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+
     private var settingsContent: some View {
         VStack(spacing: .spacingSm) {
             settingsRow(icon: "bell.fill", title: "Notifications") {
-                Toggle("", isOn: .constant(true))
+                Toggle("", isOn: $notificationsEnabled)
                     .tint(.secondaryColor)
             }
 
             settingsRow(icon: "shield.fill", title: "Privacy") {
-                Image(systemName: "chevron.right")
+                Text("Coming soon")
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.3))
             }
 
             settingsRow(icon: "questionmark.circle.fill", title: "Help & Support") {
-                Image(systemName: "chevron.right")
+                Text("Coming soon")
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.3))
             }

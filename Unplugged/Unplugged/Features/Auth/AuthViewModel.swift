@@ -16,6 +16,7 @@ class AuthViewModel {
     var isAuthenticated = false
     var isLoading = false
     var errorMessage: String?
+    private(set) var isConfigured = false
 
     private var authService: AuthAPIService?
     private var cache: LocalCacheService?
@@ -23,6 +24,7 @@ class AuthViewModel {
     func configure(authService: AuthAPIService, cache: LocalCacheService) {
         self.authService = authService
         self.cache = cache
+        self.isConfigured = true
     }
 
     func restoreSession() {

@@ -43,7 +43,7 @@ class CreateRoomViewModel {
     }
 
     func stopAdvertising(touchTips: TouchTipsService) {
-        touchTips.stop()
+        Task { await touchTips.stop() }
         isAdvertising = false
     }
 }

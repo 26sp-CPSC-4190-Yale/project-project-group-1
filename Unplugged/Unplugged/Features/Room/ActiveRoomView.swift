@@ -3,18 +3,18 @@ import UnpluggedShared
 
 struct ActiveRoomView: View {
     let initialSession: SessionResponse
-    let currentUserID: UUID
+    let isHost: Bool
     var onClose: () -> Void
 
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ActiveRoomViewModel
 
-    init(session: SessionResponse, currentUserID: UUID, onClose: @escaping () -> Void) {
+    init(session: SessionResponse, isHost: Bool, onClose: @escaping () -> Void) {
         self.initialSession = session
-        self.currentUserID = currentUserID
+        self.isHost = isHost
         self.onClose = onClose
-        _viewModel = State(initialValue: ActiveRoomViewModel(currentUserID: currentUserID))
+        _viewModel = State(initialValue: ActiveRoomViewModel(isHost: isHost))
     }
 
     var body: some View {
@@ -69,6 +69,15 @@ struct ActiveRoomView: View {
                 RecapView(sessionID: id)
                     .environment(deps)
             }
+        }
+        .alert("Error",
+               isPresented: Binding(
+                   get: { orchestrator.errorMessage != nil },
+                   set: { if !$0 { orchestrator.errorMessage = nil } }
+               )) {
+            Button("OK") { orchestrator.errorMessage = nil }
+        } message: {
+            Text(orchestrator.errorMessage ?? "")
         }
         .confirmationDialog("End Room?", isPresented: $viewModel.showEndConfirmation, titleVisibility: .visible) {
             Button("End for Everyone", role: .destructive) {
@@ -152,38 +161,23 @@ struct ActiveRoomView: View {
                         Task { await viewModel.start(orchestrator: orchestrator) }
                     } label: {
                         Text("Lock Session")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.tertiaryColor)
-                            .foregroundStyle(Color.primaryColor)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .buttonStyle(PrimaryButtonStyle())
                 case .locked:
                     Button(role: .destructive) {
                         viewModel.showEndConfirmation = true
                     } label: {
                         Text("End Session")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.destructiveColor)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .buttonStyle(DestructiveButtonStyle())
                 case .ended:
                     Button {
                         onClose()
                         dismiss()
                     } label: {
                         Text("Done")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.tertiaryColor)
-                            .foregroundStyle(Color.primaryColor)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
+                    .buttonStyle(PrimaryButtonStyle())
                 }
             }
             .padding(.horizontal, .spacingLg)

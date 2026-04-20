@@ -5,10 +5,6 @@ struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @Environment(DependencyContainer.self) private var deps
 
-    private var currentUserID: UUID {
-        deps.cache.readUser()?.id ?? UUID()
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -32,6 +28,7 @@ struct HomeView: View {
                         Text("Create Room")
                             .font(.headline)
                             .foregroundStyle(Color.tertiaryColor)
+                            .onTapGesture { viewModel.showCreateRoom = true }
 
                         Spacer()
                             .frame(height: .spacingMd)
@@ -48,6 +45,7 @@ struct HomeView: View {
                         Text("Join Room")
                             .font(.headline)
                             .foregroundStyle(Color.tertiaryColor)
+                            .onTapGesture { viewModel.showJoinRoom = true }
                     }
 
                     Spacer()
@@ -62,6 +60,7 @@ struct HomeView: View {
                     touchTips: deps.touchTips
                 ) { session in
                     viewModel.showJoinRoom = false
+                    viewModel.isHost = false
                     viewModel.activeSession = session
                 }
                 .presentationDetents([.medium, .large])
@@ -72,9 +71,10 @@ struct HomeView: View {
                 CreateRoomView(
                     sessions: deps.sessions,
                     touchTips: deps.touchTips,
-                    userID: currentUserID
+                    userID: UUID() // Pass a dummy ID or refactor CreateRoomView to not require it
                 ) { session in
                     viewModel.showCreateRoom = false
+                    viewModel.isHost = true
                     viewModel.activeSession = session
                 }
                 .presentationDetents([.medium, .large])
@@ -82,9 +82,11 @@ struct HomeView: View {
                 .presentationBackground(.ultraThinMaterial)
             }
             .fullScreenCover(item: $viewModel.activeSession) { session in
-                ActiveRoomView(session: session, currentUserID: currentUserID) {
+                ActiveRoomView(session: session, isHost: viewModel.isHost) {
                     viewModel.activeSession = nil
+                    viewModel.isHost = false
                 }
+                .environment(deps)
             }
         }
     }

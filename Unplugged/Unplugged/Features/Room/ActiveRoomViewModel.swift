@@ -5,16 +5,16 @@ import UnpluggedShared
 @MainActor
 @Observable
 final class ActiveRoomViewModel {
-    let currentUserID: UUID
+    let isHost: Bool
     var showEndConfirmation = false
     var showRecap = false
 
-    init(currentUserID: UUID) {
-        self.currentUserID = currentUserID
+    init(isHost: Bool) {
+        self.isHost = isHost
     }
 
     func isHost(orchestrator: SessionOrchestrator) -> Bool {
-        orchestrator.currentSession?.session.hostID == currentUserID
+        return isHost
     }
 
     func start(orchestrator: SessionOrchestrator) async {

@@ -15,34 +15,41 @@ class AddFriendViewModel {
     var users: [User] = []
     var isSearching = false
     var error: String?
-    
+    var addingUserID: UUID?
+
     private var searchTask: Task<Void, Never>?
-    
+
     func search(usersService: UserAPIService) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             users = []
+            error = nil
             return
         }
-        
+
         searchTask?.cancel()
-        
-        searchTask = Task {
+        isSearching = true
+
+        searchTask = Task.detached { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
+                try await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce off main actor
                 guard !Task.isCancelled else { return }
-                
-                isSearching = true
+
                 let results = try await usersService.searchUsers(query: query)
                 guard !Task.isCancelled else { return }
-                self.users = results
+
+                await MainActor.run {
+                    self?.users = results
+                    self?.isSearching = false
+                    self?.error = nil
+                }
             } catch {
                 if !Task.isCancelled {
-                    self.error = "Could not search users"
+                    await MainActor.run {
+                        self?.error = "Could not search users"
+                        self?.isSearching = false
+                    }
                 }
-            }
-            if !Task.isCancelled {
-                isSearching = false
             }
         }
     }
@@ -52,16 +59,15 @@ struct AddFriendSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = AddFriendViewModel()
-    
-    // Binding back to parent for showing error/success or triggering a reload
+
     var onAddFriend: (String) async -> Void
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.primaryColor
                     .ignoresSafeArea()
-                
+
                 VStack(spacing: 0) {
                     // Search Bar
                     HStack {
@@ -94,8 +100,16 @@ struct AddFriendSheet: View {
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
-                    
-                    if viewModel.users.isEmpty {
+
+                    if let error = viewModel.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.destructiveColor)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                    }
+
+                    if viewModel.users.isEmpty && viewModel.error == nil {
                         Spacer()
                         VStack(spacing: 12) {
                             Image(systemName: "person.circle")
@@ -106,7 +120,7 @@ struct AddFriendSheet: View {
                                 .foregroundColor(.tertiaryColor.opacity(0.5))
                         }
                         Spacer()
-                    } else {
+                    } else if !viewModel.users.isEmpty {
                         List {
                             ForEach(viewModel.users) { user in
                                 HStack {
@@ -116,20 +130,31 @@ struct AddFriendSheet: View {
                                         .foregroundColor(.tertiaryColor)
                                     Spacer()
                                     Button(action: {
+                                        viewModel.addingUserID = user.id
                                         Task {
                                             await onAddFriend(user.username)
-                                            dismiss()
+                                            // Parent's addFriend() dismisses the sheet via showAddFriend = false.
+                                            // Do NOT call dismiss() here to avoid double-dismiss crash.
                                         }
                                     }) {
-                                        Text("Add")
-                                            .font(.captionFont)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.primaryColor)
-                                            .padding(.horizontal, 16)
-                                            .padding(.vertical, 8)
-                                            .background(Color.tertiaryColor)
-                                            .cornerRadius(16)
+                                        if viewModel.addingUserID == user.id {
+                                            ProgressView()
+                                                .tint(.primaryColor)
+                                                .frame(minWidth: 44, minHeight: 44)
+                                        } else {
+                                            Text("Add")
+                                                .font(.captionFont)
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.primaryColor)
+                                                .padding(.horizontal, 16)
+                                                .padding(.vertical, 8)
+                                                .background(Color.tertiaryColor)
+                                                .cornerRadius(16)
+                                                .frame(minHeight: 44)
+                                                .contentShape(Rectangle())
+                                        }
                                     }
+                                    .disabled(viewModel.addingUserID != nil)
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparatorTint(.tertiaryColor.opacity(0.1))

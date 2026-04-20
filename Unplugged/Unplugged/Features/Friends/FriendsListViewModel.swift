@@ -28,12 +28,13 @@ class FriendsListViewModel {
     }
 
     func load(service: FriendAPIService) async {
+        guard !isLoading else { return }
         isLoading = true
         error = nil
         do {
             async let fetchFriends = service.listFriends()
             async let fetchIncoming = service.listIncoming()
-            
+
             self.friends = try await fetchFriends
             self.incomingRequests = try await fetchIncoming
         } catch {
@@ -49,7 +50,8 @@ class FriendsListViewModel {
             _ = try await service.addFriend(username: trimmed)
             addFriendUsername = ""
             showAddFriend = false
-            await load(service: service)
+            // Background refresh -- don't block the caller
+            Task { await load(service: service) }
         } catch {
             self.error = "Could not send friend request"
         }

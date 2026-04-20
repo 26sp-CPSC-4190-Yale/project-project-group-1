@@ -25,6 +25,12 @@ actor WebSocketClient {
     private var continuation: AsyncStream<WSServerMessage>.Continuation?
     private(set) var state: ConnectionState = .idle
 
+    private let urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        return URLSession(configuration: config)
+    }()
+
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -57,8 +63,7 @@ actor WebSocketClient {
             return stream
         }
 
-        let session = URLSession(configuration: .default)
-        let task = session.webSocketTask(with: url)
+        let task = urlSession.webSocketTask(with: url)
         self.task = task
         task.resume()
         state = .connected

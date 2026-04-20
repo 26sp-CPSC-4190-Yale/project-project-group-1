@@ -11,6 +11,7 @@ import UnpluggedShared
 struct FriendsListView: View {
     @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = FriendsListViewModel()
+    @State private var selectedFriend: FriendResponse?
 
     var body: some View {
         NavigationStack {
@@ -69,8 +70,8 @@ struct FriendsListView: View {
                         if !viewModel.friends.isEmpty {
                             Section {
                                 ForEach(viewModel.filteredFriends) { friend in
-                                    NavigationLink {
-                                        FriendDetailView(friend: friend)
+                                    Button {
+                                        selectedFriend = friend
                                     } label: {
                                         HStack(spacing: .spacingMd) {
                                             ParticipantAvatar(name: friend.username, size: 44)
@@ -94,6 +95,7 @@ struct FriendsListView: View {
                                         .background(Color.surfaceColor)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
                                     }
+                                    .buttonStyle(.plain)
                                 }
                             } header: {
                                 Text("My Friends")
@@ -103,7 +105,11 @@ struct FriendsListView: View {
                             }
                         }
 
-                        if viewModel.friends.isEmpty && !viewModel.isLoading {
+                        if viewModel.isLoading && viewModel.friends.isEmpty {
+                            ProgressView()
+                                .tint(.tertiaryColor)
+                                .padding(.top, 60)
+                        } else if viewModel.friends.isEmpty {
                             VStack(spacing: .spacingMd) {
                                 Image(systemName: "person.2")
                                     .font(.system(size: 48))
@@ -125,6 +131,9 @@ struct FriendsListView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .searchable(text: $viewModel.searchText, prompt: "Search friends")
+            .navigationDestination(item: $selectedFriend) { friend in
+                FriendDetailView(friend: friend)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { viewModel.showAddFriend = true } label: {

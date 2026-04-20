@@ -13,26 +13,32 @@ class JoinRoomViewModel {
     var joinedSession: SessionResponse?
     var error: String?
 
+    private var listenTask: Task<Void, Never>?
+
     var canJoinManually: Bool { !manualCode.isEmpty && !isJoining }
 
     func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
         isListening = true
         hasFoundRoom = false
-        let vm = self
-        touchTips.onRoomReceived = { roomID in
-            Task { @MainActor in
-                vm.hasFoundRoom = true
+
+        listenTask?.cancel()
+        listenTask = Task { [weak self] in
+            let stream = await touchTips.startListening()
+            for await roomID in stream {
+                guard let self, !Task.isCancelled else { return }
+                self.hasFoundRoom = true
                 #if canImport(UIKit)
                 UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                 #endif
-                await vm.joinRoom(id: roomID, sessions: sessions)
+                await self.joinRoom(id: roomID, sessions: sessions)
             }
         }
-        touchTips.startListening()
     }
 
     func stopListening(touchTips: TouchTipsService) {
-        touchTips.stop()
+        listenTask?.cancel()
+        listenTask = nil
+        Task { await touchTips.stop() }
         isListening = false
     }
 
@@ -54,7 +60,7 @@ class JoinRoomViewModel {
             error = "Invalid room code"
             return
         }
-        
+
         guard !isJoining else { return }
         isJoining = true
         error = nil

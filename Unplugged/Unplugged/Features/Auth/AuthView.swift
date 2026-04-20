@@ -49,7 +49,9 @@ struct AuthView: View {
                         .frame(height: 50)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        Button(action: {}) {
+                        Button(action: {
+                            viewModel.errorMessage = "Google Sign-In is coming soon."
+                        }) {
                             HStack(spacing: 8) {
                                 Image("GoogleLogo")
                                     .resizable()
@@ -60,8 +62,8 @@ struct AuthView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
-                            .background(.white)
-                            .foregroundStyle(.black)
+                            .background(.white.opacity(0.5))
+                            .foregroundStyle(.black.opacity(0.4))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
 

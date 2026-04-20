@@ -76,9 +76,11 @@ final class SessionOrchestrator {
             self.currentSession = updated
             if let endsAt = updated.session.endsAt {
                 self.countdownEndsAt = endsAt
+                self.phase = .locked
+                await engageShield(endsAt: endsAt)
             }
         } catch {
-            errorMessage = "Couldn't start the session."
+            errorMessage = "Couldn't start the session: \(error)"
         }
     }
 
