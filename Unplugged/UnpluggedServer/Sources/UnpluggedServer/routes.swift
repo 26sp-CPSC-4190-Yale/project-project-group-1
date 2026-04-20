@@ -24,10 +24,64 @@ func routes(_ app: Application) throws {
     // URLSessionWebSocketTask can't set custom headers cleanly, so the client
     // passes its JWT as a `?token=...` query parameter.
     app.webSocket("sessions", ":sessionID", "ws") { req, ws in
+        // 1. MUST register handlers synchronously on the EventLoop to avoid NIOLoopBoundBox crash
+        ws.onText { ws, text in
+            Task {
+                await handleIncomingText(req: req, ws: ws, text: text)
+            }
+        }
+        ws.onClose.whenComplete { _ in
+            Task {
+                await handleClose(req: req, ws: ws)
+            }
+        }
+
+        // 2. Do the async join logic
         Task {
             await handleSessionWebSocket(req: req, ws: ws)
         }
     }
+}
+
+@Sendable
+private func handleIncomingText(req: Request, ws: WebSocket, text: String) async {
+    guard let idString = req.parameters.get("sessionID"),
+          let roomID = UUID(uuidString: idString) else { return }
+
+    // Parse token to get userID
+    guard let token = req.query[String.self, at: "token"],
+          let payload = try? await req.jwt.verify(token, as: UserPayload.self),
+          let userID = try? payload.userID else { return }
+
+    guard let data = text.data(using: .utf8) else { return }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    guard let message = try? decoder.decode(WSClientMessage.self, from: data) else { return }
+
+    switch message {
+    case .heartbeat, .hello:
+        break
+    case .reportJailbreak(let reason):
+        let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+        record.detectedAt = Date()
+        try? await record.save(on: req.db)
+        await req.application.sessionHub.broadcast(
+            roomID: roomID,
+            message: .jailbreakReported(userID: userID, reason: reason)
+        )
+    }
+}
+
+@Sendable
+private func handleClose(req: Request, ws: WebSocket) async {
+    guard let idString = req.parameters.get("sessionID"),
+          let roomID = UUID(uuidString: idString) else { return }
+
+    guard let token = req.query[String.self, at: "token"],
+          let payload = try? await req.jwt.verify(token, as: UserPayload.self),
+          let userID = try? payload.userID else { return }
+
+    await req.application.sessionHub.leave(roomID: roomID, userID: userID)
 }
 
 @Sendable
@@ -93,36 +147,6 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
         }
     } catch {
         req.logger.error("Failed to send initial stateSync: \(error)")
-    }
-
-    // 6. Handle incoming text frames
-    ws.onText { ws, text in
-        guard let data = text.data(using: .utf8) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let message = try? decoder.decode(WSClientMessage.self, from: data) else { return }
-
-        switch message {
-        case .heartbeat, .hello:
-            break
-        case .reportJailbreak(let reason):
-            Task {
-                let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-                record.detectedAt = Date()
-                try? await record.save(on: req.db)
-                await req.application.sessionHub.broadcast(
-                    roomID: roomID,
-                    message: .jailbreakReported(userID: userID, reason: reason)
-                )
-            }
-        }
-    }
-
-    // 7. Cleanup on close
-    ws.onClose.whenComplete { _ in
-        Task {
-            await req.application.sessionHub.leave(roomID: roomID, userID: userID)
-        }
     }
 }
 
