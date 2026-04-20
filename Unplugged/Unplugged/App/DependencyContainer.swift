@@ -26,6 +26,8 @@ class DependencyContainer {
 
     init() {
         let cache = LocalCacheService()
+        // Pre-warm the keychain cache so no future readToken() call blocks on SecItemCopyMatching.
+        let _ = cache.readToken()
         let client = APIClient(cache: cache)
         let screenTime = ScreenTimeService()
         let webSocket = WebSocketClient()

@@ -140,6 +140,7 @@ enum APIRouter {
         case .addFriend(let r):         return r
         case .createGroup(let r):       return r
         case .addGroupMember(_, let r): return r
+        case .startSession:             return StartSessionRequest()
         default:                        return nil
         }
     }

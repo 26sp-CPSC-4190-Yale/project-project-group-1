@@ -66,7 +66,7 @@ struct CreateRoomView: View {
                             Button {
                                 viewModel.selectedDuration = duration
                             } label: {
-                                Text(duration >= 60 ? "\(duration / 60)h" : "\(duration)m")
+                                Text(Self.formatDuration(duration))
                                     .font(.subheadline.weight(.medium))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
@@ -155,5 +155,13 @@ struct CreateRoomView: View {
             .padding(.horizontal, .spacingLg)
             .padding(.bottom, .spacingMd)
         }
+    }
+
+    private static func formatDuration(_ minutes: Int) -> String {
+        let h = minutes / 60
+        let m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        if h > 0 { return "\(h)h" }
+        return "\(m)m"
     }
 }

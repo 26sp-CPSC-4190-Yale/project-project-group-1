@@ -80,13 +80,13 @@ class LocalCacheService {
     var isLoggedIn: Bool { readToken() != nil }
 
     func saveUser(_ user: User) {
-        let encoded = try? JSONEncoder().encode(user)
+        let encoded = try? jsonEncoder.encode(user)
         UserDefaults.standard.set(encoded, forKey: userKey)
     }
 
     func readUser() -> User? {
         guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
-        return try? JSONDecoder().decode(User.self, from: data)
+        return try? jsonDecoder.decode(User.self, from: data)
     }
 
     func clearUser() {
@@ -99,7 +99,16 @@ class LocalCacheService {
     }
 
     func clearAuth() {
-        deleteToken()
+        cachedToken = nil
+        didLoadToken = true
+        let key = tokenKey
+        keychainQueue.sync {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: key
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
         clearUser()
         UserDefaults.standard.removeObject(forKey: statsKey)
         UserDefaults.standard.removeObject(forKey: historyKey)

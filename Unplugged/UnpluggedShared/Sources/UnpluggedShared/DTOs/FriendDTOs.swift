@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum PresenceStatus: String, Codable, Sendable {
+public enum PresenceStatus: String, Codable, Sendable, Hashable {
     case online
     case unplugged
     case offline
@@ -21,7 +21,7 @@ public struct AddFriendRequest: Codable, Sendable {
     }
 }
 
-public struct FriendResponse: Codable, Sendable, Identifiable {
+public struct FriendResponse: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let username: String
     // "pending" | "accepted"
