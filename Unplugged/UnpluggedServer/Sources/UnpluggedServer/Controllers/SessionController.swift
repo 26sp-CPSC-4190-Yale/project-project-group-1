@@ -239,20 +239,20 @@ struct SessionController: RouteCollection {
         // Broadcast to any live WebSocket listeners
         await req.sessionHub.broadcast(roomID: roomID, message: .sessionLocked(endsAt: endsAt))
 
-        // Silent APNS fallback for backgrounded clients
-        let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
-            .all()
-        for member in members {
-            await NotificationService.sendSilent(
-                to: member.userID,
-                type: NotificationService.NotificationType.sessionLocked,
-                sessionID: roomID,
-                endsAt: endsAt,
-                on: req.db,
-                application: req.application
-            )
-        }
+        // TEMPORARILY DISABLED TO ISOLATE 502 CRASH
+        // let members = try await MemberModel.query(on: req.db)
+        //     .filter(\.$roomID == roomID)
+        //     .all()
+        // for member in members {
+        //     await NotificationService.sendSilent(
+        //         to: member.userID,
+        //         type: NotificationService.NotificationType.sessionLocked,
+        //         sessionID: roomID,
+        //         endsAt: endsAt,
+        //         on: req.db,
+        //         application: req.application
+        //     )
+        // }
 
         return try await buildSessionResponse(room: room, db: req.db)
     }
