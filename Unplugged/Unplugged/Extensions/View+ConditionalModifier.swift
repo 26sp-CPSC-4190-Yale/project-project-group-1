@@ -5,5 +5,16 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Add conditional view modifier extension for use across views
+import SwiftUI
+
+extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
 

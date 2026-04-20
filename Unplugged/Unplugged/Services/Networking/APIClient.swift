@@ -24,20 +24,27 @@ struct APIClient {
         return d
     }()
 
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        return URLSession(configuration: config)
+    }()
+
     init(cache: LocalCacheService) {
         self.cache = cache
     }
 
     func send<T: Decodable>(_ route: APIRouter) async throws -> T {
         let request = try buildRequest(route)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         try validate(response)
         return try decoder.decode(T.self, from: data)
     }
 
     func sendVoid(_ route: APIRouter) async throws {
         let request = try buildRequest(route)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await session.data(for: request)
         try validate(response)
     }
 

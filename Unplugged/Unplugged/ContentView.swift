@@ -10,10 +10,13 @@ import SwiftUI
 struct ContentView: View {
     @Environment(DependencyContainer.self) private var container
     @State private var authViewModel = AuthViewModel()
+    @State private var onboardingComplete = OnboardingViewModel.hasCompleted
 
     var body: some View {
         Group {
-            if authViewModel.isAuthenticated {
+            if !onboardingComplete {
+                OnboardingView(onFinish: { onboardingComplete = true })
+            } else if authViewModel.isAuthenticated {
                 MainTabView(authViewModel: authViewModel)
             } else {
                 AuthView(viewModel: authViewModel)
@@ -42,7 +45,7 @@ struct MainTabView: View {
                     ProfileView(authViewModel: authViewModel)
                 }
             }
-            .tint(Color.tertiaryColor)
+            .tint(.tertiaryColor)
         } else {
             TabView {
                 HomeView()
@@ -52,7 +55,7 @@ struct MainTabView: View {
                 ProfileView(authViewModel: authViewModel)
                     .tabItem { Label("Profile", systemImage: "person.fill") }
             }
-            .tint(Color.tertiaryColor)
+            .tint(.tertiaryColor)
         }
     }
 }

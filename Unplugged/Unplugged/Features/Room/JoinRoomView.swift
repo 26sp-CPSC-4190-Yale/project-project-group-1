@@ -10,71 +10,94 @@ struct JoinRoomView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: .spacingMd) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.tertiaryColor.opacity(0.3))
-                .frame(width: 40, height: 5)
-                .padding(.top, .spacingSm)
+        NavigationStack {
+            ZStack {
+                Color.primaryColor.opacity(0.85)
+                    .ignoresSafeArea()
 
-            Text("Join Room")
-                .font(.headlineFont)
-                .foregroundColor(.tertiaryColor)
-                .padding(.top, .spacingSm)
+                ScrollView {
+                    VStack(spacing: .spacingLg) {
+                        // Room code entry (primary action)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Room Code")
+                                .font(.subheadline)
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-            Spacer()
+                            TextField("", text: $viewModel.manualCode, prompt: Text("Enter code").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                                .font(.system(.title3, design: .monospaced))
+                                .foregroundStyle(Color.tertiaryColor)
+                                .textInputAutocapitalization(.characters)
+                                .autocorrectionDisabled()
+                                .padding(14)
+                                .background(Color.surfaceColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
 
-            VStack(spacing: .spacingMd) {
-                Image(systemName: "iphone.radiowaves.left.and.right")
-                    .font(.system(size: 56))
-                    .foregroundColor(.tertiaryColor)
-                    .symbolEffect(.pulse, isActive: viewModel.isListening)
+                        Button {
+                            Task {
+                                await viewModel.joinWithCode(sessions: sessions)
+                            }
+                        } label: {
+                            Text("Join")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(viewModel.canJoinManually ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                                .foregroundStyle(Color.primaryColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(!viewModel.canJoinManually)
 
-                Text("Bring your phone close to the host")
-                    .font(.bodyFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.7))
+                        // Divider
+                        HStack {
+                            Rectangle()
+                                .fill(Color.tertiaryColor.opacity(0.15))
+                                .frame(height: 1)
+                            Text("or")
+                                .font(.caption)
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                            Rectangle()
+                                .fill(Color.tertiaryColor.opacity(0.15))
+                                .frame(height: 1)
+                        }
+                        .padding(.vertical, .spacingSm)
 
-                if viewModel.isJoining {
-                    ProgressView()
-                        .tint(.tertiaryColor)
-                }
-            }
+                        // TouchTips / proximity join
+                        VStack(spacing: .spacingMd) {
+                            Image(systemName: "iphone.radiowaves.left.and.right")
+                                .font(.system(size: 48))
+                                .foregroundStyle(Color.tertiaryColor)
+                                .symbolEffect(.pulse, isActive: viewModel.isListening)
 
-            Spacer()
+                            Text(viewModel.hasFoundRoom ? "Room found" : "Bring your phone close to the host")
+                                .font(.subheadline)
+                                .foregroundStyle(viewModel.hasFoundRoom ? .green : .tertiaryColor.opacity(0.7))
 
-            VStack(spacing: .spacingMd) {
-                Text("Or enter room code")
-                    .font(.captionFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.6))
-
-                TextField("", text: $viewModel.manualCode, prompt: Text("Room code").foregroundColor(.tertiaryColor.opacity(0.4)))
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.tertiaryColor)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .padding(.spacingMd)
-                    .background(Color.surfaceColor)
-                    .cornerRadius(.cornerRadiusSm)
-
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.captionFont)
-                        .foregroundColor(.destructiveColor)
-                }
-
-                Button("Join") {
-                    Task {
-                        await viewModel.joinWithCode(sessions: sessions)
+                            if viewModel.isJoining {
+                                ProgressView()
+                                    .tint(.tertiaryColor)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, .spacingLg)
+                        .background(Color.surfaceColor.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
+                    .padding(.horizontal, .spacingLg)
+                    .padding(.top, .spacingMd)
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(!viewModel.canJoinManually)
-                .opacity(viewModel.canJoinManually ? 1 : 0.5)
             }
-            .padding(.horizontal, .spacingLg)
-            .padding(.bottom, .spacingMd)
+            .navigationTitle("Join Room")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Color.tertiaryColor)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primaryColor.opacity(0.85))
+        .errorAlert($viewModel.error)
         .onAppear {
             viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }

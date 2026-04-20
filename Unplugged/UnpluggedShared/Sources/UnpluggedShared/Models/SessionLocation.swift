@@ -5,4 +5,20 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Define SessionLocation struct (Codable) — sessionID, latitude, longitude, locationName (reverse geocoded); optional metadata for where a session took place
+import Foundation
+
+public struct SessionLocation: Codable, Sendable {
+    public let sessionID: UUID
+    public let latitude: Double
+    public let longitude: Double
+    public var locationName: String?
+    public var metadata: String?
+    
+    public init(sessionID: UUID, latitude: Double, longitude: Double, locationName: String? = nil, metadata: String? = nil) {
+        self.sessionID = sessionID
+        self.latitude = latitude
+        self.longitude = longitude
+        self.locationName = locationName
+        self.metadata = metadata
+    }
+}

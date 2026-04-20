@@ -9,65 +9,82 @@ import SwiftUI
 import AuthenticationServices
 
 struct AuthView: View {
-    var viewModel: AuthViewModel
+    @Bindable var viewModel: AuthViewModel
     @State private var showUsernameLogin = false
 
     var body: some View {
-        ZStack {
-            Color.primaryColor
-                .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
 
-            VStack(spacing: .spacingLg) {
-                Spacer()
+                VStack(spacing: 0) {
+                    Spacer()
 
-                Text("UNPLUGGED")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .foregroundColor(.tertiaryColor)
-                    .tracking(2)
+                    VStack(spacing: .spacingMd) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 64))
+                            .foregroundStyle(Color.tertiaryColor)
 
-                Spacer()
+                        Text("UNPLUGGED")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.tertiaryColor)
+                            .tracking(2)
 
-                VStack(spacing: .spacingMd) {
-                    // Sign in with Apple
-                    SignInWithAppleButton(.signIn) { request in
-                        request.requestedScopes = [.fullName, .email]
-                    } onCompletion: { _ in
-                        viewModel.signInWithApple()
+                        Text("Put your phone down together.")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     }
-                    .signInWithAppleButtonStyle(.white)
-                    .frame(height: 50)
-                    .cornerRadius(.cornerRadiusSm)
 
-                    // Sign in with Google
-                    Button(action: { viewModel.signInWithGoogle() }) {
-                        HStack(spacing: .spacingSm) {
-                            Image("GoogleLogo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 20, height: 20)
-                            Text("Sign in with Google")
-                                .font(.headlineFont)
+                    Spacer()
+                    Spacer()
+
+                    VStack(spacing: 12) {
+                        SignInWithAppleButton(.signIn) { request in
+                            request.requestedScopes = [.fullName, .email]
+                        } onCompletion: { result in
+                            Task { await viewModel.handleAppleSignInResult(result) }
                         }
-                        .frame(maxWidth: .infinity)
+                        .signInWithAppleButtonStyle(.white)
                         .frame(height: 50)
-                        .background(Color.tertiaryColor)
-                        .foregroundColor(.primaryColor)
-                        .cornerRadius(.cornerRadiusSm)
-                    }
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                    // Login with username
-                    Button("Login with username") {
-                        showUsernameLogin = true
+                        Button(action: {}) {
+                            HStack(spacing: 8) {
+                                Image("GoogleLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20, height: 20)
+                                Text("Sign in with Google")
+                                    .fontWeight(.medium)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(.white)
+                            .foregroundStyle(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+
+                        Button {
+                            showUsernameLogin = true
+                        } label: {
+                            Text("Sign in with username")
+                                .fontWeight(.medium)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.surfaceColor)
+                                .foregroundStyle(Color.tertiaryColor)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .frame(height: 50)
+                    .padding(.horizontal, .spacingXl)
+                    .padding(.bottom, .spacingXl)
                 }
-                .padding(.horizontal, .spacingXl)
-                .padding(.bottom, .spacingXl)
             }
-        }
-        .sheet(isPresented: $showUsernameLogin) {
-            UsernameLoginView(viewModel: viewModel)
+            .sheet(isPresented: $showUsernameLogin) {
+                UsernameLoginView(viewModel: viewModel)
+            }
+            .errorAlert($viewModel.errorMessage)
         }
     }
 }

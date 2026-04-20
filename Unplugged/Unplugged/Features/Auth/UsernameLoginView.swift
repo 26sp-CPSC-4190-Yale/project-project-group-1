@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct UsernameLoginView: View {
-    var viewModel: AuthViewModel
+    @Bindable var viewModel: AuthViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var username = ""
@@ -9,71 +9,96 @@ struct UsernameLoginView: View {
     @State private var isRegistering = false
 
     var body: some View {
-        ZStack {
-            Color.primaryColor.ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                Color.primaryColor.ignoresSafeArea()
 
-            VStack(spacing: .spacingLg) {
-                Text(isRegistering ? "Create Account" : "Sign In")
-                    .font(.titleFont)
-                    .foregroundColor(.tertiaryColor)
+                ScrollView {
+                    VStack(spacing: .spacingLg) {
+                        VStack(spacing: .spacingSm) {
+                            Text(isRegistering ? "Create Account" : "Welcome Back")
+                                .font(.title.bold())
+                                .foregroundStyle(Color.tertiaryColor)
 
-                VStack(spacing: .spacingMd) {
-                    TextField("Username", text: $username)
-                        .textFieldStyle(UnpluggedTextFieldStyle())
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(UnpluggedTextFieldStyle())
-                }
-
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.captionFont)
-                        .foregroundColor(.destructiveColor)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button(isRegistering ? "Create Account" : "Sign In") {
-                    Task {
-                        if isRegistering {
-                            await viewModel.registerWithUsername(username: username, password: password)
-                        } else {
-                            await viewModel.loginWithUsername(username: username, password: password)
+                            Text(isRegistering ? "Choose a username and password" : "Sign in to your account")
+                                .font(.subheadline)
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
                         }
-                        if viewModel.isAuthenticated { dismiss() }
+                        .padding(.top, .spacingXl)
+
+                        VStack(spacing: .spacingMd) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Username")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                                TextField("", text: $username, prompt: Text("Enter username").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                                    .font(.body)
+                                    .foregroundStyle(Color.tertiaryColor)
+                                    .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
+                                    .padding(14)
+                                    .background(Color.surfaceColor)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Password")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                                SecureField("", text: $password, prompt: Text("Enter password").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                                    .font(.body)
+                                    .foregroundStyle(Color.tertiaryColor)
+                                    .padding(14)
+                                    .background(Color.surfaceColor)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+
+                        Button {
+                            Task {
+                                if isRegistering {
+                                    await viewModel.registerWithUsername(username: username, password: password)
+                                } else {
+                                    await viewModel.loginWithUsername(username: username, password: password)
+                                }
+                                if viewModel.isAuthenticated { dismiss() }
+                            }
+                        } label: {
+                            if viewModel.isLoading {
+                                ProgressView()
+                                    .tint(.primaryColor)
+                            } else {
+                                Text(isRegistering ? "Create Account" : "Sign In")
+                            }
+                        }
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(username.isEmpty || password.isEmpty ? Color.tertiaryColor.opacity(0.3) : Color.tertiaryColor)
+                        .foregroundStyle(Color.primaryColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .disabled(username.isEmpty || password.isEmpty || viewModel.isLoading)
+
+                        Button(isRegistering ? "Already have an account? Sign in" : "Don't have an account? Create one") {
+                            withAnimation { isRegistering.toggle() }
+                            viewModel.errorMessage = nil
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Color.secondaryColor)
                     }
+                    .padding(.horizontal, .spacingLg)
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(username.isEmpty || password.isEmpty || viewModel.isLoading)
-
-                Button(isRegistering ? "Already have an account? Sign in" : "No account? Create one") {
-                    isRegistering.toggle()
-                    viewModel.errorMessage = nil
-                }
-                .font(.captionFont)
-                .foregroundColor(.secondaryColor)
             }
-            .padding(.horizontal, .spacingXl)
-
-            if viewModel.isLoading {
-                Color.black.opacity(0.3).ignoresSafeArea()
-                ProgressView()
-                    .tint(.tertiaryColor)
-                    .scaleEffect(1.5)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Color.tertiaryColor)
+                }
             }
         }
-    }
-}
-
-private struct UnpluggedTextFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration
-            .font(.bodyFont)
-            .foregroundColor(.tertiaryColor)
-            .padding(.spacingMd)
-            .background(Color.surfaceColor)
-            .cornerRadius(.cornerRadiusSm)
+        .errorAlert($viewModel.errorMessage)
+        .presentationDetents([.large])
     }
 }
 

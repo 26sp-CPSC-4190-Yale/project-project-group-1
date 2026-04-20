@@ -42,6 +42,9 @@ public func configure(_ app: Application) async throws {
     // app.migrations.add(CreateSessionLocations()) // location is now in the rooms table
     app.migrations.add(AddDeviceTokenToUsers())
     app.migrations.add(AddPointsToUsers())
+    app.migrations.add(AddLifecycleFieldsToRooms())
+    app.migrations.add(AddLastSeenToUsers())
+    app.migrations.add(AddJailbreakReason())
 
     try await app.autoMigrate()
 
