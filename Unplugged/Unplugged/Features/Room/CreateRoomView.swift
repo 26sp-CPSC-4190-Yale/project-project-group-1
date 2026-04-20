@@ -11,72 +11,77 @@ struct CreateRoomView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: .spacingMd) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.tertiaryColor.opacity(0.3))
-                .frame(width: 40, height: 5)
-                .padding(.top, .spacingSm)
+        NavigationStack {
+            ZStack {
+                Color.primaryColor.opacity(0.85)
+                    .ignoresSafeArea()
 
-            if let session = viewModel.createdSession {
-                awaitingJoinView(session: session)
-            } else {
-                createFormView
+                if let session = viewModel.createdSession {
+                    awaitingJoinView(session: session)
+                } else {
+                    createFormView
+                }
+            }
+            .navigationTitle(viewModel.createdSession == nil ? "Create Room" : "Waiting for Players")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Color.tertiaryColor)
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primaryColor.opacity(0.85))
-        .createRoomAlert(viewModel: viewModel)
+        .errorAlert($viewModel.error)
         .onDisappear {
             viewModel.stopAdvertising(touchTips: touchTips)
         }
     }
 
     private var createFormView: some View {
-        VStack(spacing: .spacingMd) {
-            Text("Create Room")
-                .font(.headlineFont)
-                .foregroundColor(.tertiaryColor)
-                .padding(.top, .spacingSm)
-
+        ScrollView {
             VStack(spacing: .spacingLg) {
-                VStack(alignment: .leading, spacing: .spacingSm) {
+                // Room Name
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Room Name")
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.6))
+                        .font(.subheadline)
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-                    TextField("", text: $viewModel.roomName, prompt: Text("Enter room name").foregroundColor(.tertiaryColor.opacity(0.4)))
-                        .font(.bodyFont)
-                        .foregroundColor(.tertiaryColor)
-                        .padding(.spacingMd)
+                    TextField("", text: $viewModel.roomName, prompt: Text("Enter room name").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                        .font(.body)
+                        .foregroundStyle(Color.tertiaryColor)
+                        .padding(14)
                         .background(Color.surfaceColor)
-                        .cornerRadius(.cornerRadiusSm)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
+                // Duration
                 VStack(alignment: .leading, spacing: .spacingSm) {
                     Text("Duration")
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.6))
+                        .font(.subheadline)
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
                     HStack(spacing: .spacingSm) {
                         ForEach(viewModel.durationOptions, id: \.self) { duration in
-                            Button(action: { viewModel.selectedDuration = duration }) {
+                            Button {
+                                viewModel.selectedDuration = duration
+                            } label: {
                                 Text(duration >= 60 ? "\(duration / 60)h" : "\(duration)m")
-                                    .font(.bodyFont)
-                                    .foregroundColor(viewModel.selectedDuration == duration ? .primaryColor : .tertiaryColor)
+                                    .font(.subheadline.weight(.medium))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, .spacingSm)
+                                    .padding(.vertical, 12)
                                     .background(viewModel.selectedDuration == duration ? Color.tertiaryColor : Color.surfaceColor)
-                                    .cornerRadius(.cornerRadiusSm)
+                                    .foregroundStyle(viewModel.selectedDuration == duration ? Color.primaryColor : .tertiaryColor)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
                             }
                         }
                     }
                 }
 
+                Spacer(minLength: .spacingXl)
 
-
-                Spacer()
-
-                Button("Create") {
+                // Create button
+                Button {
                     Task {
                         await viewModel.createRoom(sessions: sessions)
                         if let session = viewModel.createdSession {
@@ -86,78 +91,69 @@ struct CreateRoomView: View {
                             )
                         }
                     }
+                } label: {
+                    Text("Create")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(viewModel.canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                        .foregroundStyle(Color.primaryColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .buttonStyle(PrimaryButtonStyle())
                 .disabled(!viewModel.canCreate)
-                .opacity(viewModel.canCreate ? 1 : 0.5)
             }
             .padding(.horizontal, .spacingLg)
+            .padding(.top, .spacingMd)
         }
     }
 
     private func awaitingJoinView(session: SessionResponse) -> some View {
         VStack(spacing: .spacingLg) {
-            Text("Waiting for Players")
-                .font(.headlineFont)
-                .foregroundColor(.tertiaryColor)
-                .padding(.top, .spacingSm)
-
             Spacer()
 
             Image(systemName: "iphone.radiowaves.left.and.right")
                 .font(.system(size: 64))
-                .foregroundColor(.tertiaryColor)
+                .foregroundStyle(Color.tertiaryColor)
                 .symbolEffect(.pulse, isActive: viewModel.isAdvertising)
 
             Text("Bring phones together to invite")
-                .font(.bodyFont)
-                .foregroundColor(.tertiaryColor.opacity(0.7))
+                .font(.body)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.7))
 
             Spacer()
 
-            VStack(spacing: .spacingSm) {
+            // Room Code card
+            VStack(spacing: 6) {
                 Text("Room Code")
-                    .font(.captionFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.6))
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
                 Text(session.session.id.uuidString.prefix(8).uppercased())
                     .font(.system(size: 32, weight: .bold, design: .monospaced))
-                    .foregroundColor(.tertiaryColor)
+                    .foregroundStyle(Color.tertiaryColor)
                     .kerning(4)
             }
+            .padding(.spacingLg)
+            .frame(maxWidth: .infinity)
+            .background(Color.surfaceColor)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, .spacingLg)
 
             Spacer()
 
-            Button("Start Room") {
+            Button {
                 onCreateRoom(session)
+            } label: {
+                Text("Start Room")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.tertiaryColor)
+                    .foregroundStyle(Color.primaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, .spacingLg)
             .padding(.bottom, .spacingMd)
         }
-        .padding(.horizontal, .spacingLg)
-    }
-}
-
-extension CreateRoomView {
-    private var alertBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.error != nil },
-            set: { if !$0 { viewModel.error = nil } }
-        )
-    }
-}
-
-extension View {
-    func createRoomAlert(viewModel: CreateRoomViewModel) -> some View {
-        self.alert(
-            "Error",
-            isPresented: Binding(
-                get: { viewModel.error != nil },
-                set: { if !$0 { viewModel.error = nil } }
-            ),
-            actions: { Button("OK", role: .cancel) { viewModel.error = nil } },
-            message: { Text(viewModel.error ?? "Something went wrong.") }
-        )
     }
 }

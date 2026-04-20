@@ -28,6 +28,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		19F8F4A82F94063A00715487 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
+		19F8FE872F94063E00715487 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
+		19F8FEB82F94064000715487 /* ExampleApp.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = ExampleApp.xcodeproj; sourceTree = "<group>"; };
 		FF4A738F2F86D944009758D6 /* Algorithms.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Algorithms.xcodeproj; sourceTree = "<group>"; };
 		FF4A751A2F86D944009758D6 /* Atomics.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Atomics.xcodeproj; sourceTree = "<group>"; };
 		FF4A791A2F86D944009758D6 /* Collections.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Collections.xcodeproj; sourceTree = "<group>"; };
@@ -107,6 +110,27 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		19F8F56D2F94063A00715487 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		19F8FE9C2F94063E00715487 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		19F8FF192F94064000715487 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		FF4AB0422F86D866009758D6 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -292,12 +316,16 @@
 					ProjectRef = FF4AAF402F86D866009758D6 /* Algorithms.xcodeproj */;
 				},
 				{
+					ProductGroup = FF4AC2112F86D867009758D6 /* Products */;
+					ProjectRef = FF4AC2032F86D867009758D6 /* Atomics.xcodeproj */;
+				},
+				{
 					ProductGroup = FF4AFC022F86D944009758D6 /* Products */;
 					ProjectRef = FF4A751A2F86D944009758D6 /* Atomics.xcodeproj */;
 				},
 				{
-					ProductGroup = FF4AC2112F86D867009758D6 /* Products */;
-					ProjectRef = FF4AC2032F86D867009758D6 /* Atomics.xcodeproj */;
+					ProductGroup = 19F8F56D2F94063A00715487 /* Products */;
+					ProjectRef = 19F8F4A82F94063A00715487 /* Atomics.xcodeproj */;
 				},
 				{
 					ProductGroup = FF4AB9D22F86D866009758D6 /* Products */;
@@ -306,6 +334,14 @@
 				{
 					ProductGroup = FF4AFC002F86D944009758D6 /* Products */;
 					ProjectRef = FF4A791A2F86D944009758D6 /* Collections.xcodeproj */;
+				},
+				{
+					ProductGroup = 19F8FE9C2F94063E00715487 /* Products */;
+					ProjectRef = 19F8FE872F94063E00715487 /* Collections.xcodeproj */;
+				},
+				{
+					ProductGroup = 19F8FF192F94064000715487 /* Products */;
+					ProjectRef = 19F8FEB82F94064000715487 /* ExampleApp.xcodeproj */;
 				},
 			);
 			projectRoot = "";
@@ -508,33 +544,42 @@
 				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = D5G88BXT8Y;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Unplugged/Info.plist;
+				INFOPLIST_KEY_NFCReaderUsageDescription = "";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = Placeholder;
 				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSContactsUsageDescription = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
+				INFOPLIST_KEY_NSNearbyInteractionAllowOnceUsageDescription = "";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Group1.Unplugged;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -546,33 +591,42 @@
 				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = D5G88BXT8Y;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Unplugged/Info.plist;
+				INFOPLIST_KEY_NFCReaderUsageDescription = "";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = Placeholder;
 				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSContactsUsageDescription = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
+				INFOPLIST_KEY_NSNearbyInteractionAllowOnceUsageDescription = "";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Group1.Unplugged;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

@@ -45,7 +45,7 @@ struct MainTabView: View {
                     ProfileView(authViewModel: authViewModel)
                 }
             }
-            .tint(Color.tertiaryColor)
+            .tint(.tertiaryColor)
         } else {
             TabView {
                 HomeView()
@@ -55,7 +55,7 @@ struct MainTabView: View {
                 ProfileView(authViewModel: authViewModel)
                     .tabItem { Label("Profile", systemImage: "person.fill") }
             }
-            .tint(Color.tertiaryColor)
+            .tint(.tertiaryColor)
         }
     }
 }

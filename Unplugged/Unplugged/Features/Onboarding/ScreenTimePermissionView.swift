@@ -17,35 +17,42 @@ struct ScreenTimePermissionView: View {
     @State private var viewModel = ScreenTimePermissionViewModel()
 
     var body: some View {
-        VStack(spacing: .spacingMd) {
+        VStack(spacing: .spacingLg) {
             Image(systemName: "checkmark.shield.fill")
                 .font(.system(size: 56))
-                .foregroundColor(.tertiaryColor)
+                .foregroundStyle(Color.tertiaryColor)
 
-            Text("Emergency apps")
-                .font(.titleFont)
-                .foregroundColor(.tertiaryColor)
+            VStack(spacing: .spacingMd) {
+                Text("Emergency Apps")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.tertiaryColor)
 
-            Text("Pick the apps that should stay available during a session — Phone, Messages, Maps, your hospital app, anything you need in an emergency.")
-                .font(.bodyFont)
-                .foregroundColor(.tertiaryColor.opacity(0.7))
-                .multilineTextAlignment(.center)
+                Text("Pick the apps that should stay available during a session — Phone, Messages, Maps, anything you need in an emergency.")
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
 
             if !screenTime.isAvailable {
                 Text("Screen Time is unavailable on this device, so there's nothing to pick here. You can continue.")
-                    .font(.captionFont)
-                    .foregroundColor(.tertiaryColor.opacity(0.6))
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
                     .multilineTextAlignment(.center)
             } else {
                 Button("Pick Emergency Apps") {
                     viewModel.showPicker = true
                 }
-                .buttonStyle(PrimaryButtonStyle())
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Color.tertiaryColor)
+                .foregroundStyle(Color.primaryColor)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 if viewModel.didConfirm {
                     Label("Selection saved", systemImage: "checkmark.circle.fill")
-                        .foregroundColor(.tertiaryColor)
-                        .font(.captionFont)
+                        .foregroundStyle(Color.tertiaryColor)
+                        .font(.caption)
                 }
             }
         }
