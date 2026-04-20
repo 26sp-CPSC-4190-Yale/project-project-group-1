@@ -38,14 +38,14 @@ struct APIClient {
     func send<T: Decodable>(_ route: APIRouter) async throws -> T {
         let request = try buildRequest(route)
         let (data, response) = try await session.data(for: request)
-        try validate(response)
+        try validate(response, with: data)
         return try decoder.decode(T.self, from: data)
     }
 
     func sendVoid(_ route: APIRouter) async throws {
         let request = try buildRequest(route)
-        let (_, response) = try await session.data(for: request)
-        try validate(response)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, with: data)
     }
 
     private func buildRequest(_ route: APIRouter) throws -> URLRequest {
@@ -67,14 +67,19 @@ struct APIClient {
         return request
     }
 
-    private func validate(_ response: URLResponse) throws {
+    private func validate(_ response: URLResponse, with data: Data) throws {
         guard let http = response as? HTTPURLResponse else { throw AppError.serverError }
+        if (200...299).contains(http.statusCode) { return }
+
+        // Vapor includes "reason" in its JSON error responses
+        let reason = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["reason"] as? String
+        let fallbackMsg = reason ?? "HTTP \(http.statusCode)"
+
         switch http.statusCode {
-        case 200...299: return
-        case 401:       throw AppError.unauthorized
-        case 404:       throw AppError.notFound
-        case 400, 409, 422: throw AppError.validationFailed
-        default:        throw AppError.serverError
+        case 401:       throw NSError(domain: "Vapor", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: reason ?? "Unauthorized"])
+        case 404:       throw NSError(domain: "Vapor", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: reason ?? "Not Found"])
+        case 400, 422:  throw NSError(domain: "Vapor", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: reason ?? "Validation Failed"])
+        default:        throw NSError(domain: "Vapor", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: fallbackMsg])
         }
     }
 }
