@@ -40,13 +40,22 @@ public func configure(_ app: Application) async throws {
     let dbUser = Environment.get("DB_USER") ?? "unplugged"
     let dbPass = Environment.get("DB_PASSWORD") ?? "unplugged"
     let dbName = Environment.get("DB_NAME") ?? "unplugged"
+    let dbTLS: PostgresConnection.Configuration.TLS
+    switch Environment.get("DB_TLS")?.lowercased() {
+    case "disable":
+        dbTLS = .disable
+    case "prefer":
+        dbTLS = try .prefer(.init(configuration: .makeClientConfiguration()))
+    default:
+        dbTLS = try .require(.init(configuration: .makeClientConfiguration()))
+    }
     let dbConfig = SQLPostgresConfiguration(
         hostname: dbHost,
         port: dbPort,
         username: dbUser,
         password: dbPass,
         database: dbName,
-        tls: try .require(.init(configuration: .makeClientConfiguration()))
+        tls: dbTLS
     )
     app.databases.use(.postgres(configuration: dbConfig), as: .psql)
 
@@ -70,6 +79,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateUserBlocks())
     app.migrations.add(CreateUserReports())
     app.migrations.add(AddPerformanceIndexes())
+    app.migrations.add(SeedMedals())
 
     try await app.autoMigrate()
 
