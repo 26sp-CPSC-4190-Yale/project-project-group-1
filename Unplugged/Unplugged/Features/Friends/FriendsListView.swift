@@ -41,6 +41,7 @@ struct FriendsListView: View {
                                                 .padding(.vertical, 8)
                                                 .background(Color.tertiaryColor)
                                                 .clipShape(Capsule())
+                                                .contentShape(Capsule())
                                         }
                                         Button {
                                             Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
@@ -48,7 +49,8 @@ struct FriendsListView: View {
                                             Image(systemName: "xmark")
                                                 .font(.subheadline)
                                                 .foregroundStyle(Color.tertiaryColor.opacity(0.5))
-                                                .padding(8)
+                                                .frame(width: 44, height: 44)
+                                                .contentShape(Rectangle())
                                         }
                                     }
                                     .padding(.spacingMd)
@@ -94,6 +96,7 @@ struct FriendsListView: View {
                                         .padding(.spacingMd)
                                         .background(Color.surfaceColor)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .contentShape(RoundedRectangle(cornerRadius: 12))
                                     }
                                     .buttonStyle(.plain)
                                     .contextMenu {
@@ -157,6 +160,8 @@ struct FriendsListView: View {
                     Button { viewModel.showAddFriend = true } label: {
                         Image(systemName: "person.badge.plus")
                             .foregroundStyle(Color.tertiaryColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
             }

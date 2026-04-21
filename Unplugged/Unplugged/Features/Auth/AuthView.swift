@@ -65,6 +65,7 @@ struct AuthView: View {
                                 .background(Color.surfaceColor)
                                 .foregroundStyle(Color.tertiaryColor)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
 
                         LegalFooter()

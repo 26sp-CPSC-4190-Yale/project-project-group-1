@@ -92,6 +92,8 @@ struct AddFriendSheet: View {
                             }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(.tertiaryColor.opacity(0.5))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
                             }
                         }
                     }
@@ -138,22 +140,21 @@ struct AddFriendSheet: View {
                                             // Do NOT call dismiss() here to avoid double-dismiss crash.
                                         }
                                     }) {
-                                        if viewModel.addingUserID == user.id {
-                                            ProgressView()
-                                                .tint(.primaryColor)
-                                                .frame(minWidth: 44, minHeight: 44)
-                                        } else {
-                                            Text("Add")
-                                                .font(.captionFont)
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.primaryColor)
-                                                .padding(.horizontal, 16)
-                                                .padding(.vertical, 8)
-                                                .background(Color.tertiaryColor)
-                                                .cornerRadius(16)
-                                                .frame(minHeight: 44)
-                                                .contentShape(Rectangle())
+                                        Group {
+                                            if viewModel.addingUserID == user.id {
+                                                ProgressView()
+                                                    .tint(.primaryColor)
+                                            } else {
+                                                Text("Add")
+                                                    .font(.captionFont)
+                                                    .fontWeight(.bold)
+                                            }
                                         }
+                                        .foregroundColor(.primaryColor)
+                                        .frame(minWidth: 64, minHeight: 44)
+                                        .background(Color.tertiaryColor)
+                                        .clipShape(Capsule())
+                                        .contentShape(Capsule())
                                     }
                                     .disabled(viewModel.addingUserID != nil)
                                 }

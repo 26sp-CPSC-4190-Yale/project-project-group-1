@@ -31,9 +31,9 @@ class AuthViewModel {
         self.isConfigured = true
     }
 
-    func restoreSession() {
+    func restoreSession() async {
         guard let cache else { return }
-        if cache.isLoggedIn {
+        if await cache.isLoggedInAsync() {
             isAuthenticated = true
         }
     }

@@ -62,15 +62,16 @@ struct ActiveRoomView: View {
                 }
             }
         }
-        .task {
-            await orchestrator.enterLobby(session: initialSession)
+        .task(id: initialSession.session.id) {
             // Host keeps the room advertisable during the lobby phase so late
             // joiners can still pair via proximity while watching the member
             // list fill up. Advertising stops when the host locks (below) or
             // the view is dismissed.
-            if isHost {
-                try? await deps.touchTips.activate(roomID: initialSession.session.id)
-            }
+            await viewModel.startLobbyIfNeeded(
+                session: initialSession,
+                orchestrator: orchestrator,
+                touchTips: deps.touchTips
+            )
         }
         .onChange(of: orchestrator.phase) { _, newPhase in
             if newPhase == .ended {
@@ -200,7 +201,7 @@ struct ActiveRoomView: View {
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-                Text(initialSession.session.id.uuidString.prefix(8).uppercased())
+                Text(initialSession.session.code.uppercased())
                     .font(.system(size: 28, weight: .bold, design: .monospaced))
                     .foregroundStyle(Color.tertiaryColor)
                     .kerning(4)

@@ -7,6 +7,7 @@ struct JoinRoomView: View {
     var onJoinRoom: (SessionResponse) -> Void
 
     @State private var viewModel = JoinRoomViewModel()
+    @State private var manualJoinTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -34,8 +35,9 @@ struct JoinRoomView: View {
                         }
 
                         Button {
-                            Task {
-                                await viewModel.joinWithCode(sessions: sessions)
+                            manualJoinTask?.cancel()
+                            manualJoinTask = Task {
+                                await viewModel.joinWithCode(sessions: sessions, touchTips: touchTips)
                             }
                         } label: {
                             Text("Join")
@@ -45,6 +47,7 @@ struct JoinRoomView: View {
                                 .background(viewModel.canJoinManually ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
                                 .foregroundStyle(Color.primaryColor)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .disabled(!viewModel.canJoinManually)
 
@@ -102,6 +105,8 @@ struct JoinRoomView: View {
             viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }
         .onDisappear {
+            manualJoinTask?.cancel()
+            manualJoinTask = nil
             viewModel.stopListening(touchTips: touchTips)
         }
         .onChange(of: viewModel.joinedSession?.id) { _, id in

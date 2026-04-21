@@ -43,6 +43,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, .spacingMd)
             .background(Color.tertiaryColor)
             .cornerRadius(.cornerRadius)
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
@@ -57,6 +58,7 @@ struct DestructiveButtonStyle: ButtonStyle {
             .padding(.vertical, .spacingMd)
             .background(Color.destructiveColor)
             .cornerRadius(.cornerRadius)
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }

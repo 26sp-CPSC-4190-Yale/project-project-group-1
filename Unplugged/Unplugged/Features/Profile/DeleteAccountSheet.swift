@@ -82,11 +82,14 @@ struct DeleteAccountSheet: View {
                             .background(Color.destructiveColor.opacity(canDelete ? 1 : 0.4))
                             .foregroundStyle(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .disabled(!canDelete)
 
                         Button("Cancel") { dismiss() }
                             .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
                             .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     }
                     .padding(.spacingLg)

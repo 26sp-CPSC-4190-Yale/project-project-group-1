@@ -69,6 +69,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddDeletedAtToUsers())
     app.migrations.add(CreateUserBlocks())
     app.migrations.add(CreateUserReports())
+    app.migrations.add(AddRoomCodeToRooms())
     app.migrations.add(AddPerformanceIndexes())
 
     try await app.autoMigrate()

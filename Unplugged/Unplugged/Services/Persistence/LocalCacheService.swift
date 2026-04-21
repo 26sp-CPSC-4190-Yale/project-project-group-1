@@ -47,21 +47,61 @@ class LocalCacheService {
 
     func readToken() -> String? {
         if didLoadToken { return cachedToken }
+        let token = Self.keychainReadToken(key: tokenKey)
+        cachedToken = token
+        didLoadToken = true
+        return token
+    }
+
+    /// Async variant: performs the keychain read on a background queue so the caller
+    /// never blocks on `SecItemCopyMatching`. `SecItemCopyMatching` can take hundreds
+    /// of milliseconds on a cold keychain — calling it from the MainActor freezes the
+    /// first frame, which then cascades into every subsequent interaction feeling slow.
+    func readTokenAsync() async -> String? {
+        if didLoadToken { return cachedToken }
+        let key = tokenKey
+        let token: String? = await withCheckedContinuation { cont in
+            keychainQueue.async {
+                cont.resume(returning: Self.keychainReadToken(key: key))
+            }
+        }
+        cachedToken = token
+        didLoadToken = true
+        return token
+    }
+
+    /// Kick off an asynchronous keychain prewarm. Safe to call at app launch from the
+    /// MainActor — the actual `SecItemCopyMatching` runs on `keychainQueue`.
+    func prewarmToken() {
+        guard !didLoadToken else { return }
+        let key = tokenKey
+        keychainQueue.async { [weak self] in
+            let token = Self.keychainReadToken(key: key)
+            DispatchQueue.main.async {
+                guard let self, !self.didLoadToken else { return }
+                self.cachedToken = token
+                self.didLoadToken = true
+            }
+        }
+    }
+
+    private static func keychainReadToken(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: tokenKey,
+            kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        didLoadToken = true
-        guard status == errSecSuccess, let data = result as? Data else {
-            cachedToken = nil
-            return nil
-        }
-        cachedToken = String(data: data, encoding: .utf8)
-        return cachedToken
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Fast in-memory snapshot for request construction. This intentionally does not
+    /// fall back to Keychain; API paths must not block the UI on SecItemCopyMatching.
+    func readCachedToken() -> String? {
+        cachedToken
     }
 
     func deleteToken() {
@@ -78,6 +118,11 @@ class LocalCacheService {
     }
 
     var isLoggedIn: Bool { readToken() != nil }
+
+    /// Async version of `isLoggedIn` that avoids blocking the MainActor on the keychain.
+    func isLoggedInAsync() async -> Bool {
+        await readTokenAsync() != nil
+    }
 
     func saveUser(_ user: User) {
         let encoded = try? jsonEncoder.encode(user)
@@ -102,7 +147,7 @@ class LocalCacheService {
         cachedToken = nil
         didLoadToken = true
         let key = tokenKey
-        keychainQueue.sync {
+        keychainQueue.async {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrAccount as String: key

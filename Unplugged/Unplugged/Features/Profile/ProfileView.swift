@@ -11,6 +11,7 @@ struct ProfileView: View {
     var authViewModel: AuthViewModel
     @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = ProfileViewModel()
+    @State private var selectedTab: ProfileViewModel.ProfileTab = .history
 
     var body: some View {
         NavigationStack {
@@ -30,7 +31,7 @@ struct ProfileView: View {
                         .padding(.top, .spacingMd)
 
                         // Tab picker
-                        Picker("", selection: $viewModel.selectedTab) {
+                        Picker("", selection: $selectedTab) {
                             Text("Dashboard").tag(ProfileViewModel.ProfileTab.history)
                             Text("Settings").tag(ProfileViewModel.ProfileTab.settings)
                         }
@@ -38,7 +39,7 @@ struct ProfileView: View {
                         .padding(.horizontal, .spacingLg)
 
                         // Content
-                        switch viewModel.selectedTab {
+                        switch selectedTab {
                         case .history:
                             dashboardContent
                         case .settings:
@@ -112,6 +113,13 @@ struct ProfileView: View {
                     .tint(.secondaryColor)
             }
 
+            Button {
+                viewModel.isShowingEmergencyAppsSheet = true
+            } label: {
+                settingsLabel(icon: "checkmark.shield.fill", title: "Emergency Apps", trailing: "Edit")
+            }
+            .buttonStyle(.plain)
+
             Link(destination: LegalFooter.termsURL) {
                 settingsLabel(icon: "doc.text.fill", title: "Terms of Service", trailing: "↗")
             }
@@ -145,6 +153,7 @@ struct ProfileView: View {
                 .padding(.spacingMd)
                 .background(Color.surfaceColor)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding(.top, .spacingMd)
 
@@ -161,6 +170,7 @@ struct ProfileView: View {
                 .padding(.spacingMd)
                 .background(Color.surfaceColor)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(.horizontal, .spacingLg)
@@ -170,6 +180,9 @@ struct ProfileView: View {
                     await viewModel.deleteAccount(password: password, user: deps.user, auth: authViewModel)
                 }
             )
+        }
+        .sheet(isPresented: $viewModel.isShowingEmergencyAppsSheet) {
+            EmergencyAppsSettingsSheet(screenTime: deps.screenTime)
         }
     }
 
@@ -189,6 +202,7 @@ struct ProfileView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func settingsRow<Trailing: View>(icon: String, title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
@@ -205,6 +219,39 @@ struct ProfileView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct EmergencyAppsSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let screenTime: ScreenTimeService
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    ScreenTimePermissionView(
+                        screenTime: screenTime,
+                        onDone: {}
+                    )
+                    .padding(.horizontal, .spacingXl)
+                    .padding(.vertical, .spacingLg)
+                }
+            }
+            .navigationTitle("Emergency Apps")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
     }
 }
 

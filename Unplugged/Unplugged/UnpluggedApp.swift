@@ -16,13 +16,15 @@ struct UnpluggedApp: App {
         let container = DependencyContainer()
         _container = State(initialValue: container)
         AppDelegate.sharedContainer = container
+        #if DEBUG
+        MainThreadWatchdog.shared.start()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(container)
-                .dismissKeyboardOnTap()
         }
     }
 }

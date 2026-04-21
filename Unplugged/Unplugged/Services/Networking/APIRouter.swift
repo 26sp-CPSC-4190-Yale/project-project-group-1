@@ -98,7 +98,9 @@ enum APIRouter {
             return "/sessions/history" + (comps.string ?? "")
         case .getSession(let id):       return "/sessions/\(id)"
         case .joinSession(let id):      return "/sessions/\(id)/join"
-        case .joinSessionCode(let code): return "/sessions/\(code)/join"
+        case .joinSessionCode(let code):
+            let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? code
+            return "/sessions/\(encoded)/join"
         case .startSession(let id):     return "/sessions/\(id)/start"
         case .endSession(let id):       return "/sessions/\(id)/end"
         case .reportJailbreak(let id, _): return "/sessions/\(id)/jailbreaks"

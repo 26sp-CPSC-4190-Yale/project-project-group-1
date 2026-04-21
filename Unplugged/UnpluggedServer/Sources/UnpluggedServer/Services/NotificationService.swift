@@ -88,13 +88,15 @@ struct NotificationService {
         struct SilentPayload: Codable & Sendable {
             let type: String
             let sessionID: String
-            let endsAt: Date?
+            let endsAt: String?
         }
+
+        let endsAtString = endsAt.map { ISO8601DateFormatter().string(from: $0) }
 
         let notification = APNSBackgroundNotification(
             expiration: .immediately,
             topic: bundleID,
-            payload: SilentPayload(type: type, sessionID: sessionID.uuidString, endsAt: endsAt)
+            payload: SilentPayload(type: type, sessionID: sessionID.uuidString, endsAt: endsAtString)
         )
 
         do {

@@ -16,36 +16,16 @@ struct HomeView: View {
 
                     // Central action area
                     VStack(spacing: .spacingXl) {
-                        Button(action: { viewModel.showCreateRoom = true }) {
-                            VStack(spacing: .spacingSm) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 36, weight: .medium))
-                                    .foregroundStyle(Color.tertiaryColor)
-                            }
+                        homeAction(title: "Create Room", systemImage: "plus") {
+                            viewModel.showCreateRoom = true
                         }
-                        .buttonStyle(LiquidGlassButtonStyle())
-
-                        Text("Create Room")
-                            .font(.headline)
-                            .foregroundStyle(Color.tertiaryColor)
-                            .onTapGesture { viewModel.showCreateRoom = true }
 
                         Spacer()
                             .frame(height: .spacingMd)
 
-                        Button(action: { viewModel.showJoinRoom = true }) {
-                            VStack(spacing: .spacingSm) {
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 36, weight: .medium))
-                                    .foregroundStyle(Color.tertiaryColor)
-                            }
+                        homeAction(title: "Join Room", systemImage: "arrow.right") {
+                            viewModel.showJoinRoom = true
                         }
-                        .buttonStyle(LiquidGlassButtonStyle())
-
-                        Text("Join Room")
-                            .font(.headline)
-                            .foregroundStyle(Color.tertiaryColor)
-                            .onTapGesture { viewModel.showJoinRoom = true }
                     }
 
                     Spacer()
@@ -75,7 +55,13 @@ struct HomeView: View {
                 ) { session in
                     viewModel.showCreateRoom = false
                     viewModel.isHost = true
-                    viewModel.activeSession = session
+                    // Stagger the fullScreenCover presentation so UIKit finishes the
+                    // sheet dismiss animation before it tries to push the new container.
+                    // Presenting both in the same frame causes "containerToPush is nil"
+                    // and compounds the main-thread stall from lobby setup.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        viewModel.activeSession = session
+                    }
                 }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -89,6 +75,40 @@ struct HomeView: View {
                 .environment(deps)
             }
         }
+    }
+
+    private func homeAction(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: .spacingSm) {
+                ZStack {
+                    Circle()
+                        .fill(Color.surfaceColor.opacity(0.7))
+                        .overlay(
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.15), Color.clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(Color.tertiaryColor)
+                }
+                .frame(width: 140, height: 140)
+
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

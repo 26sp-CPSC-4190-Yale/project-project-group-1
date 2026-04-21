@@ -63,6 +63,7 @@ struct ReportUserSheet: View {
                                     .padding(.spacingMd)
                                     .background(Color.surfaceColor)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .contentShape(RoundedRectangle(cornerRadius: 12))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -99,11 +100,14 @@ struct ReportUserSheet: View {
                             .background(Color.destructiveColor.opacity(isSubmitting ? 0.4 : 1))
                             .foregroundStyle(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
                         .disabled(isSubmitting)
 
                         Button("Cancel") { dismiss() }
                             .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
                             .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     }
                     .padding(.spacingLg)

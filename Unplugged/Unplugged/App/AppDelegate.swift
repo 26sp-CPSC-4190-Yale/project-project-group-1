@@ -82,13 +82,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
 
-        MainActor.assumeIsolated {
-            Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(type: type, userInfo: userInfo)
+        Task { @MainActor in
+            let handled = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
+                type: type,
+                userInfo: userInfo
+            ) ?? false
+            // §73: report the actual outcome after the lifecycle work has run.
+            // Completing before the shield attempt can let iOS suspend the app
+            // before the background fallback does the thing it woke up to do.
+            completionHandler(handled ? .newData : .noData)
         }
-        // §73: report the actual outcome. `.newData` is appropriate because we did
-        // update in-app state based on the payload; lying about "new data" when
-        // nothing happened gets the app deprioritized by iOS background scheduling.
-        completionHandler(.newData)
     }
 
     @objc private func appDidBecomeActive() {

@@ -59,6 +59,8 @@ struct GroupsView: View {
                     Button(action: { viewModel.showCreate = true }) {
                         Image(systemName: "plus")
                             .foregroundColor(.tertiaryColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
             }

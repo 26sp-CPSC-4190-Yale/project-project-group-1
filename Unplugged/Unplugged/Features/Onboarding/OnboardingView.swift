@@ -20,9 +20,9 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 // Progress dots
                 HStack(spacing: 8) {
-                    ForEach(OnboardingViewModel.Step.allCases, id: \.self) { step in
+                    ForEach(OnboardingViewModel.Step.progressSteps, id: \.self) { step in
                         Circle()
-                            .fill(step == viewModel.currentStep ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.2))
+                            .fill(isProgressDotActive(step) ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.2))
                             .frame(width: 8, height: 8)
                     }
                 }
@@ -33,12 +33,13 @@ struct OnboardingView: View {
                 // Step content
                 Group {
                     switch viewModel.currentStep {
-                    case .welcome:       welcomeStep
-                    case .ageGate:       ageGateStep
-                    case .notifications: notificationsStep
-                    case .proximity:     proximityStep
-                    case .screenTime:    screenTimeStep
-                    case .emergencyApps: emergencyAppsStep
+                    case .welcome:         welcomeStep
+                    case .notifications:   notificationsStep
+                    case .proximity:       proximityStep
+                    case .proximityDenied: proximityDeniedStep
+                    case .screenTime:      screenTimeStep
+                    case .screenTimeDenied: screenTimeDeniedStep
+                    case .emergencyApps:   emergencyAppsStep
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -50,6 +51,9 @@ struct OnboardingView: View {
             }
             .padding(.horizontal, .spacingXl)
             .animation(.easeInOut(duration: 0.3), value: viewModel.currentStep)
+        }
+        .task(id: viewModel.currentStep) {
+            await handleStepEntry(viewModel.currentStep)
         }
     }
 
@@ -75,60 +79,6 @@ struct OnboardingView: View {
         }
     }
 
-    private var ageGateStep: some View {
-        VStack(spacing: .spacingLg) {
-            Image(systemName: "person.fill.checkmark")
-                .font(.system(size: 64))
-                .foregroundStyle(Color.tertiaryColor)
-
-            VStack(spacing: .spacingMd) {
-                Text("Quick Check")
-                    .font(.title2.bold())
-                    .foregroundStyle(Color.tertiaryColor)
-
-                Text("Unplugged is for ages 13 and up. Are you at least 13 years old?")
-                    .font(.body)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(spacing: .spacingSm) {
-                Button {
-                    viewModel.setAgeGate(.overThirteen)
-                } label: {
-                    Text("Yes, I'm 13 or older")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(viewModel.ageGateState == .overThirteen ? Color.tertiaryColor.opacity(0.6) : Color.tertiaryColor)
-                        .foregroundStyle(Color.primaryColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-
-                Button {
-                    viewModel.setAgeGate(.underThirteen)
-                } label: {
-                    Text("No, I'm under 13")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.tertiaryColor.opacity(0.4), lineWidth: 1)
-                        )
-                        .foregroundStyle(Color.tertiaryColor)
-                }
-            }
-
-            if viewModel.ageGateState == .underThirteen {
-                Text("Sorry — Unplugged isn't available for users under 13. Ask a parent or guardian to review our Terms of Service.")
-                    .font(.caption)
-                    .foregroundStyle(Color.destructiveColor)
-                    .multilineTextAlignment(.center)
-            }
-        }
-    }
-
     private var notificationsStep: some View {
         VStack(spacing: .spacingLg) {
             Image(systemName: "bell.badge.fill")
@@ -146,15 +96,19 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Button("Enable Notifications") {
-                Task { await viewModel.requestNotifications() }
+            permissionStatusView(
+                status: viewModel.notificationPermissionStatus,
+                waitingText: "iOS will ask if Unplugged can send notifications.",
+                grantedText: "Notifications enabled.",
+                deniedText: "Notifications are off. This may hinder your app experience — you won't know when sessions start or end."
+            )
+
+            if viewModel.notificationPermissionStatus == .denied {
+                Text("To enable later, go to:\nSettings → Notifications → Unplugged")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .multilineTextAlignment(.center)
             }
-            .fontWeight(.semibold)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(Color.tertiaryColor)
-            .foregroundStyle(Color.primaryColor)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -171,29 +125,50 @@ struct OnboardingView: View {
 
                 // Be explicit about the distance so users don't expect "same room"
                 // pairing. The UWB gate requires phones pressed together (~10 cm).
-                Text("To join a friend's room, hold your phones back-to-back — about 4 inches apart. iOS will ask for Local Network and Nearby Interaction access; both are required for proximity pairing.")
+                Text("To join a friend's room, hold your phones back-to-back — about 4 inches apart. iOS will ask for Local Network access before your first proximity pair.")
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     .multilineTextAlignment(.center)
             }
 
-            Button {
-                Task { await viewModel.primeProximityPermissions(touchTips: deps.touchTips) }
-            } label: {
-                Text(viewModel.proximityPrimed ? "Allowed" : "Allow Nearby")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(viewModel.proximityPrimed ? Color.tertiaryColor.opacity(0.5) : Color.tertiaryColor)
-                    .foregroundStyle(Color.primaryColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .disabled(viewModel.proximityPrimed)
+            permissionStatusView(
+                status: viewModel.proximityPermissionStatus,
+                waitingText: "iOS may ask for Local Network access.",
+                grantedText: "Local Network access granted.",
+                deniedText: "Local Network access was denied."
+            )
 
             Text("You can still join rooms by entering a 6-character code if proximity isn't available.")
                 .font(.caption)
                 .foregroundStyle(Color.tertiaryColor.opacity(0.6))
                 .multilineTextAlignment(.center)
+        }
+    }
+
+    private var proximityDeniedStep: some View {
+        VStack(spacing: .spacingLg) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 64))
+                .foregroundStyle(Color.destructiveColor)
+
+            VStack(spacing: .spacingMd) {
+                Text("Proximity Pairing Unavailable")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.tertiaryColor)
+
+                Text("Without Local Network access, you won't be able to pair with friends by bringing your phones together. You can still join rooms using a 6-character code.")
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+                Text("To enable proximity pairing later, go to:\nSettings → Privacy & Security → Local Network → Unplugged")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.spacingMd)
+                    .background(Color.surfaceColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
         }
     }
 
@@ -214,28 +189,51 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if !deps.screenTime.isAvailable {
-                Text("Screen Time is unavailable on this device. You can still use Unplugged, but apps won't be blocked.")
+            permissionStatusView(
+                status: viewModel.screenTimePermissionStatus,
+                waitingText: "iOS will ask for Screen Time access.",
+                grantedText: "Screen Time access granted.",
+                deniedText: "Screen Time permission was denied.",
+                unavailableText: "Screen Time is unavailable on this device."
+            )
+
+            if viewModel.screenTimeAuthFailed {
+                Text("Check that Screen Time restrictions aren't enabled.")
+                    .font(.caption)
+                    .foregroundStyle(Color.destructiveColor)
+                    .multilineTextAlignment(.center)
+            }
+        }
+    }
+
+    private var screenTimeDeniedStep: some View {
+        VStack(spacing: .spacingLg) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 64))
+                .foregroundStyle(Color.destructiveColor)
+
+            VStack(spacing: .spacingMd) {
+                Text("App Locking Unavailable")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.tertiaryColor)
+
+                Text("Without Screen Time access, Unplugged can't lock apps during your session. The room will still work, but your phone won't be blocked.")
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
+
+                Text("This significantly reduces the effectiveness of Unplugged sessions.")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Color.destructiveColor.opacity(0.8))
+                    .multilineTextAlignment(.center)
+
+                Text("To enable later, go to:\nSettings → Screen Time → Unplugged")
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.6))
                     .multilineTextAlignment(.center)
-            } else {
-                Button("Allow Screen Time") {
-                    Task { await viewModel.requestScreenTime(service: deps.screenTime) }
-                }
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(Color.tertiaryColor)
-                .foregroundStyle(Color.primaryColor)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                if viewModel.screenTimeAuthFailed {
-                    Text("Couldn't get Screen Time permission. Check that restrictions aren't enabled. You can skip this step.")
-                        .font(.caption)
-                        .foregroundStyle(Color.destructiveColor)
-                        .multilineTextAlignment(.center)
-                }
+                    .padding(.spacingMd)
+                    .background(Color.surfaceColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
     }
@@ -249,38 +247,193 @@ struct OnboardingView: View {
 
     // MARK: - Footer
 
-    private var continueDisabled: Bool {
-        // Age gate is the only hard block. Other steps all accept "continue"
-        // so users can skip optional permissions.
-        viewModel.currentStep == .ageGate && viewModel.ageGateState != .overThirteen
-    }
-
     private var footer: some View {
         HStack {
             if viewModel.currentStep != .welcome {
                 Button("Back") { viewModel.back() }
                     .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                    .disabled(isWaitingForPermission)
             }
             Spacer()
-            Button {
-                if viewModel.currentStep == .emergencyApps {
-                    viewModel.markCompleted()
-                    onFinish()
-                } else {
-                    viewModel.advance()
+            if showsPrimaryFooterButton {
+                Button {
+                    if viewModel.currentStep == .emergencyApps {
+                        viewModel.markCompleted()
+                        onFinish()
+                    } else {
+                        viewModel.advance()
+                    }
+                } label: {
+                    Text(primaryFooterTitle)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, .spacingLg)
+                        .padding(.vertical, 12)
+                        .background(Color.tertiaryColor)
+                        .foregroundStyle(Color.primaryColor)
+                        .clipShape(Capsule())
+                        .contentShape(Capsule())
                 }
-            } label: {
-                Text(viewModel.currentStep == .emergencyApps ? "Get Started" : "Continue")
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, .spacingLg)
-                    .padding(.vertical, 12)
-                    .background(continueDisabled ? Color.tertiaryColor.opacity(0.3) : Color.tertiaryColor)
-                    .foregroundStyle(Color.primaryColor)
-                    .clipShape(Capsule())
             }
-            .disabled(continueDisabled)
         }
         .padding(.bottom, .spacingLg)
+    }
+
+    private var showsPrimaryFooterButton: Bool {
+        switch viewModel.currentStep {
+        case .welcome, .emergencyApps, .proximityDenied, .screenTimeDenied:
+            true
+        case .notifications, .proximity, .screenTime:
+            false
+        }
+    }
+
+    private var primaryFooterTitle: String {
+        switch viewModel.currentStep {
+        case .welcome:
+            "Get Started"
+        case .emergencyApps:
+            "Get Started"
+        case .proximityDenied, .screenTimeDenied:
+            "Continue Anyway"
+        default:
+            "Continue"
+        }
+    }
+
+    private var isWaitingForPermission: Bool {
+        switch viewModel.currentStep {
+        case .notifications:
+            viewModel.notificationPermissionStatus == .notStarted ||
+                viewModel.notificationPermissionStatus == .requesting
+        case .proximity:
+            viewModel.proximityPermissionStatus == .notStarted ||
+                viewModel.proximityPermissionStatus == .requesting
+        case .screenTime:
+            viewModel.screenTimePermissionStatus == .notStarted ||
+                viewModel.screenTimePermissionStatus == .requesting
+        case .welcome, .emergencyApps, .proximityDenied, .screenTimeDenied:
+            false
+        }
+    }
+
+    @MainActor
+    private func handleStepEntry(_ step: OnboardingViewModel.Step) async {
+        switch step {
+        case .welcome, .emergencyApps, .proximityDenied, .screenTimeDenied:
+            return
+        case .notifications:
+            switch viewModel.notificationPermissionStatus {
+            case .notStarted:
+                guard await waitBeforePromptIfNeeded(true) else { return }
+                _ = await viewModel.requestNotifications()
+                await pauseThenAdvanceIfStillCurrent(step)
+            case .requesting:
+                return
+            case .granted, .denied, .unavailable:
+                await pauseThenAdvanceIfStillCurrent(step)
+            }
+        case .proximity:
+            switch viewModel.proximityPermissionStatus {
+            case .notStarted:
+                guard await waitBeforePromptIfNeeded(true) else { return }
+                _ = await viewModel.primeProximityPermissions(touchTips: deps.touchTips)
+                await pauseThenAdvanceIfStillCurrent(step)
+            case .requesting:
+                return
+            case .granted, .denied, .unavailable:
+                await pauseThenAdvanceIfStillCurrent(step)
+            }
+        case .screenTime:
+            switch viewModel.screenTimePermissionStatus {
+            case .notStarted:
+                guard await waitBeforePromptIfNeeded(true) else { return }
+                _ = await viewModel.requestScreenTime(service: deps.screenTime)
+                await pauseThenAdvanceIfStillCurrent(step)
+            case .requesting:
+                return
+            case .granted, .denied, .unavailable:
+                await pauseThenAdvanceIfStillCurrent(step)
+            }
+        }
+    }
+
+    private func waitBeforePromptIfNeeded(_ shouldWait: Bool) async -> Bool {
+        guard shouldWait else { return true }
+        do {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            return !Task.isCancelled
+        } catch {
+            return false
+        }
+    }
+
+    @MainActor
+    private func advanceIfStillCurrent(_ step: OnboardingViewModel.Step) {
+        guard !Task.isCancelled, viewModel.currentStep == step else { return }
+        viewModel.advance()
+    }
+
+    @MainActor
+    private func pauseThenAdvanceIfStillCurrent(_ step: OnboardingViewModel.Step) async {
+        // Brief pause so the user sees the granted/denied status before
+        // the page transitions.
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        advanceIfStillCurrent(step)
+    }
+
+    /// Maps the current step to its progress-dot milestone so that denied
+    /// sub-pages light up the same dot as the parent permission step.
+    private func isProgressDotActive(_ dotStep: OnboardingViewModel.Step) -> Bool {
+        let current = viewModel.currentStep
+        switch current {
+        case .proximityDenied: return dotStep == .proximity
+        case .screenTimeDenied: return dotStep == .screenTime
+        default: return dotStep == current
+        }
+    }
+
+    @ViewBuilder
+    private func permissionStatusView(
+        status: OnboardingViewModel.PermissionPromptStatus,
+        waitingText: String,
+        grantedText: String,
+        deniedText: String,
+        unavailableText: String? = nil
+    ) -> some View {
+        switch status {
+        case .notStarted, .requesting:
+            HStack(spacing: .spacingSm) {
+                ProgressView()
+                    .tint(Color.tertiaryColor)
+                Text(waitingText)
+            }
+            .permissionStatusStyle(color: Color.tertiaryColor.opacity(0.7))
+        case .granted:
+            Label(grantedText, systemImage: "checkmark.circle.fill")
+                .permissionStatusStyle(color: Color.tertiaryColor)
+        case .denied:
+            Label(deniedText, systemImage: "exclamationmark.circle.fill")
+                .permissionStatusStyle(color: Color.destructiveColor)
+        case .unavailable:
+            Label(unavailableText ?? deniedText, systemImage: "info.circle.fill")
+                .permissionStatusStyle(color: Color.tertiaryColor.opacity(0.7))
+        }
+    }
+}
+
+private extension View {
+    func permissionStatusStyle(color: Color) -> some View {
+        self
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, .spacingMd)
+            .padding(.vertical, 12)
+            .background(Color.tertiaryColor.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

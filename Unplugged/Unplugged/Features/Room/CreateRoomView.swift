@@ -8,11 +8,21 @@ struct CreateRoomView: View {
     var onCreateRoom: (SessionResponse) -> Void
 
     @State private var viewModel = CreateRoomViewModel()
+    @State private var roomName = ""
     @State private var showDiscardConfirmation = false
+    @State private var createTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
+    private var trimmedRoomName: String {
+        roomName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var hasUnsavedInput: Bool {
-        !viewModel.roomName.trimmingCharacters(in: .whitespaces).isEmpty
+        !trimmedRoomName.isEmpty
+    }
+
+    private var canCreate: Bool {
+        !trimmedRoomName.isEmpty && !viewModel.isCreating
     }
 
     var body: some View {
@@ -61,12 +71,16 @@ struct CreateRoomView: View {
                         .font(.subheadline)
                         .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-                    TextField("", text: $viewModel.roomName, prompt: Text("Enter room name").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                    TextField("", text: $roomName, prompt: Text("Enter room name").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
                         .font(.body)
                         .foregroundStyle(Color.tertiaryColor)
+                        .submitLabel(.done)
                         .padding(14)
                         .background(Color.surfaceColor)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onChange(of: roomName) { _, _ in
+                            ResponsivenessDiagnostics.event("room_name_type")
+                        }
                 }
 
                 // Duration
@@ -87,6 +101,7 @@ struct CreateRoomView: View {
                                     .background(viewModel.selectedDuration == duration ? Color.tertiaryColor : Color.surfaceColor)
                                     .foregroundStyle(viewModel.selectedDuration == duration ? Color.primaryColor : .tertiaryColor)
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .contentShape(RoundedRectangle(cornerRadius: 10))
                             }
                         }
                     }
@@ -98,8 +113,10 @@ struct CreateRoomView: View {
                 // (ActiveRoomView) — that view owns the room code display,
                 // member list, proximity advertising, and the lock action.
                 Button {
-                    Task {
-                        await viewModel.createRoom(sessions: sessions)
+                    createTask?.cancel()
+                    createTask = Task {
+                        await viewModel.createRoom(title: trimmedRoomName, sessions: sessions)
+                        guard !Task.isCancelled else { return }
                         if let session = viewModel.createdSession {
                             onCreateRoom(session)
                         }
@@ -115,14 +132,19 @@ struct CreateRoomView: View {
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(viewModel.canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                    .background(canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
                     .foregroundStyle(Color.primaryColor)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .disabled(!viewModel.canCreate)
+                .disabled(!canCreate)
             }
             .padding(.horizontal, .spacingLg)
             .padding(.top, .spacingMd)
+        }
+        .onDisappear {
+            createTask?.cancel()
+            createTask = nil
         }
     }
 

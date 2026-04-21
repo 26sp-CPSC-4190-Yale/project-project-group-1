@@ -26,8 +26,9 @@ struct APIClient {
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 12
+        config.waitsForConnectivity = false
         return URLSession(configuration: config)
     }()
 
@@ -54,9 +55,10 @@ struct APIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = route.method.rawValue
+        request.timeoutInterval = 8
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if route.requiresAuth, let token = cache.readToken() {
+        if route.requiresAuth, let token = cache.readCachedToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

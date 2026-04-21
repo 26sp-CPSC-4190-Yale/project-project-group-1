@@ -36,16 +36,22 @@ final class SessionOrchestrator {
 
     private let sessions: SessionAPIService
     private let recap: RecapAPIService
-    private let screenTime: ScreenTimeService
+    private let screenTime: any ScreenTimeProviding
     private let cache: LocalCacheService
     private let webSocket: WebSocketClient
 
     private var listenerTask: Task<Void, Never>?
     private var jailbreakWatchdog: Task<Void, Never>?
+    private var sessionSyncTask: Task<Void, Never>?
+    private var lastShieldWarningSessionID: UUID?
+    private var lastShieldWarningEndsAt: Date?
+    private var lastShieldWarningMessage: String?
+    private var appliedShieldSessionID: UUID?
+    private var appliedShieldEndsAt: Date?
 
     init(sessions: SessionAPIService,
          recap: RecapAPIService,
-         screenTime: ScreenTimeService,
+         screenTime: any ScreenTimeProviding,
          cache: LocalCacheService,
          webSocket: WebSocketClient) {
         self.sessions = sessions
@@ -60,18 +66,15 @@ final class SessionOrchestrator {
     /// Called after a host or guest has a `SessionResponse` in hand. Puts the device
     /// into lobby mode and opens the WebSocket.
     func enterLobby(session: SessionResponse) async {
-        self.currentSession = session
-        self.participants = session.participants
-        self.phase = session.session.lockedAt == nil ? .lobby : .locked
-        self.countdownEndsAt = session.session.endsAt
-        // If a guest joins (or rejoins) a session that's already locked, we
-        // have to engage the shield from here — the server's WS broadcast of
-        // `sessionLocked` fired before we were subscribed, so we'd otherwise
-        // sit in a locked phase with no actual shielding.
-        if session.session.lockedAt != nil, let endsAt = session.session.endsAt {
-            await engageShield(endsAt: endsAt)
-        }
+        let span = ResponsivenessDiagnostics.begin("enter_lobby")
+        defer { span.end() }
+
+        let shouldConnect = currentSession?.session.id != session.session.id
+        await applySessionSnapshot(session)
+        guard session.session.endedAt == nil else { return }
+        guard shouldConnect else { return }
         await connectWebSocket(sessionID: session.session.id)
+        startSessionSync(sessionID: session.session.id)
     }
 
     /// Host-only. Tells the server to lock the room for all members. The server will
@@ -80,12 +83,7 @@ final class SessionOrchestrator {
         guard let session = currentSession else { return }
         do {
             let updated = try await sessions.startSession(id: session.session.id)
-            self.currentSession = updated
-            if let endsAt = updated.session.endsAt {
-                self.countdownEndsAt = endsAt
-                self.phase = .locked
-                await engageShield(endsAt: endsAt)
-            }
+            await applySessionSnapshot(updated)
         } catch {
             errorMessage = "Couldn't start the session: \(error)"
         }
@@ -104,10 +102,19 @@ final class SessionOrchestrator {
 
     /// Called from `AppDelegate` when a silent APNs push arrives. Silent push is the
     /// fallback path when the WebSocket isn't connected (app suspended/killed).
-    func applyRemoteLock(endsAt: Date) async {
-        self.countdownEndsAt = endsAt
-        self.phase = .locked
-        await engageShield(endsAt: endsAt)
+    func applyRemoteLock(sessionID: UUID?, endsAt: Date) async {
+        if let sessionID {
+            startSessionSync(sessionID: sessionID)
+            if let response = try? await sessions.getSession(id: sessionID) {
+                await applySessionSnapshot(response)
+                return
+            }
+        }
+        await applyLocked(endsAt: endsAt)
+    }
+
+    func applyRemoteEnd(sessionID: UUID?) async {
+        await handleSessionEnded()
     }
 
     /// Cancel all in-flight work (WebSocket listener, jailbreak watchdog) and close the
@@ -116,6 +123,7 @@ final class SessionOrchestrator {
     /// the listener open spins indefinitely against a stale identity until the TCP drops.
     func teardown() async {
         stopJailbreakWatchdog()
+        stopSessionSync()
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
@@ -130,26 +138,31 @@ final class SessionOrchestrator {
         countdownEndsAt = nil
         errorMessage = nil
         lastRecap = nil
+        resetShieldTracking()
     }
 
-    func handleRemotePayload(type: String, userInfo: [AnyHashable: Any]) {
+    @discardableResult
+    func handleRemotePayload(type: String, userInfo: [AnyHashable: Any]) async -> Bool {
+        let sessionID = Self.payloadUUID(from: userInfo["sessionID"])
         switch type {
         case "session_locked":
-            if let iso = userInfo["endsAt"] as? String,
-               let endsAt = ISO8601DateFormatter().date(from: iso) {
-                Task { await applyRemoteLock(endsAt: endsAt) }
+            if let endsAt = Self.payloadDate(from: userInfo["endsAt"]) {
+                await applyRemoteLock(sessionID: sessionID, endsAt: endsAt)
+                return true
             }
         case "session_ended":
-            Task { await handleSessionEnded() }
+            await applyRemoteEnd(sessionID: sessionID)
+            return true
         default:
             break
         }
+        return false
     }
 
     // MARK: - WebSocket plumbing
 
     private func connectWebSocket(sessionID: UUID) async {
-        guard let token = cache.readToken() else { return }
+        guard let token = cache.readCachedToken() else { return }
         listenerTask?.cancel()
         let stream = await webSocket.connect(sessionID: sessionID, token: token)
         listenerTask = Task { [weak self] in
@@ -169,32 +182,11 @@ final class SessionOrchestrator {
         case .participantLeft(let userID):
             participants.removeAll { $0.userID == userID }
         case .sessionStarted(let endsAt), .sessionLocked(let endsAt):
-            self.countdownEndsAt = endsAt
-            self.phase = .locked
-            await engageShield(endsAt: endsAt)
+            await applyLocked(endsAt: endsAt)
         case .sessionEnded:
             await handleSessionEnded()
         case .stateSync(let response):
-            self.currentSession = response
-            self.participants = response.participants
-            if let endsAt = response.session.endsAt {
-                self.countdownEndsAt = endsAt
-            }
-            if response.session.endedAt != nil {
-                self.phase = .ended
-            } else if response.session.lockedAt != nil {
-                self.phase = .locked
-                // stateSync is the server's "here's where you are" catch-up
-                // on connect/reconnect. If the room is already locked by the
-                // time we hear back, engage the shield now — we missed the
-                // live `.sessionLocked` broadcast. Guests rejoining after a
-                // network blip would otherwise sit locked-but-unshielded.
-                if let endsAt = response.session.endsAt {
-                    await engageShield(endsAt: endsAt)
-                }
-            } else {
-                self.phase = .lobby
-            }
+            await applySessionSnapshot(response)
         case .jailbreakReported:
             break
         case .error(let message):
@@ -202,20 +194,114 @@ final class SessionOrchestrator {
         }
     }
 
+    // MARK: - State reconciliation
+
+    private func startSessionSync(sessionID: UUID) {
+        sessionSyncTask?.cancel()
+        sessionSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.reconcileSession(sessionID: sessionID)
+                let delay = await self.sessionSyncDelayNanos()
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
+    private func stopSessionSync() {
+        sessionSyncTask?.cancel()
+        sessionSyncTask = nil
+    }
+
+    private func sessionSyncDelayNanos() -> UInt64 {
+        switch phase {
+        case .idle, .lobby:
+            3_000_000_000
+        case .locked:
+            15_000_000_000
+        case .ended:
+            15_000_000_000
+        }
+    }
+
+    private func reconcileSession(sessionID: UUID) async {
+        guard phase != .ended else {
+            stopSessionSync()
+            return
+        }
+        do {
+            let response = try await sessions.getSession(id: sessionID)
+            await applySessionSnapshot(response)
+        } catch {
+            // The WebSocket remains the primary real-time path; transient polling
+            // failures should not block the room UI or spam alerts.
+        }
+    }
+
+    private func applySessionSnapshot(_ response: SessionResponse) async {
+        self.currentSession = response
+        self.participants = response.participants
+        self.countdownEndsAt = response.session.endsAt
+
+        if response.session.endedAt != nil {
+            await handleSessionEnded()
+        } else if response.session.lockedAt != nil {
+            self.phase = .locked
+            if let endsAt = response.session.endsAt {
+                await engageShield(endsAt: endsAt)
+            } else {
+                errorMessage = "This room is locked, but the server did not send an end time."
+            }
+        } else {
+            self.phase = .lobby
+        }
+    }
+
+    private func applyLocked(endsAt: Date) async {
+        self.countdownEndsAt = endsAt
+        self.phase = .locked
+        await engageShield(endsAt: endsAt)
+    }
+
     // MARK: - Shield + recap
 
     private func engageShield(endsAt: Date) async {
+        let sessionID = currentSession?.session.id
+        if shieldMatches(sessionID: sessionID, endsAt: endsAt, trackedSessionID: appliedShieldSessionID, trackedEndsAt: appliedShieldEndsAt) {
+            startJailbreakWatchdog()
+            return
+        }
+
+        guard endsAt > Date() else {
+            setShieldWarning("This session has already ended.", sessionID: sessionID, endsAt: endsAt)
+            return
+        }
+
+        guard screenTime.isAvailable else {
+            setShieldWarning("Screen Time is unavailable on this device, so apps can't be blocked.", sessionID: sessionID, endsAt: endsAt)
+            return
+        }
+
+        guard screenTime.isAuthorized else {
+            setShieldWarning("Screen Time permission is required before Unplugged can lock apps.", sessionID: sessionID, endsAt: endsAt)
+            return
+        }
+
         do {
             try await screenTime.lockApps(endsAt: endsAt)
+            appliedShieldSessionID = sessionID
+            appliedShieldEndsAt = endsAt
+            startJailbreakWatchdog()
         } catch {
-            errorMessage = "Couldn't engage the shield."
+            setShieldWarning("Couldn't engage the shield.", sessionID: sessionID, endsAt: endsAt)
         }
-        startJailbreakWatchdog()
     }
 
     private func handleSessionEnded() async {
         stopJailbreakWatchdog()
+        stopSessionSync()
         try? await screenTime.unlockApps()
+        resetShieldTracking()
         self.phase = .ended
         if let id = currentSession?.session.id {
             do {
@@ -227,6 +313,35 @@ final class SessionOrchestrator {
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
+    }
+
+    private func resetShieldTracking() {
+        lastShieldWarningSessionID = nil
+        lastShieldWarningEndsAt = nil
+        lastShieldWarningMessage = nil
+        appliedShieldSessionID = nil
+        appliedShieldEndsAt = nil
+    }
+
+    private func setShieldWarning(_ message: String, sessionID: UUID?, endsAt: Date) {
+        guard !shieldMatches(sessionID: sessionID, endsAt: endsAt, trackedSessionID: lastShieldWarningSessionID, trackedEndsAt: lastShieldWarningEndsAt)
+                || lastShieldWarningMessage != message else {
+            return
+        }
+        lastShieldWarningSessionID = sessionID
+        lastShieldWarningEndsAt = endsAt
+        lastShieldWarningMessage = message
+        errorMessage = message
+    }
+
+    private func shieldMatches(
+        sessionID: UUID?,
+        endsAt: Date,
+        trackedSessionID: UUID?,
+        trackedEndsAt: Date?
+    ) -> Bool {
+        guard trackedSessionID == sessionID, let trackedEndsAt else { return false }
+        return abs(trackedEndsAt.timeIntervalSince(endsAt)) < 1
     }
 
     // MARK: - Jailbreak watchdog
@@ -257,5 +372,35 @@ final class SessionOrchestrator {
 
     private func isShieldStillAuthorized() async -> Bool {
         screenTime.isAuthorized || !screenTime.isAvailable
+    }
+
+    private static func payloadUUID(from value: Any?) -> UUID? {
+        if let uuid = value as? UUID {
+            return uuid
+        }
+        if let string = value as? String {
+            return UUID(uuidString: string)
+        }
+        return nil
+    }
+
+    private static func payloadDate(from value: Any?) -> Date? {
+        if let date = value as? Date {
+            return date
+        }
+        if let string = value as? String {
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: string) {
+                return date
+            }
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: string)
+        }
+        if let number = value as? NSNumber {
+            let raw = number.doubleValue
+            let seconds = raw > 10_000_000_000 ? raw / 1_000 : raw
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return nil
     }
 }

@@ -84,6 +84,7 @@ struct UsernameLoginView: View {
                         .background(username.isEmpty || password.isEmpty ? Color.tertiaryColor.opacity(0.3) : Color.tertiaryColor)
                         .foregroundStyle(Color.primaryColor)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
                         .disabled(username.isEmpty || password.isEmpty || viewModel.isLoading)
 
                         Button(isRegistering ? "Already have an account? Sign in" : "Don't have an account? Create one") {
@@ -91,6 +92,9 @@ struct UsernameLoginView: View {
                             viewModel.errorMessage = nil
                         }
                         .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
                         .foregroundStyle(Color.secondaryColor)
 
                         // App Store guideline 5.1.1(v) + 3.1.2: ToS and Privacy Policy

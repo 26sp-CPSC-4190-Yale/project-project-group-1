@@ -12,12 +12,11 @@ import UnpluggedShared
 @MainActor
 @Observable
 class ProfileViewModel {
-    var selectedTab: ProfileTab = .history
-
     var userName: String = ""
     var stats: UserStatsResponse?
     var isLoading = false
     var error: String?
+    var isShowingEmergencyAppsSheet = false
 
     // Account deletion
     var isShowingDeleteAccountSheet = false

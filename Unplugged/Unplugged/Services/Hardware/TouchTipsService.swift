@@ -39,6 +39,7 @@
 import Foundation
 import MultipeerConnectivity
 import NearbyInteraction
+import Network
 import UnpluggedShared
 
 actor TouchTipsService {
@@ -100,30 +101,13 @@ actor TouchTipsService {
     }
 
     /// Trigger the OS Local Network permission dialog during onboarding so the first
-    /// real pairing attempt doesn't silently fail. iOS gates `MCNearbyServiceBrowser`
-    /// and `MCNearbyServiceAdvertiser` behind Local Network permission; if the user
-    /// hasn't been prompted yet, both `startBrowsingForPeers` and `startAdvertisingPeer`
-    /// no-op and the system only shows the dialog on the first call.
-    ///
-    /// This method briefly starts a browser (no pairing, no discovery delegate wired up
-    /// meaningfully) purely to surface the dialog, then tears it down. Safe to call
-    /// multiple times — iOS only shows the prompt once.
-    func primeLocalNetworkPermission() async {
+    /// real pairing attempt doesn't silently fail. The Bonjour browser resolves only
+    /// after iOS has accepted or denied local-network access, which lets onboarding
+    /// wait for the user's actual choice before moving forward.
+    func primeLocalNetworkPermission() async -> Bool {
         stopInternal(keepContinuation: false)
 
-        let peerID = MCPeerID(displayName: "unplugged-prime-\(UUID().uuidString.prefix(4))")
-        let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: ProximityConstants.serviceType)
-        browser.delegate = bridge
-        browser.startBrowsingForPeers()
-        self.browser = browser
-        self.localPeerID = peerID
-
-        // Hold the browser open just long enough for the OS to surface the permission
-        // prompt. Too short and the prompt never appears; too long and we pointlessly
-        // burn battery. ~800ms is enough on device.
-        try? await Task.sleep(nanoseconds: 800_000_000)
-
-        stopInternal(keepContinuation: false)
+        return await Self.requestLocalNetworkPermission()
     }
 
     // MARK: - Init (wire up delegate bridge)
@@ -346,6 +330,71 @@ actor TouchTipsService {
             continuation = nil
             didYield = false
         }
+    }
+}
+
+private extension TouchTipsService {
+    static func requestLocalNetworkPermission() async -> Bool {
+        await withCheckedContinuation { continuation in
+            let parameters = NWParameters.tcp
+            parameters.includePeerToPeer = true
+
+            let bonjourType = "_\(ProximityConstants.serviceType)._tcp"
+            let browser = NWBrowser(
+                for: .bonjour(type: bonjourType, domain: nil),
+                using: parameters
+            )
+            let queue = DispatchQueue(label: "com.unplugged.local-network-permission")
+            var didFinish = false
+
+            let finish: (Bool) -> Void = { allowed in
+                guard !didFinish else { return }
+                didFinish = true
+                browser.cancel()
+                continuation.resume(returning: allowed)
+            }
+
+            browser.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    // Browser started — Local Network access is granted.
+                    finish(true)
+
+                case .waiting(let error):
+                    if error.isLocalNetworkDenied {
+                        // NWBrowser fires .waiting(EPERM) IMMEDIATELY on start,
+                        // BEFORE the iOS permission dialog even appears. We MUST
+                        // NOT treat this as a definitive denial. Instead, defer
+                        // the denial: if .ready arrives within 5 seconds (user
+                        // tapped Allow), finish(true) wins because didFinish
+                        // guards against double-resume. If .ready never arrives
+                        // (user denied or was already denied), the deferred
+                        // finish(false) fires after 5 seconds.
+                        queue.asyncAfter(deadline: .now() + 5) {
+                            finish(false)
+                        }
+                    }
+
+                case .failed(let error):
+                    // .failed is a terminal state — the browser won't recover.
+                    finish(!error.isLocalNetworkDenied)
+
+                case .cancelled:
+                    break
+                default:
+                    break
+                }
+            }
+
+            browser.start(queue: queue)
+        }
+    }
+}
+
+private extension NWError {
+    var isLocalNetworkDenied: Bool {
+        guard case .posix(let code) = self else { return false }
+        return code == .EPERM
     }
 }
 

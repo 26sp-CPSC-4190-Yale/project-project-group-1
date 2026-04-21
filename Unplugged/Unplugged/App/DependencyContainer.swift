@@ -26,8 +26,12 @@ class DependencyContainer {
 
     init() {
         let cache = LocalCacheService()
-        // Pre-warm the keychain cache so no future readToken() call blocks on SecItemCopyMatching.
-        let _ = cache.readToken()
+        // Pre-warm the keychain cache off the main thread. SecItemCopyMatching can take
+        // several hundred milliseconds on a cold keychain and `UnpluggedApp.init` runs on
+        // the MainActor, so doing the read inline freezes the first frame. prewarmToken()
+        // dispatches the read onto a background queue and publishes the result back to
+        // the cache when it lands.
+        cache.prewarmToken()
         let client = APIClient(cache: cache)
         let screenTime = ScreenTimeService()
         let webSocket = WebSocketClient()

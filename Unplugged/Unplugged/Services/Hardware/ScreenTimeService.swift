@@ -30,13 +30,21 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     private let groupDefaults: UserDefaults?
 
     #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
+    private let allowlistRepository: ScreenTimeAllowlistRepository
     private let store = ManagedSettingsStore(named: .init(ScreenTimeService.storeName))
     private let center = DeviceActivityCenter()
     private let activityName = DeviceActivityName(ScreenTimeService.monitorName)
     #endif
 
     init() {
-        self.groupDefaults = UserDefaults(suiteName: Self.appGroup)
+        let defaults = UserDefaults(suiteName: Self.appGroup)
+        self.groupDefaults = defaults
+        #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
+        self.allowlistRepository = ScreenTimeAllowlistRepository(
+            defaults: defaults,
+            key: Self.allowlistKey
+        )
+        #endif
     }
 
     var isAvailable: Bool {
@@ -81,16 +89,21 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable, isAuthorized else { return }
 
-        let allowedTokens: Set<ApplicationToken> = {
-            guard let archived = loadEmergencyAllowlist() else { return [] }
-            guard let selection = try? PropertyListDecoder().decode(
-                FamilyActivitySelection.self, from: archived) else { return [] }
-            return selection.applicationTokens
-        }()
+        let allowlist = (await allowlistRepository.load()).allowlist
+        let emergencySelection = allowlist.selection
+        let allowedAppTokens = emergencySelection.applicationTokens
+        let allowedWebDomains = emergencySelection.webDomains
 
+        // Do not use ApplicationSettings.blockedApplications for session locking.
+        // That API hides apps from the Home Screen and iOS can restore them in a
+        // different order afterward. Shield settings block access without mutating
+        // the user's Home Screen layout.
+        store.application.blockedApplications = nil
         store.shield.applications = nil
-        store.shield.applicationCategories = .all(except: allowedTokens)
-        store.shield.webDomainCategories = .all()
+        store.shield.webDomains = nil
+        store.shield.applicationCategories = .all(except: allowedAppTokens)
+        store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
+        store.webContent.blockedByFilter = .all(except: allowedWebDomains)
 
         let calendar = Calendar.current
         let start = calendar.dateComponents([.hour, .minute, .second], from: Date())
@@ -109,10 +122,23 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     func unlockApps() async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable else { return }
+        store.application.blockedApplications = nil
         store.shield.applications = nil
         store.shield.applicationCategories = nil
+        store.shield.webDomains = nil
         store.shield.webDomainCategories = nil
+        store.webContent.blockedByFilter = nil
         center.stopMonitoring([activityName])
         #endif
     }
+
+    #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
+    func loadEmergencyAllowlistSnapshot() async -> ScreenTimeAllowlistSnapshot {
+        await allowlistRepository.load()
+    }
+
+    func saveEmergencyAllowlist(_ allowlist: ScreenTimeEmergencyAllowlist) async throws {
+        try await allowlistRepository.save(allowlist)
+    }
+    #endif
 }
