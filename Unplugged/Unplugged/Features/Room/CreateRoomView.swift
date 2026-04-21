@@ -12,7 +12,7 @@ struct CreateRoomView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var hasUnsavedInput: Bool {
-        viewModel.createdSession == nil && !viewModel.roomName.trimmingCharacters(in: .whitespaces).isEmpty
+        !viewModel.roomName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
@@ -21,13 +21,9 @@ struct CreateRoomView: View {
                 Color.primaryColor.opacity(0.85)
                     .ignoresSafeArea()
 
-                if let session = viewModel.createdSession {
-                    awaitingJoinView(session: session)
-                } else {
-                    createFormView
-                }
+                createFormView
             }
-            .navigationTitle(viewModel.createdSession == nil ? "Create Room" : "Waiting for Players")
+            .navigationTitle("Create Room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
@@ -54,9 +50,6 @@ struct CreateRoomView: View {
             }
         }
         .errorAlert($viewModel.error)
-        .onDisappear {
-            viewModel.stopAdvertising(touchTips: touchTips)
-        }
     }
 
     private var createFormView: some View {
@@ -101,80 +94,35 @@ struct CreateRoomView: View {
 
                 Spacer(minLength: .spacingXl)
 
-                // Create button
+                // Create button hands straight off to the unified lobby
+                // (ActiveRoomView) — that view owns the room code display,
+                // member list, proximity advertising, and the lock action.
                 Button {
                     Task {
                         await viewModel.createRoom(sessions: sessions)
                         if let session = viewModel.createdSession {
-                            await viewModel.startAdvertising(
-                                touchTips: touchTips,
-                                roomID: session.session.id
-                            )
+                            onCreateRoom(session)
                         }
                     }
                 } label: {
-                    Text("Create")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(viewModel.canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
-                        .foregroundStyle(Color.primaryColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Group {
+                        if viewModel.isCreating {
+                            ProgressView().tint(.primaryColor)
+                        } else {
+                            Text("Create")
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(viewModel.canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                    .foregroundStyle(Color.primaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .disabled(!viewModel.canCreate)
             }
             .padding(.horizontal, .spacingLg)
             .padding(.top, .spacingMd)
-        }
-    }
-
-    private func awaitingJoinView(session: SessionResponse) -> some View {
-        VStack(spacing: .spacingLg) {
-            Spacer()
-
-            Image(systemName: "iphone.radiowaves.left.and.right")
-                .font(.system(size: 64))
-                .foregroundStyle(Color.tertiaryColor)
-                .symbolEffect(.pulse, isActive: viewModel.isAdvertising)
-
-            Text("Bring phones together to invite")
-                .font(.body)
-                .foregroundStyle(Color.tertiaryColor.opacity(0.7))
-
-            Spacer()
-
-            // Room Code card
-            VStack(spacing: 6) {
-                Text("Room Code")
-                    .font(.caption)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
-
-                Text(session.session.id.uuidString.prefix(8).uppercased())
-                    .font(.system(size: 32, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color.tertiaryColor)
-                    .kerning(4)
-            }
-            .padding(.spacingLg)
-            .frame(maxWidth: .infinity)
-            .background(Color.surfaceColor)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .padding(.horizontal, .spacingLg)
-
-            Spacer()
-
-            Button {
-                onCreateRoom(session)
-            } label: {
-                Text("Start Room")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.tertiaryColor)
-                    .foregroundStyle(Color.primaryColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .padding(.horizontal, .spacingLg)
-            .padding(.bottom, .spacingMd)
         }
     }
 

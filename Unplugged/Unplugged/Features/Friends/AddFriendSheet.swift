@@ -22,35 +22,36 @@ class AddFriendViewModel {
     func search(usersService: UserAPIService) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
+            searchTask?.cancel()
+            searchTask = nil
             users = []
             error = nil
+            isSearching = false
             return
         }
 
         searchTask?.cancel()
         isSearching = true
 
-        searchTask = Task.detached { [weak self] in
+        // A plain Task inherits the @MainActor context from the caller. We
+        // don't need Task.detached + MainActor.run ping-pong: Task.sleep is
+        // cooperatively yielding, and the network call awaits on a background
+        // URLSession queue. Typing-fast on older hardware (iOS 17.6) was
+        // paying the cost of spinning up a detached task per keystroke and
+        // re-hopping to the main actor for every state update.
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, !Task.isCancelled else { return }
             do {
-                try await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce off main actor
-                guard !Task.isCancelled else { return }
-
                 let results = try await usersService.searchUsers(query: query)
                 guard !Task.isCancelled else { return }
-
-                await MainActor.run {
-                    self?.users = results
-                    self?.isSearching = false
-                    self?.error = nil
-                }
+                self.users = results
+                self.error = nil
             } catch {
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        self?.error = "Could not search users"
-                        self?.isSearching = false
-                    }
-                }
+                guard !Task.isCancelled else { return }
+                self.error = "Could not search users"
             }
+            self.isSearching = false
         }
     }
 }

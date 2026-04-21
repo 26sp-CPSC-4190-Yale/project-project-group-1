@@ -64,6 +64,13 @@ final class SessionOrchestrator {
         self.participants = session.participants
         self.phase = session.session.lockedAt == nil ? .lobby : .locked
         self.countdownEndsAt = session.session.endsAt
+        // If a guest joins (or rejoins) a session that's already locked, we
+        // have to engage the shield from here — the server's WS broadcast of
+        // `sessionLocked` fired before we were subscribed, so we'd otherwise
+        // sit in a locked phase with no actual shielding.
+        if session.session.lockedAt != nil, let endsAt = session.session.endsAt {
+            await engageShield(endsAt: endsAt)
+        }
         await connectWebSocket(sessionID: session.session.id)
     }
 
@@ -177,6 +184,14 @@ final class SessionOrchestrator {
                 self.phase = .ended
             } else if response.session.lockedAt != nil {
                 self.phase = .locked
+                // stateSync is the server's "here's where you are" catch-up
+                // on connect/reconnect. If the room is already locked by the
+                // time we hear back, engage the shield now — we missed the
+                // live `.sessionLocked` broadcast. Guests rejoining after a
+                // network blip would otherwise sit locked-but-unshielded.
+                if let endsAt = response.session.endsAt {
+                    await engageShield(endsAt: endsAt)
+                }
             } else {
                 self.phase = .lobby
             }

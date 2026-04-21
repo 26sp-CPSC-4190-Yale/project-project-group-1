@@ -64,10 +64,25 @@ struct ActiveRoomView: View {
         }
         .task {
             await orchestrator.enterLobby(session: initialSession)
+            // Host keeps the room advertisable during the lobby phase so late
+            // joiners can still pair via proximity while watching the member
+            // list fill up. Advertising stops when the host locks (below) or
+            // the view is dismissed.
+            if isHost {
+                try? await deps.touchTips.activate(roomID: initialSession.session.id)
+            }
         }
         .onChange(of: orchestrator.phase) { _, newPhase in
             if newPhase == .ended {
                 viewModel.showRecap = true
+            }
+            if newPhase == .locked, isHost {
+                Task { await deps.touchTips.stop() }
+            }
+        }
+        .onDisappear {
+            if isHost {
+                Task { await deps.touchTips.stop() }
             }
         }
         .sheet(isPresented: $viewModel.showRecap) {
@@ -142,14 +157,7 @@ struct ActiveRoomView: View {
                          orchestrator: SessionOrchestrator) -> some View {
         switch phase {
         case .idle, .lobby:
-            VStack(spacing: .spacingMd) {
-                Image(systemName: "hourglass")
-                    .font(.system(size: 64))
-                    .foregroundStyle(Color.tertiaryColor)
-                Text("Waiting for the host to start")
-                    .font(.body)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
-            }
+            lobbyContent
         case .locked:
             if let endsAt = orchestrator.countdownEndsAt {
                 CountdownView(endsAt: endsAt)
@@ -166,6 +174,42 @@ struct ActiveRoomView: View {
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
             }
+        }
+    }
+
+    // Unified lobby shown to both host and guest. The only visual difference
+    // is the copy under the icon and the advertising pulse on the host side
+    // — the room code is shown to everyone so joiners can confirm they're in
+    // the right room and hosts can share it out-of-band.
+    private var lobbyContent: some View {
+        VStack(spacing: .spacingLg) {
+            Image(systemName: "iphone.radiowaves.left.and.right")
+                .font(.system(size: 64))
+                .foregroundStyle(Color.tertiaryColor)
+                .symbolEffect(.pulse, isActive: isHost)
+
+            Text(isHost
+                 ? "Bring phones together to invite"
+                 : "Waiting for the host to start")
+                .font(.body)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                .multilineTextAlignment(.center)
+
+            VStack(spacing: 6) {
+                Text("Room Code")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+
+                Text(initialSession.session.id.uuidString.prefix(8).uppercased())
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.tertiaryColor)
+                    .kerning(4)
+            }
+            .padding(.spacingLg)
+            .frame(maxWidth: .infinity)
+            .background(Color.surfaceColor)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, .spacingLg)
         }
     }
 
