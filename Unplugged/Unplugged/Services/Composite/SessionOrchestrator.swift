@@ -412,10 +412,25 @@ final class SessionOrchestrator {
     }
 
     private func evaluateLockedProximity(sessionID: UUID) async {
-        guard phase == .locked,
-              currentSession?.session.id == sessionID,
-              proximityCountdownTask == nil,
-              !isWithinLockedProximityThreshold() else { return }
+        guard phase == .locked, currentSession?.session.id == sessionID else { return }
+
+        let reading = latestLockedProximityReading
+        let distance = reading?.distanceMeters
+        let stale = reading.map { Date().timeIntervalSince($0.observedAt) > LockedSessionProximityPolicy.staleReadingInterval } ?? true
+        let withinThreshold = isWithinLockedProximityThreshold()
+        if let d = distance {
+            NSLog("[Unplugged][Proximity] 30s check — distance: %.2fm, threshold: %.2fm, within: %@, stale: %@, countdown active: %@",
+                  d, LockedSessionProximityPolicy.maxDistanceMeters,
+                  withinThreshold ? "YES" : "NO",
+                  stale ? "YES" : "NO",
+                  proximityCountdownTask != nil ? "YES" : "NO")
+        } else {
+            NSLog("[Unplugged][Proximity] 30s check — no distance reading (stale: %@, countdown active: %@)",
+                  stale ? "YES" : "NO",
+                  proximityCountdownTask != nil ? "YES" : "NO")
+        }
+
+        guard proximityCountdownTask == nil, !withinThreshold else { return }
 
         beginProximityWarningCountdown(sessionID: sessionID)
     }

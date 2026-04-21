@@ -470,12 +470,14 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
     private var didFinish = false
     private var didResignActive = false
     private var didReachReady = false
+    private var promptDismissalCheckCount = 0
 
     init(continuation: CheckedContinuation<Bool, Never>) {
         self.continuation = continuation
     }
 
     func start() {
+        log("Proximity permission check started")
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true
 
@@ -491,28 +493,21 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
             forName: UIApplication.willResignActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
+        ) { [self] _ in
             self.queue.async { self.didResignActive = true }
         }
         let becomeActiveObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
+        ) { [self] _ in
             self.queue.async {
                 // Only treat didBecomeActive as a dialog-dismissal signal
                 // if we previously saw willResignActive. Otherwise this is
                 // the launch-time activation and we ignore it.
                 guard self.didResignActive else { return }
-                // Give NWBrowser a brief moment to publish the post-choice
-                // state (grants flip to .ready almost immediately, denials
-                // leave the browser in .waiting).
-                self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    guard let self else { return }
-                    self.finish(self.didReachReady)
-                }
+                self.log("Proximity permission prompt dismissed, waiting for browser state")
+                self.scheduleDismissalResolution()
             }
         }
         observers = [resignObserver, becomeActiveObserver]
@@ -521,16 +516,16 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
         // Hard backstop: if nothing resolves within 30 s (e.g. no dialog was
         // ever shown AND the browser stays in .waiting), call it denied so
         // onboarding doesn't hang forever.
-        queue.asyncAfter(deadline: .now() + 30) { [weak self] in
-            guard let self else { return }
+        queue.asyncAfter(deadline: .now() + 30) { [self] in
+            self.log("Proximity permission check hit 30s backstop")
             self.finish(self.didReachReady)
         }
 
-        browser.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+        browser.stateUpdateHandler = { [self] state in
             switch state {
             case .ready:
                 self.didReachReady = true
+                self.log("Proximity browser reached ready state")
                 // If we reached .ready without the app ever resigning active,
                 // permission was already granted and no dialog was shown.
                 // Resolve immediately.
@@ -541,6 +536,7 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
                 // .failed is terminal. Non-EPERM failures still prove the
                 // browser had permission to try — treat them as allowed so
                 // we don't flag the user for a transient Bonjour hiccup.
+                self.log("Proximity browser failed: \(String(describing: error))")
                 self.finish(!error.isLocalNetworkDenied)
             case .waiting(let error):
                 // `.waiting(EPERM)` without an app lifecycle change means the
@@ -548,8 +544,10 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
                 // to let willResignActive land if the dialog is actually
                 // about to appear, then treat it as denied.
                 if error.isLocalNetworkDenied {
+                    self.log("Proximity browser waiting with EPERM")
                     self.queue.asyncAfter(deadline: .now() + 2) { [weak self] in
                         guard let self, !self.didResignActive else { return }
+                        self.log("Proximity permission denied after EPERM wait")
                         self.finish(false)
                     }
                 }
@@ -570,6 +568,7 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self, !self.didFinish else { return }
             self.didFinish = true
+            self.log("Proximity permission check finished: \(allowed ? "allowed" : "denied")")
             self.browser?.cancel()
             self.browser = nil
             for observer in self.observers {
@@ -578,6 +577,42 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
             self.observers.removeAll()
             self.continuation.resume(returning: allowed)
         }
+    }
+
+    private func scheduleDismissalResolution() {
+        promptDismissalCheckCount = 0
+        log("Proximity permission dismissal polling started")
+        pollForReadyAfterPrompt()
+    }
+
+    private func pollForReadyAfterPrompt() {
+        guard !didFinish else { return }
+        guard didResignActive else { return }
+
+        if didReachReady {
+            log("Proximity permission check observed ready during polling")
+            finish(true)
+            return
+        }
+
+        // The browser state can lag the app lifecycle edge by a bit longer
+        // than the system alert dismissal animation. Poll a few times before
+        // we fall back to a denial so we do not misclassify an allowed grant
+        // as a rejection and strand onboarding on the warning page.
+        promptDismissalCheckCount += 1
+        log("Proximity permission polling attempt \(promptDismissalCheckCount)")
+        if promptDismissalCheckCount >= 10 {
+            finish(false)
+            return
+        }
+
+        queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.pollForReadyAfterPrompt()
+        }
+    }
+
+    private func log(_ message: String) {
+        NSLog("[Unplugged][Proximity] %@", message)
     }
 }
 
