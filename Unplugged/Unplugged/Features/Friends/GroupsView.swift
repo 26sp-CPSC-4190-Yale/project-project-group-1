@@ -62,6 +62,7 @@ struct GroupsView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .alert("New Group", isPresented: $viewModel.showCreate) {

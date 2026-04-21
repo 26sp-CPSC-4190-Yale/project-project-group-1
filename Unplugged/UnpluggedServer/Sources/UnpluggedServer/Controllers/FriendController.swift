@@ -415,7 +415,9 @@ struct FriendController: RouteCollection {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships.map { $0.roomID }
+        let roomIDs = memberships
+            .filter { $0.config != MemberModel.proximityExitConfig }
+            .map { $0.roomID }
 
         if !roomIDs.isEmpty {
             let lockedActive = try await RoomModel.query(on: db)

@@ -36,7 +36,11 @@ struct LiquidGlassButtonStyle: ButtonStyle {
 
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        HStack {
+            Spacer(minLength: 0)
+            configuration.label
+            Spacer(minLength: 0)
+        }
             .font(.headlineFont)
             .foregroundColor(.primaryColor)
             .frame(maxWidth: .infinity)
@@ -51,7 +55,11 @@ struct PrimaryButtonStyle: ButtonStyle {
 
 struct DestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        HStack {
+            Spacer(minLength: 0)
+            configuration.label
+            Spacer(minLength: 0)
+        }
             .font(.headlineFont)
             .foregroundColor(.tertiaryColor)
             .frame(maxWidth: .infinity)

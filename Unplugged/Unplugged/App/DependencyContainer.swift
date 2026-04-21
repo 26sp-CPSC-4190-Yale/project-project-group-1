@@ -35,6 +35,7 @@ class DependencyContainer {
         let client = APIClient(cache: cache)
         let screenTime = ScreenTimeService()
         let webSocket = WebSocketClient()
+        let touchTips = TouchTipsService()
 
         self.cache = cache
         self.auth = AuthAPIService(client: client)
@@ -46,7 +47,7 @@ class DependencyContainer {
         self.groups = GroupAPIService(client: client)
         let recap = RecapAPIService(client: client)
         self.recap = recap
-        self.touchTips = TouchTipsService()
+        self.touchTips = touchTips
         self.screenTime = screenTime
         self.webSocket = webSocket
         self.sessionOrchestrator = SessionOrchestrator(
@@ -54,7 +55,8 @@ class DependencyContainer {
             recap: recap,
             screenTime: screenTime,
             cache: cache,
-            webSocket: webSocket
+            webSocket: webSocket,
+            touchTips: touchTips
         )
     }
 }

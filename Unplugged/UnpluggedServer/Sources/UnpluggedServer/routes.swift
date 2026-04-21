@@ -194,7 +194,7 @@ private func makeSessionResponse(room: RoomModel, db: Database) async throws -> 
             id: memberID,
             userID: member.userID,
             username: user.username,
-            status: .active,
+            status: member.participantStatus,
             joinedAt: nil,
             isHost: member.userID == room.roomOwner
         )

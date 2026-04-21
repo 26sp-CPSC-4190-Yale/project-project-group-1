@@ -250,11 +250,16 @@ struct OnboardingView: View {
     private var footer: some View {
         HStack {
             if viewModel.currentStep != .welcome {
-                Button("Back") { viewModel.back() }
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
-                    .padding(.vertical, 10)
-                    .contentShape(Rectangle())
-                    .disabled(isWaitingForPermission)
+                Button {
+                    viewModel.back()
+                } label: {
+                    Text("Back")
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                .disabled(isWaitingForPermission)
             }
             Spacer()
             if showsPrimaryFooterButton {
@@ -275,6 +280,7 @@ struct OnboardingView: View {
                         .clipShape(Capsule())
                         .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
             }
         }
         .padding(.bottom, .spacingLg)

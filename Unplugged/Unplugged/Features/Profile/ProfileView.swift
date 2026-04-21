@@ -155,6 +155,7 @@ struct ProfileView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .contentShape(RoundedRectangle(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
             .padding(.top, .spacingMd)
 
             Button(role: .destructive) {
@@ -172,6 +173,7 @@ struct ProfileView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .contentShape(RoundedRectangle(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, .spacingLg)
         .sheet(isPresented: $viewModel.isShowingDeleteAccountSheet) {
@@ -199,6 +201,7 @@ struct ProfileView: View {
                 .font(.caption)
                 .foregroundStyle(Color.tertiaryColor.opacity(0.4))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -216,6 +219,7 @@ struct ProfileView: View {
             Spacer()
             trailing()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))

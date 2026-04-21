@@ -30,6 +30,7 @@ struct SessionController: RouteCollection {
         sessions.post(":sessionID", "join", use: join)
         sessions.post(":sessionID", "start", use: start)
         sessions.post(":sessionID", "end", use: end)
+        sessions.post(":sessionID", "proximity-exit", use: reportProximityExit)
         sessions.get(":sessionID", "recap", use: recap)
         sessions.post(":sessionID", "jailbreaks", use: reportJailbreak)
     }
@@ -214,7 +215,7 @@ struct SessionController: RouteCollection {
                     id: try member.requireID(),
                     userID: userID,
                     username: user.username,
-                    status: .active,
+                    status: member.participantStatus,
                     joinedAt: Date(),
                     isHost: false
                 )
@@ -354,7 +355,7 @@ struct SessionController: RouteCollection {
                 id: memberID,
                 userID: member.userID,
                 username: user.username,
-                status: .active,
+                status: member.participantStatus,
                 joinedAt: nil,
                 isHost: member.userID == room.roomOwner
             )
@@ -433,6 +434,67 @@ struct SessionController: RouteCollection {
         return .noContent
     }
 
+    @Sendable
+    func reportProximityExit(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        let room = try await requireRoom(req: req)
+        let roomID = try room.requireID()
+
+        guard room.endedAt == nil else {
+            throw Abort(.gone, reason: "Session already ended.")
+        }
+        guard room.lockedAt != nil else {
+            throw Abort(.badRequest, reason: "Proximity exits only apply to locked sessions.")
+        }
+
+        guard let member = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .filter(\.$userID == userID)
+            .first() else {
+            throw Abort(.forbidden)
+        }
+
+        if member.config != MemberModel.proximityExitConfig {
+            member.config = MemberModel.proximityExitConfig
+            try await member.save(on: req.db)
+        }
+
+        let reason = "left_due_to_proximity"
+        let existingReport = try await JailbreakModel.query(on: req.db)
+            .filter(\.$sessionID == roomID)
+            .filter(\.$userID == userID)
+            .filter(\.$reason == reason)
+            .first()
+        if existingReport == nil {
+            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+            record.detectedAt = Date()
+            try await record.save(on: req.db)
+        }
+
+        let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
+        await req.sessionHub.broadcast(
+            roomID: roomID,
+            message: .participantLeftDueToProximity(userID: userID, username: username)
+        )
+
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        for recipient in members where recipient.userID != userID && recipient.config != MemberModel.proximityExitConfig {
+            await NotificationService.send(
+                to: recipient.userID,
+                title: "Session update",
+                body: "\(username) left the session because they were too far away.",
+                type: NotificationService.NotificationType.sessionProximityExit,
+                on: req.db,
+                application: req.application
+            )
+        }
+
+        return .noContent
+    }
+
     // MARK: - Helpers
 
     private func requireRoom(req: Request) async throws -> RoomModel {
@@ -498,7 +560,7 @@ struct SessionController: RouteCollection {
                 id: memberID,
                 userID: member.userID,
                 username: user.username,
-                status: .active,
+                status: member.participantStatus,
                 joinedAt: nil,
                 isHost: member.userID == room.roomOwner
             )

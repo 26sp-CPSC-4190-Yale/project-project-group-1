@@ -67,6 +67,7 @@ struct AuthView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
+                        .buttonStyle(.plain)
 
                         LegalFooter()
                             .padding(.top, .spacingSm)

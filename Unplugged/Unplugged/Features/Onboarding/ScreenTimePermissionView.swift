@@ -55,11 +55,12 @@ struct ScreenTimePermissionView: View {
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
+                    .background(Color.tertiaryColor)
+                    .foregroundStyle(Color.primaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .background(Color.tertiaryColor)
-                .foregroundStyle(Color.primaryColor)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .buttonStyle(.plain)
                 .disabled(viewModel.isLoadingSelection)
 
                 if viewModel.didConfirm {
@@ -276,6 +277,7 @@ private struct EmergencySelectionSheet: View {
                     .foregroundStyle(Color.primaryColor)
                     .padding(.horizontal, 12)
                     .frame(height: 44)
+                    .frame(maxWidth: .infinity)
                     .background(Color.tertiaryColor)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .contentShape(RoundedRectangle(cornerRadius: 8))

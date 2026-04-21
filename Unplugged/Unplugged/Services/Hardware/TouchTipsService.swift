@@ -41,6 +41,9 @@ import MultipeerConnectivity
 import NearbyInteraction
 import Network
 import UnpluggedShared
+#if canImport(UIKit)
+import UIKit
+#endif
 
 actor TouchTipsService {
 
@@ -96,6 +99,41 @@ actor TouchTipsService {
         return stream
     }
 
+    func startLockedProximityMonitoring(roomID: UUID) -> AsyncStream<LockedProximityReading> {
+        stopInternal(keepContinuation: false)
+        role = .lockedGuest(roomID: roomID)
+
+        let stream = AsyncStream<LockedProximityReading> { cont in
+            self.lockedProximityContinuation = cont
+        }
+
+        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
+            emitLockedProximity(distanceMeters: nil)
+            return stream
+        }
+
+        let peerID = MCPeerID(displayName: "unplugged-\(UUID().uuidString.prefix(6))")
+        localPeerID = peerID
+        let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
+        session.delegate = bridge
+        mcSession = session
+
+        let browser = MCNearbyServiceBrowser(
+            peer: peerID,
+            serviceType: ProximityConstants.serviceType
+        )
+        browser.delegate = bridge
+        self.browser = browser
+        browser.startBrowsingForPeers()
+
+        emitLockedProximity(distanceMeters: nil)
+        return stream
+    }
+
+    func supportsLockedProximityMonitoring() -> Bool {
+        NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
+    }
+
     func stop() {
         stopInternal(keepContinuation: false)
     }
@@ -123,10 +161,12 @@ actor TouchTipsService {
         case none
         case host(roomID: UUID)
         case joiner
+        case lockedGuest(roomID: UUID)
     }
 
     private var role: Role = .none
     private var continuation: AsyncStream<UUID>.Continuation?
+    private var lockedProximityContinuation: AsyncStream<LockedProximityReading>.Continuation?
 
     private let bridge: ProximityBridge
     private var advertiser: MCNearbyServiceAdvertiser?
@@ -139,8 +179,8 @@ actor TouchTipsService {
     /// or if the host never sends a roomID for some reason.
     private var discoveredRoomID: [MCPeerID: UUID] = [:]
 
-    private var niSession: NISession?
-    private var peerDiscoveryToken: NIDiscoveryToken?
+    private var niSessions: [MCPeerID: NISession] = [:]
+    private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
     private var didYield = false
 
     /// Count of consecutive sub-threshold distance samples. Reset whenever a reading
@@ -169,6 +209,7 @@ actor TouchTipsService {
         bridge.onNIRemoved = { [weak self] _ in
             // Peer moved out of range or session broke. Not fatal — keep MC alive so
             // they can approach again without re-pairing.
+            Task { await self?.handleNIRemoved() }
         }
         bridge.onNIInvalidated = { [weak self] _ in
             Task { await self?.resetNI() }
@@ -178,12 +219,22 @@ actor TouchTipsService {
     // MARK: - MC event handlers
 
     private func handleFoundPeer(peer: MCPeerID, info: [String: String]?) {
-        guard case .joiner = role,
-              let session = mcSession,
+        guard let session = mcSession,
               let browser = browser else { return }
+
         if let uuidString = info?["roomID"], let roomID = UUID(uuidString: uuidString) {
             discoveredRoomID[peer] = roomID
         }
+
+        switch role {
+        case .joiner:
+            break
+        case .lockedGuest(let roomID):
+            guard discoveredRoomID[peer] == roomID else { return }
+        case .none, .host:
+            return
+        }
+
         browser.invitePeer(peer, to: session, withContext: nil, timeout: 15)
     }
 
@@ -194,8 +245,16 @@ actor TouchTipsService {
     }
 
     private func handleSessionState(peer: MCPeerID, state: MCSessionState) {
-        guard state == .connected else { return }
-        sendHandshake(to: peer)
+        if state == .connected {
+            sendHandshake(to: peer)
+        } else {
+            niSessions[peer]?.invalidate()
+            niSessions[peer] = nil
+            peerDiscoveryTokens[peer] = nil
+            if case .lockedGuest = role {
+                emitLockedProximity(distanceMeters: nil)
+            }
+        }
         // Do NOT schedule an MC-only yield here — MC connecting only proves radio
         // proximity (~10 m). The UWB gate in handleNIUpdate is what confirms the
         // phones are actually pressed together.
@@ -204,15 +263,7 @@ actor TouchTipsService {
     private func sendHandshake(to peer: MCPeerID) {
         guard let session = mcSession else { return }
 
-        // Start our own NISession and get its discovery token to send.
-        let ni: NISession?
-        if NISession.deviceCapabilities.supportsPreciseDistanceMeasurement {
-            ni = NISession()
-            ni?.delegate = bridge
-            niSession = ni
-        } else {
-            ni = nil
-        }
+        let ni = makeNISession(for: peer)
 
         var payload: [String: String] = [:]
         if case .host(let roomID) = role {
@@ -231,10 +282,16 @@ actor TouchTipsService {
         guard let payload = try? JSONDecoder().decode([String: String].self, from: data) else { return }
 
         // Capture host's roomID if we didn't already have it from discoveryInfo.
-        if case .joiner = role,
+        if (isJoiner || isLockedGuest),
            let uuidString = payload["roomID"],
            let roomID = UUID(uuidString: uuidString) {
             discoveredRoomID[peer] = roomID
+        }
+
+        if case .lockedGuest(let expectedRoomID) = role,
+           let roomID = discoveredRoomID[peer],
+           roomID != expectedRoomID {
+            return
         }
 
         // Extract NI discovery token and start the NI session against it.
@@ -243,17 +300,12 @@ actor TouchTipsService {
               let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
             return
         }
-        peerDiscoveryToken = token
-        startNIRanging(with: token)
+        peerDiscoveryTokens[peer] = token
+        startNIRanging(with: token, peer: peer)
     }
 
-    private func startNIRanging(with token: NIDiscoveryToken) {
-        if niSession == nil, NISession.deviceCapabilities.supportsPreciseDistanceMeasurement {
-            let ni = NISession()
-            ni.delegate = bridge
-            niSession = ni
-        }
-        guard let ni = niSession else { return }
+    private func startNIRanging(with token: NIDiscoveryToken, peer: MCPeerID) {
+        guard let ni = makeNISession(for: peer) else { return }
         let config = NINearbyPeerConfiguration(peerToken: token)
         ni.run(config)
     }
@@ -261,10 +313,12 @@ actor TouchTipsService {
     // MARK: - NI event handler
 
     private func handleNIUpdate(objects: [NINearbyObject]) {
-        guard !didYield else { return }
-        let token = peerDiscoveryToken
-        let match = objects.first { $0.discoveryToken == token }
-        guard let distance = match?.distance else {
+        let match = objects.compactMap { object -> Float? in
+            guard let distance = object.distance else { return nil }
+            return peerDiscoveryTokens.values.contains { $0 == object.discoveryToken } ? distance : nil
+        }.first
+
+        guard let distance = match else {
             // Token didn't match any of the nearby objects (peer disappeared, or the
             // update is for a stale session). Don't penalize the counter — wait for the
             // next real sample. But DO decay it back to 0 so momentary losses don't
@@ -272,6 +326,13 @@ actor TouchTipsService {
             consecutiveCloseCount = 0
             return
         }
+
+        if case .lockedGuest = role {
+            emitLockedProximity(distanceMeters: Double(distance))
+            return
+        }
+
+        guard !didYield else { return }
 
         if distance <= Float(ProximityConstants.touchThresholdMeters) {
             consecutiveCloseCount += 1
@@ -285,10 +346,23 @@ actor TouchTipsService {
         }
     }
 
-    private func resetNI() {
-        niSession = nil
-        peerDiscoveryToken = nil
+    private func handleNIRemoved() {
         consecutiveCloseCount = 0
+        if case .lockedGuest = role {
+            emitLockedProximity(distanceMeters: nil)
+        }
+    }
+
+    private func resetNI() {
+        for session in niSessions.values {
+            session.invalidate()
+        }
+        niSessions.removeAll()
+        peerDiscoveryTokens.removeAll()
+        consecutiveCloseCount = 0
+        if case .lockedGuest = role {
+            emitLockedProximity(distanceMeters: nil)
+        }
     }
 
     // MARK: - Yielding
@@ -299,6 +373,33 @@ actor TouchTipsService {
         guard let roomID = discoveredRoomID.values.first else { return }
         didYield = true
         continuation.yield(roomID)
+    }
+
+    private var isJoiner: Bool {
+        if case .joiner = role { return true }
+        return false
+    }
+
+    private var isLockedGuest: Bool {
+        if case .lockedGuest = role { return true }
+        return false
+    }
+
+    private func makeNISession(for peer: MCPeerID) -> NISession? {
+        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else { return nil }
+        if let existing = niSessions[peer] {
+            return existing
+        }
+        let ni = NISession()
+        ni.delegate = bridge
+        niSessions[peer] = ni
+        return ni
+    }
+
+    private func emitLockedProximity(distanceMeters: Double?) {
+        lockedProximityContinuation?.yield(
+            LockedProximityReading(distanceMeters: distanceMeters, observedAt: Date())
+        )
     }
 
     // MARK: - Teardown
@@ -316,9 +417,11 @@ actor TouchTipsService {
         mcSession?.delegate = nil
         mcSession = nil
 
-        niSession?.invalidate()
-        niSession = nil
-        peerDiscoveryToken = nil
+        for session in niSessions.values {
+            session.invalidate()
+        }
+        niSessions.removeAll()
+        peerDiscoveryTokens.removeAll()
         consecutiveCloseCount = 0
 
         localPeerID = nil
@@ -328,6 +431,8 @@ actor TouchTipsService {
         if !keepContinuation {
             continuation?.finish()
             continuation = nil
+            lockedProximityContinuation?.finish()
+            lockedProximityContinuation = nil
             didYield = false
         }
     }
@@ -336,57 +441,142 @@ actor TouchTipsService {
 private extension TouchTipsService {
     static func requestLocalNetworkPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            let parameters = NWParameters.tcp
-            parameters.includePeerToPeer = true
+            let resolver = LocalNetworkPermissionResolver(continuation: continuation)
+            resolver.start()
+        }
+    }
+}
 
-            let bonjourType = "_\(ProximityConstants.serviceType)._tcp"
-            let browser = NWBrowser(
-                for: .bonjour(type: bonjourType, domain: nil),
-                using: parameters
-            )
-            let queue = DispatchQueue(label: "com.unplugged.local-network-permission")
-            var didFinish = false
+/// Drives the iOS Local Network permission prompt and resolves once the user
+/// has actually responded.
+///
+/// Why not a simple timer? `NWBrowser` fires `.waiting(.posix(.EPERM))`
+/// *immediately* on start, before the system alert even renders. The previous
+/// implementation scheduled `finish(false)` 5 seconds after that event — which
+/// fired while the user was still reading the dialog, so onboarding advanced
+/// to the Screen Time step with the Local Network alert still on screen.
+///
+/// Instead, we piggy-back on UIApplication lifecycle: iOS permission alerts
+/// cause `willResignActive` as they appear and `didBecomeActive` as the user
+/// taps Allow or Deny. When we see the dismissal edge we check the browser
+/// state — `.ready` means allowed, anything else means denied. A long hard
+/// backstop (30 s) covers the rare case where neither event fires (e.g.
+/// permission was already denied in a previous run so no dialog is shown).
+private final class LocalNetworkPermissionResolver: @unchecked Sendable {
+    private let continuation: CheckedContinuation<Bool, Never>
+    private let queue = DispatchQueue(label: "com.unplugged.local-network-permission")
+    private var browser: NWBrowser?
+    private var observers: [NSObjectProtocol] = []
+    private var didFinish = false
+    private var didResignActive = false
+    private var didReachReady = false
 
-            let finish: (Bool) -> Void = { allowed in
-                guard !didFinish else { return }
-                didFinish = true
-                browser.cancel()
-                continuation.resume(returning: allowed)
-            }
+    init(continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
 
-            browser.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    // Browser started — Local Network access is granted.
-                    finish(true)
+    func start() {
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
 
-                case .waiting(let error):
-                    if error.isLocalNetworkDenied {
-                        // NWBrowser fires .waiting(EPERM) IMMEDIATELY on start,
-                        // BEFORE the iOS permission dialog even appears. We MUST
-                        // NOT treat this as a definitive denial. Instead, defer
-                        // the denial: if .ready arrives within 5 seconds (user
-                        // tapped Allow), finish(true) wins because didFinish
-                        // guards against double-resume. If .ready never arrives
-                        // (user denied or was already denied), the deferred
-                        // finish(false) fires after 5 seconds.
-                        queue.asyncAfter(deadline: .now() + 5) {
-                            finish(false)
-                        }
-                    }
+        let bonjourType = "_\(ProximityConstants.serviceType)._tcp"
+        let browser = NWBrowser(
+            for: .bonjour(type: bonjourType, domain: nil),
+            using: parameters
+        )
+        self.browser = browser
 
-                case .failed(let error):
-                    // .failed is a terminal state — the browser won't recover.
-                    finish(!error.isLocalNetworkDenied)
-
-                case .cancelled:
-                    break
-                default:
-                    break
+#if canImport(UIKit)
+        let resignObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async { self.didResignActive = true }
+        }
+        let becomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async {
+                // Only treat didBecomeActive as a dialog-dismissal signal
+                // if we previously saw willResignActive. Otherwise this is
+                // the launch-time activation and we ignore it.
+                guard self.didResignActive else { return }
+                // Give NWBrowser a brief moment to publish the post-choice
+                // state (grants flip to .ready almost immediately, denials
+                // leave the browser in .waiting).
+                self.queue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self else { return }
+                    self.finish(self.didReachReady)
                 }
             }
+        }
+        observers = [resignObserver, becomeActiveObserver]
+#endif
 
-            browser.start(queue: queue)
+        // Hard backstop: if nothing resolves within 30 s (e.g. no dialog was
+        // ever shown AND the browser stays in .waiting), call it denied so
+        // onboarding doesn't hang forever.
+        queue.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self else { return }
+            self.finish(self.didReachReady)
+        }
+
+        browser.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.didReachReady = true
+                // If we reached .ready without the app ever resigning active,
+                // permission was already granted and no dialog was shown.
+                // Resolve immediately.
+                if !self.didResignActive {
+                    self.finish(true)
+                }
+            case .failed(let error):
+                // .failed is terminal. Non-EPERM failures still prove the
+                // browser had permission to try — treat them as allowed so
+                // we don't flag the user for a transient Bonjour hiccup.
+                self.finish(!error.isLocalNetworkDenied)
+            case .waiting(let error):
+                // `.waiting(EPERM)` without an app lifecycle change means the
+                // system skipped the dialog (previously denied). Wait briefly
+                // to let willResignActive land if the dialog is actually
+                // about to appear, then treat it as denied.
+                if error.isLocalNetworkDenied {
+                    self.queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                        guard let self, !self.didResignActive else { return }
+                        self.finish(false)
+                    }
+                }
+            case .cancelled:
+                break
+            default:
+                break
+            }
+        }
+
+        browser.start(queue: queue)
+    }
+
+    private func finish(_ allowed: Bool) {
+        // Serialize on our queue so the multiple completion paths
+        // (stateUpdateHandler, lifecycle observers, backstop timer) can't
+        // race to resume the continuation twice.
+        queue.async { [weak self] in
+            guard let self, !self.didFinish else { return }
+            self.didFinish = true
+            self.browser?.cancel()
+            self.browser = nil
+            for observer in self.observers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            self.observers.removeAll()
+            self.continuation.resume(returning: allowed)
         }
     }
 }

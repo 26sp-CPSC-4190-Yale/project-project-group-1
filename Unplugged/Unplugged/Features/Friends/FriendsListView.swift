@@ -43,6 +43,7 @@ struct FriendsListView: View {
                                                 .clipShape(Capsule())
                                                 .contentShape(Capsule())
                                         }
+                                        .buttonStyle(.plain)
                                         Button {
                                             Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
                                         } label: {
@@ -52,6 +53,7 @@ struct FriendsListView: View {
                                                 .frame(width: 44, height: 44)
                                                 .contentShape(Rectangle())
                                         }
+                                        .buttonStyle(.plain)
                                     }
                                     .padding(.spacingMd)
                                     .background(Color.surfaceColor)
@@ -93,6 +95,7 @@ struct FriendsListView: View {
                                                 .font(.caption)
                                                 .foregroundStyle(Color.tertiaryColor.opacity(0.3))
                                         }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.spacingMd)
                                         .background(Color.surfaceColor)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -163,6 +166,7 @@ struct FriendsListView: View {
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .sheet(isPresented: $viewModel.showAddFriend) {

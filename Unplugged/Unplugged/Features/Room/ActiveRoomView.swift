@@ -42,6 +42,10 @@ struct ActiveRoomView: View {
 
                     footer(phase: phase, isHost: isHost, orchestrator: orchestrator)
                 }
+
+                if let seconds = orchestrator.proximityWarningSecondsRemaining {
+                    proximityWarningOverlay(secondsRemaining: seconds)
+                }
             }
             .navigationTitle(initialSession.session.title ?? "Room")
             .navigationBarTitleDisplayMode(.inline)
@@ -58,7 +62,10 @@ struct ActiveRoomView: View {
                     } label: {
                         Image(systemName: "xmark")
                             .foregroundStyle(Color.tertiaryColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -77,9 +84,12 @@ struct ActiveRoomView: View {
             if newPhase == .ended {
                 viewModel.showRecap = true
             }
-            if newPhase == .locked, isHost {
-                Task { await deps.touchTips.stop() }
-            }
+        }
+        .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
+            guard didLeave else { return }
+            orchestrator.acknowledgeProximityExitDismissal()
+            onClose()
+            dismiss()
         }
         .onDisappear {
             if isHost {
@@ -143,6 +153,32 @@ struct ActiveRoomView: View {
         } message: {
             Text(moderationError ?? "")
         }
+    }
+
+    private func proximityWarningOverlay(secondsRemaining: Int) -> some View {
+        VStack {
+            Spacer()
+            VStack(spacing: .spacingSm) {
+                Image(systemName: "figure.walk.motion")
+                    .font(.title2)
+                    .foregroundStyle(Color.destructiveColor)
+                Text("You're leaving the session as you're too far away")
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+                    .multilineTextAlignment(.center)
+                Text("\(secondsRemaining)s")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.destructiveColor)
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.spacingLg)
+            .background(Color.surfaceColor)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, .spacingLg)
+            .padding(.bottom, .spacingXl)
+        }
+        .background(Color.black.opacity(0.35).ignoresSafeArea())
     }
 
     private func blockParticipant(_ participant: ParticipantResponse) async {
@@ -268,6 +304,8 @@ struct ActiveRoomView: View {
                         Task { await viewModel.start(orchestrator: orchestrator) }
                     } label: {
                         Text("Lock Session")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(PrimaryButtonStyle())
                 case .locked:
@@ -275,6 +313,8 @@ struct ActiveRoomView: View {
                         viewModel.showEndConfirmation = true
                     } label: {
                         Text("End Session")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(DestructiveButtonStyle())
                 case .ended:
@@ -283,6 +323,8 @@ struct ActiveRoomView: View {
                         dismiss()
                     } label: {
                         Text("Done")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(PrimaryButtonStyle())
                 }

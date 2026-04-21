@@ -95,6 +95,7 @@ struct AddFriendSheet: View {
                                     .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -156,6 +157,7 @@ struct AddFriendSheet: View {
                                         .clipShape(Capsule())
                                         .contentShape(Capsule())
                                     }
+                                    .buttonStyle(.plain)
                                     .disabled(viewModel.addingUserID != nil)
                                 }
                                 .listRowBackground(Color.clear)

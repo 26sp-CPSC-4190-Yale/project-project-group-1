@@ -33,16 +33,25 @@ final class SessionOrchestrator {
     var countdownEndsAt: Date?
     var errorMessage: String?
     var lastRecap: SessionRecapResponse?
+    var proximityWarningSecondsRemaining: Int?
+    var didLeaveCurrentSessionForProximity = false
 
     private let sessions: SessionAPIService
     private let recap: RecapAPIService
     private let screenTime: any ScreenTimeProviding
     private let cache: LocalCacheService
     private let webSocket: WebSocketClient
+    private let touchTips: TouchTipsService
 
     private var listenerTask: Task<Void, Never>?
     private var jailbreakWatchdog: Task<Void, Never>?
     private var sessionSyncTask: Task<Void, Never>?
+    private var lockedProximityUpdatesTask: Task<Void, Never>?
+    private var lockedProximityCheckTask: Task<Void, Never>?
+    private var proximityCountdownTask: Task<Void, Never>?
+    private var lockedProximitySessionID: UUID?
+    private var latestLockedProximityReading: LockedProximityReading?
+    private var isReportingProximityExit = false
     private var lastShieldWarningSessionID: UUID?
     private var lastShieldWarningEndsAt: Date?
     private var lastShieldWarningMessage: String?
@@ -53,12 +62,14 @@ final class SessionOrchestrator {
          recap: RecapAPIService,
          screenTime: any ScreenTimeProviding,
          cache: LocalCacheService,
-         webSocket: WebSocketClient) {
+         webSocket: WebSocketClient,
+         touchTips: TouchTipsService) {
         self.sessions = sessions
         self.recap = recap
         self.screenTime = screenTime
         self.cache = cache
         self.webSocket = webSocket
+        self.touchTips = touchTips
     }
 
     // MARK: - Entry points
@@ -124,6 +135,7 @@ final class SessionOrchestrator {
     func teardown() async {
         stopJailbreakWatchdog()
         stopSessionSync()
+        stopLockedProximityEnforcement()
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
@@ -138,7 +150,12 @@ final class SessionOrchestrator {
         countdownEndsAt = nil
         errorMessage = nil
         lastRecap = nil
+        didLeaveCurrentSessionForProximity = false
         resetShieldTracking()
+    }
+
+    func acknowledgeProximityExitDismissal() {
+        didLeaveCurrentSessionForProximity = false
     }
 
     @discardableResult
@@ -187,8 +204,17 @@ final class SessionOrchestrator {
             await handleSessionEnded()
         case .stateSync(let response):
             await applySessionSnapshot(response)
-        case .jailbreakReported:
-            break
+        case .jailbreakReported(let userID, let reason):
+            if reason == "left_due_to_proximity" {
+                participants.removeAll { $0.userID == userID }
+            }
+        case .participantLeftDueToProximity(let userID, let username):
+            participants.removeAll { $0.userID == userID }
+            if userID == cache.readUser()?.id {
+                await completeLocalProximityExit()
+            } else {
+                errorMessage = "\(username) left the session because they were too far away."
+            }
         case .error(let message):
             self.errorMessage = message
         }
@@ -240,8 +266,14 @@ final class SessionOrchestrator {
 
     private func applySessionSnapshot(_ response: SessionResponse) async {
         self.currentSession = response
-        self.participants = response.participants
+        self.participants = response.participants.filter { $0.status == .active }
         self.countdownEndsAt = response.session.endsAt
+
+        if let userID = cache.readUser()?.id,
+           response.participants.contains(where: { $0.userID == userID && $0.status == .left }) {
+            await completeLocalProximityExit()
+            return
+        }
 
         if response.session.endedAt != nil {
             await handleSessionEnded()
@@ -252,8 +284,10 @@ final class SessionOrchestrator {
             } else {
                 errorMessage = "This room is locked, but the server did not send an end time."
             }
+            await startLockedProximityEnforcementIfNeeded()
         } else {
             self.phase = .lobby
+            stopLockedProximityEnforcement()
         }
     }
 
@@ -261,6 +295,7 @@ final class SessionOrchestrator {
         self.countdownEndsAt = endsAt
         self.phase = .locked
         await engageShield(endsAt: endsAt)
+        await startLockedProximityEnforcementIfNeeded()
     }
 
     // MARK: - Shield + recap
@@ -300,6 +335,7 @@ final class SessionOrchestrator {
     private func handleSessionEnded() async {
         stopJailbreakWatchdog()
         stopSessionSync()
+        stopLockedProximityEnforcement()
         try? await screenTime.unlockApps()
         resetShieldTracking()
         self.phase = .ended
@@ -313,6 +349,149 @@ final class SessionOrchestrator {
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
+    }
+
+    // MARK: - Locked-room proximity enforcement
+
+    private func startLockedProximityEnforcementIfNeeded() async {
+        guard phase == .locked,
+              let session = currentSession?.session,
+              lockedProximitySessionID != session.id else { return }
+
+        guard let userID = cache.readUser()?.id, userID != session.hostID else {
+            stopLockedProximityEnforcement()
+            return
+        }
+
+        guard await touchTips.supportsLockedProximityMonitoring() else {
+            stopLockedProximityEnforcement()
+            return
+        }
+
+        stopLockedProximityEnforcement()
+        lockedProximitySessionID = session.id
+
+        let stream = await touchTips.startLockedProximityMonitoring(roomID: session.id)
+        lockedProximityUpdatesTask = Task { [weak self] in
+            for await reading in stream {
+                guard let self else { return }
+                await self.recordLockedProximity(reading)
+            }
+        }
+
+        lockedProximityCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: LockedSessionProximityPolicy.checkIntervalNanoseconds)
+                guard let self else { return }
+                await self.evaluateLockedProximity(sessionID: session.id)
+            }
+        }
+    }
+
+    private func stopLockedProximityEnforcement() {
+        let shouldStopTouchTips = lockedProximitySessionID != nil
+        lockedProximityUpdatesTask?.cancel()
+        lockedProximityUpdatesTask = nil
+        lockedProximityCheckTask?.cancel()
+        lockedProximityCheckTask = nil
+        proximityCountdownTask?.cancel()
+        proximityCountdownTask = nil
+        lockedProximitySessionID = nil
+        latestLockedProximityReading = nil
+        proximityWarningSecondsRemaining = nil
+        if shouldStopTouchTips {
+            Task { await touchTips.stop() }
+        }
+    }
+
+    private func recordLockedProximity(_ reading: LockedProximityReading) {
+        latestLockedProximityReading = reading
+        if isWithinLockedProximityThreshold() {
+            clearProximityWarning()
+        }
+    }
+
+    private func evaluateLockedProximity(sessionID: UUID) async {
+        guard phase == .locked,
+              currentSession?.session.id == sessionID,
+              proximityCountdownTask == nil,
+              !isWithinLockedProximityThreshold() else { return }
+
+        beginProximityWarningCountdown(sessionID: sessionID)
+    }
+
+    private func beginProximityWarningCountdown(sessionID: UUID) {
+        proximityCountdownTask?.cancel()
+        proximityWarningSecondsRemaining = LockedSessionProximityPolicy.gracePeriodSeconds
+        proximityCountdownTask = Task { [weak self] in
+            var remaining = LockedSessionProximityPolicy.gracePeriodSeconds
+            while remaining > 0, !Task.isCancelled {
+                guard let self else { return }
+                if await self.isWithinLockedProximityThreshold() {
+                    await self.clearProximityWarning()
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: LockedSessionProximityPolicy.graceCheckIntervalNanoseconds)
+                remaining -= 1
+                await self.setProximityWarningSeconds(remaining)
+            }
+
+            guard !Task.isCancelled, let self else { return }
+            if await self.isWithinLockedProximityThreshold() {
+                await self.clearProximityWarning()
+            } else {
+                await self.reportProximityExit(sessionID: sessionID)
+            }
+        }
+    }
+
+    private func setProximityWarningSeconds(_ seconds: Int) {
+        proximityWarningSecondsRemaining = max(seconds, 0)
+    }
+
+    private func clearProximityWarning() {
+        proximityCountdownTask?.cancel()
+        proximityCountdownTask = nil
+        proximityWarningSecondsRemaining = nil
+    }
+
+    private func isWithinLockedProximityThreshold() -> Bool {
+        guard let reading = latestLockedProximityReading,
+              let distance = reading.distanceMeters,
+              Date().timeIntervalSince(reading.observedAt) <= LockedSessionProximityPolicy.staleReadingInterval else {
+            return false
+        }
+        return distance <= LockedSessionProximityPolicy.maxDistanceMeters
+    }
+
+    private func reportProximityExit(sessionID: UUID) async {
+        guard !isReportingProximityExit else { return }
+        isReportingProximityExit = true
+        defer { isReportingProximityExit = false }
+
+        do {
+            try await sessions.reportProximityExit(id: sessionID)
+            await completeLocalProximityExit()
+        } catch {
+            proximityWarningSecondsRemaining = nil
+            proximityCountdownTask = nil
+            errorMessage = "Couldn't leave the session after the proximity check."
+        }
+    }
+
+    private func completeLocalProximityExit() async {
+        stopJailbreakWatchdog()
+        stopSessionSync()
+        stopLockedProximityEnforcement()
+        listenerTask?.cancel()
+        listenerTask = nil
+        await webSocket.disconnect()
+        phase = .idle
+        currentSession = nil
+        participants = []
+        countdownEndsAt = nil
+        didLeaveCurrentSessionForProximity = true
     }
 
     private func resetShieldTracking() {

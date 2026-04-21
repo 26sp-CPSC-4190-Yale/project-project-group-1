@@ -23,6 +23,7 @@ struct NotificationService {
         static let sessionLocked = "session_locked"
         static let sessionEnded = "session_ended"
         static let sessionJailbreak = "session_jailbreak"
+        static let sessionProximityExit = "session_proximity_exit"
     }
 
     /// Send a visible push notification to a user.
