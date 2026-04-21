@@ -6,6 +6,28 @@
 //
 
 import SwiftUI
+import UnpluggedShared
+
+private struct MedalBadge: View {
+    let userMedal: UserMedalResponse
+
+    var body: some View {
+        VStack(spacing: .spacingSm) {
+            Text(userMedal.medal.icon)
+                .font(.system(size: 36))
+                .frame(width: 64, height: 64)
+                .background(Color.surfaceColor)
+                .clipShape(Circle())
+            Text(userMedal.medal.name)
+                .font(.caption)
+                .foregroundStyle(Color.tertiaryColor)
+                .lineLimit(1)
+                .frame(maxWidth: 80)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(userMedal.medal.name). \(userMedal.medal.description)")
+    }
+}
 
 struct ProfileView: View {
     var authViewModel: AuthViewModel
@@ -52,7 +74,7 @@ struct ProfileView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
         .task {
-            await viewModel.load(stats: deps.stats, cache: deps.cache)
+            await viewModel.load(stats: deps.stats, medals: deps.medals, cache: deps.cache)
         }
     }
 
@@ -79,6 +101,30 @@ struct ProfileView: View {
                 }
             }
             .padding(.horizontal, .spacingLg)
+
+            if !viewModel.medals.isEmpty {
+                VStack(spacing: .spacingSm) {
+                    HStack {
+                        Text("Medals")
+                            .font(.headline)
+                            .foregroundStyle(Color.tertiaryColor)
+                        Spacer()
+                        Text("\(viewModel.medals.count)")
+                            .font(.caption)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                    }
+                    .padding(.horizontal, .spacingLg)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: .spacingMd) {
+                            ForEach(viewModel.medals, id: \.medal.id) { userMedal in
+                                MedalBadge(userMedal: userMedal)
+                            }
+                        }
+                        .padding(.horizontal, .spacingLg)
+                    }
+                }
+            }
 
             // Recent Sessions
             VStack(spacing: .spacingSm) {

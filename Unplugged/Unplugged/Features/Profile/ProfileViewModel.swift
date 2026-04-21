@@ -16,6 +16,7 @@ class ProfileViewModel {
 
     var userName: String = ""
     var stats: UserStatsResponse?
+    var medals: [UserMedalResponse] = []
     var isLoading = false
     var error: String?
 
@@ -40,7 +41,7 @@ class ProfileViewModel {
         return String(format: "%.1f", hours)
     }
 
-    func load(stats service: StatsAPIService, cache: LocalCacheService) async {
+    func load(stats service: StatsAPIService, medals medalsService: MedalsAPIService, cache: LocalCacheService) async {
         if let cachedUser = cache.readUser() {
             userName = cachedUser.username
         }
@@ -50,10 +51,13 @@ class ProfileViewModel {
         }
         isLoading = true
         error = nil
+        async let freshStats = service.getMyStats()
+        async let freshMedals = medalsService.getMyMedals()
         do {
-            let fresh = try await service.getMyStats()
-            stats = fresh
-            cache.saveStats(fresh)
+            let (s, m) = try await (freshStats, freshMedals)
+            stats = s
+            cache.saveStats(s)
+            medals = m
         } catch {
             self.error = "Could not load stats"
         }

@@ -38,6 +38,9 @@ enum APIRouter {
     // Stats
     case getStats
 
+    // Medals
+    case getMyMedals
+
     // Sessions
     case createSession(CreateSessionRequest)
     case listSessions
@@ -82,6 +85,7 @@ enum APIRouter {
             return "/users/\(id)/block"
         case .reportUser(let id, _):    return "/users/\(id)/report"
         case .getStats:                 return "/users/me/stats"
+        case .getMyMedals:              return "/users/me/medals"
         case .createSession, .listSessions:
             return "/sessions"
         case .sessionHistory(let limit, let before):
@@ -126,7 +130,7 @@ enum APIRouter {
             return .post
         case .registerDeviceToken:
             return .put
-        case .getMe, .getStats, .listSessions, .sessionHistory, .getSession, .getRecap,
+        case .getMe, .getStats, .getMyMedals, .listSessions, .sessionHistory, .getSession, .getRecap,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
              .listGroups, .getGroup, .searchUsers, .listBlocks:
             return .get
