@@ -8,7 +8,12 @@ struct CreateRoomView: View {
     var onCreateRoom: (SessionResponse) -> Void
 
     @State private var viewModel = CreateRoomViewModel()
+    @State private var showDiscardConfirmation = false
     @Environment(\.dismiss) private var dismiss
+
+    private var hasUnsavedInput: Bool {
+        viewModel.createdSession == nil && !viewModel.roomName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -27,9 +32,25 @@ struct CreateRoomView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(Color.tertiaryColor)
+                    Button("Cancel") {
+                        if hasUnsavedInput {
+                            showDiscardConfirmation = true
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .foregroundStyle(Color.tertiaryColor)
                 }
+            }
+            .confirmationDialog(
+                "Discard this room?",
+                isPresented: $showDiscardConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep Editing", role: .cancel) {}
+            } message: {
+                Text("Your room name and settings will be lost.")
             }
         }
         .errorAlert($viewModel.error)

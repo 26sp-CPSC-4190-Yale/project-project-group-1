@@ -24,7 +24,11 @@ struct ContentView: View {
         }
         .task {
             guard !authViewModel.isConfigured else { return }
-            authViewModel.configure(authService: container.auth, cache: container.cache)
+            authViewModel.configure(
+                authService: container.auth,
+                cache: container.cache,
+                sessionOrchestrator: container.sessionOrchestrator
+            )
             authViewModel.restoreSession()
         }
     }

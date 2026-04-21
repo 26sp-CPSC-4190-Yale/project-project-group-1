@@ -41,7 +41,7 @@ enum APIRouter {
     // Sessions
     case createSession(CreateSessionRequest)
     case listSessions
-    case sessionHistory
+    case sessionHistory(limit: Int? = nil, before: Date? = nil)
     case getSession(id: UUID)
     case joinSession(id: UUID)
     case joinSessionCode(code: String)
@@ -84,7 +84,18 @@ enum APIRouter {
         case .getStats:                 return "/users/me/stats"
         case .createSession, .listSessions:
             return "/sessions"
-        case .sessionHistory:           return "/sessions/history"
+        case .sessionHistory(let limit, let before):
+            var items: [URLQueryItem] = []
+            if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
+            if let before {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                items.append(URLQueryItem(name: "before", value: formatter.string(from: before)))
+            }
+            guard !items.isEmpty else { return "/sessions/history" }
+            var comps = URLComponents()
+            comps.queryItems = items
+            return "/sessions/history" + (comps.string ?? "")
         case .getSession(let id):       return "/sessions/\(id)"
         case .joinSession(let id):      return "/sessions/\(id)/join"
         case .joinSessionCode(let code): return "/sessions/\(code)/join"

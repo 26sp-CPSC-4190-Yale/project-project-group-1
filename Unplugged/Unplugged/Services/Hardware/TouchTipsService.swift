@@ -22,15 +22,18 @@
 //         { "roomID": "<uuid>", "niToken": "<base64-archived NIDiscoveryToken>" }
 //    4. Both sides start an NISession configured with the peer's token and begin
 //       receiving distance readings.
-//    5. When distance <= ProximityConstants.touchThresholdMeters (≈15 cm), the
-//       joiner yields the room UUID on its AsyncStream and auto-joins — no buttons.
+//    5. When distance <= ProximityConstants.touchThresholdMeters (10 cm) for
+//       `consecutiveCloseSamples` (2) consecutive readings, the joiner yields the
+//       room UUID on its AsyncStream and auto-joins — no buttons.
 //
-//  Fallback
-//  ────────
-//  If NearbyInteraction is unavailable (pre-U1 device, denied permission, older iOS),
-//  we yield the room UUID as soon as MC negotiates a secure session. MC is radio-
-//  proximity bounded (BT LE / P2P Wi-Fi, <10 m), so this is a looser but still-local
-//  gate. The explicit "bring phones together" hint in the UI copy still applies.
+//  No MC-only fallback for auto-pairing
+//  ────────────────────────────────────
+//  MC alone is ~10 m range (BT LE + P2P Wi-Fi). Auto-pairing on MC connect would let
+//  two phones in the same room silently pair — exactly the bug we've seen. UWB is the
+//  ONLY auto-pair gate. If UWB is unavailable (pre-U1 hardware, permission denied,
+//  older iOS) the stream simply never yields; the UI surfaces the manual room-code
+//  path instead. Do not reintroduce a time-based "if MC connects, assume proximity"
+//  shortcut — users will join from across the room.
 //
 
 import Foundation
@@ -96,6 +99,33 @@ actor TouchTipsService {
         stopInternal(keepContinuation: false)
     }
 
+    /// Trigger the OS Local Network permission dialog during onboarding so the first
+    /// real pairing attempt doesn't silently fail. iOS gates `MCNearbyServiceBrowser`
+    /// and `MCNearbyServiceAdvertiser` behind Local Network permission; if the user
+    /// hasn't been prompted yet, both `startBrowsingForPeers` and `startAdvertisingPeer`
+    /// no-op and the system only shows the dialog on the first call.
+    ///
+    /// This method briefly starts a browser (no pairing, no discovery delegate wired up
+    /// meaningfully) purely to surface the dialog, then tears it down. Safe to call
+    /// multiple times — iOS only shows the prompt once.
+    func primeLocalNetworkPermission() async {
+        stopInternal(keepContinuation: false)
+
+        let peerID = MCPeerID(displayName: "unplugged-prime-\(UUID().uuidString.prefix(4))")
+        let browser = MCNearbyServiceBrowser(peer: peerID, serviceType: ProximityConstants.serviceType)
+        browser.delegate = bridge
+        browser.startBrowsingForPeers()
+        self.browser = browser
+        self.localPeerID = peerID
+
+        // Hold the browser open just long enough for the OS to surface the permission
+        // prompt. Too short and the prompt never appears; too long and we pointlessly
+        // burn battery. ~800ms is enough on device.
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        stopInternal(keepContinuation: false)
+    }
+
     // MARK: - Init (wire up delegate bridge)
 
     init() {
@@ -128,6 +158,11 @@ actor TouchTipsService {
     private var niSession: NISession?
     private var peerDiscoveryToken: NIDiscoveryToken?
     private var didYield = false
+
+    /// Count of consecutive sub-threshold distance samples. Reset whenever a reading
+    /// comes back above the threshold (or is missing). We require N in a row — a single
+    /// spike below 10cm during a hand wave isn't proof the phones are together.
+    private var consecutiveCloseCount: Int = 0
 
     // MARK: - Wire delegate callbacks
 
@@ -177,13 +212,9 @@ actor TouchTipsService {
     private func handleSessionState(peer: MCPeerID, state: MCSessionState) {
         guard state == .connected else { return }
         sendHandshake(to: peer)
-        // Fallback: if NI never fires (device lacks U1 or permission denied), the
-        // connection itself is our proximity proof. We give NI a short window to
-        // claim the pairing first.
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            await self?.yieldIfStillWaiting(reason: "MC-only fallback")
-        }
+        // Do NOT schedule an MC-only yield here — MC connecting only proves radio
+        // proximity (~10 m). The UWB gate in handleNIUpdate is what confirms the
+        // phones are actually pressed together.
     }
 
     private func sendHandshake(to peer: MCPeerID) {
@@ -249,14 +280,31 @@ actor TouchTipsService {
         guard !didYield else { return }
         let token = peerDiscoveryToken
         let match = objects.first { $0.discoveryToken == token }
-        guard let distance = match?.distance,
-              distance <= Float(ProximityConstants.touchThresholdMeters) else { return }
-        yieldIfStillWaiting(reason: "UWB <\(ProximityConstants.touchThresholdMeters)m")
+        guard let distance = match?.distance else {
+            // Token didn't match any of the nearby objects (peer disappeared, or the
+            // update is for a stale session). Don't penalize the counter — wait for the
+            // next real sample. But DO decay it back to 0 so momentary losses don't
+            // bank progress toward the gate.
+            consecutiveCloseCount = 0
+            return
+        }
+
+        if distance <= Float(ProximityConstants.touchThresholdMeters) {
+            consecutiveCloseCount += 1
+            if consecutiveCloseCount >= ProximityConstants.consecutiveCloseSamples {
+                yieldIfStillWaiting(reason: "UWB <=\(ProximityConstants.touchThresholdMeters)m x\(consecutiveCloseCount)")
+            }
+        } else {
+            // Any reading above the threshold resets the streak. The user must hold
+            // the phones together long enough for two clean samples in a row.
+            consecutiveCloseCount = 0
+        }
     }
 
     private func resetNI() {
         niSession = nil
         peerDiscoveryToken = nil
+        consecutiveCloseCount = 0
     }
 
     // MARK: - Yielding
@@ -287,6 +335,7 @@ actor TouchTipsService {
         niSession?.invalidate()
         niSession = nil
         peerDiscoveryToken = nil
+        consecutiveCloseCount = 0
 
         localPeerID = nil
         discoveredRoomID.removeAll()

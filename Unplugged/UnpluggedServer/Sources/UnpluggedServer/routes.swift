@@ -10,6 +10,18 @@ import UnpluggedShared
 import Vapor
 
 func routes(_ app: Application) throws {
+    // Liveness: always 200, no dependencies. Used by Kubernetes livenessProbe
+    // and load balancers to know the process is alive.
+    app.get("healthz") { _ in HTTPStatus.ok }
+
+    // Readiness: verifies the process can actually serve traffic by executing
+    // a trivial DB round-trip. Used by readinessProbe so pods don't receive
+    // traffic before migrations complete or during DB flaps.
+    app.get("readyz") { req async throws -> HTTPStatus in
+        try await req.db.transaction { _ in }
+        return .ok
+    }
+
     try app.register(collection: AuthController())
 
     let protected = app.grouped(JWTAuthMiddleware())
@@ -66,7 +78,11 @@ private func handleIncomingText(req: Request, ws: WebSocket, text: String) async
     case .reportJailbreak(let reason):
         let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
         record.detectedAt = Date()
-        try? await record.save(on: req.db)
+        do {
+            try await record.save(on: req.db)
+        } catch {
+            req.logger.error("Failed to persist jailbreak report for user \(userID) in room \(roomID): \(error)")
+        }
         await req.application.sessionHub.broadcast(
             roomID: roomID,
             message: .jailbreakReported(userID: userID, reason: reason)

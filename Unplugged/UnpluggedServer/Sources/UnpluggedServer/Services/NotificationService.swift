@@ -57,10 +57,14 @@ struct NotificationService {
             payload: NotificationPayload(type: type)
         )
 
-        try? await application.apns.client(.default).sendAlertNotification(
-            notification,
-            deviceToken: token
-        )
+        do {
+            try await application.apns.client(.default).sendAlertNotification(
+                notification,
+                deviceToken: token
+            )
+        } catch {
+            application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
+        }
     }
 
     /// Send a silent background push (content-available: 1) carrying a lifecycle event.
@@ -93,10 +97,14 @@ struct NotificationService {
             payload: SilentPayload(type: type, sessionID: sessionID.uuidString, endsAt: endsAt)
         )
 
-        try? await application.apns.client(.default).sendBackgroundNotification(
-            notification,
-            deviceToken: token
-        )
+        do {
+            try await application.apns.client(.default).sendBackgroundNotification(
+                notification,
+                deviceToken: token
+            )
+        } catch {
+            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
+        }
     }
 }
 

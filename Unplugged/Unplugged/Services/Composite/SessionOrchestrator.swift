@@ -103,6 +103,28 @@ final class SessionOrchestrator {
         await engageShield(endsAt: endsAt)
     }
 
+    /// Cancel all in-flight work (WebSocket listener, jailbreak watchdog) and close the
+    /// socket. Called on logout, token invalidation, and any hard teardown path — the
+    /// WS authenticates against a JWT and will fail once the token is gone, but holding
+    /// the listener open spins indefinitely against a stale identity until the TCP drops.
+    func teardown() async {
+        stopJailbreakWatchdog()
+        listenerTask?.cancel()
+        listenerTask = nil
+        await webSocket.disconnect()
+        // §64: drop the Screen Time shield on teardown. If the user signs out
+        // mid-session, leaving apps shielded with no session bound to them
+        // strands the device — next launch shows a lock with no way to clear
+        // it in-app. unlockApps is idempotent when nothing is shielded.
+        try? await screenTime.unlockApps()
+        phase = .idle
+        currentSession = nil
+        participants = []
+        countdownEndsAt = nil
+        errorMessage = nil
+        lastRecap = nil
+    }
+
     func handleRemotePayload(type: String, userInfo: [AnyHashable: Any]) {
         switch type {
         case "session_locked":

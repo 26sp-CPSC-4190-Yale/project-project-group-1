@@ -12,6 +12,11 @@ import UnpluggedShared
 /// as an `AsyncStream<WSServerMessage>`. The auth token is sent as a Bearer Authorization
 /// header on the HTTP upgrade request — query-string auth leaks into access logs and
 /// proxy caches, which is why we use the header path.
+///
+/// On unexpected disconnects the client attempts bounded reconnects with exponential
+/// backoff (1s, 2s, 4s, 8s, 16s, 30s) plus jitter, up to `maxReconnectAttempts`.
+/// Across reconnects the same `AsyncStream` continuation stays open, so subscribers
+/// don't need to re-wire; once all attempts are exhausted the stream finishes.
 actor WebSocketClient {
     enum ConnectionState {
         case idle
@@ -23,8 +28,15 @@ actor WebSocketClient {
     private var task: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
     private var continuation: AsyncStream<WSServerMessage>.Continuation?
+    private var connectionParams: (sessionID: UUID, token: String)?
+    private var reconnectAttempt = 0
+    private var shouldReconnect = false
     private(set) var state: ConnectionState = .idle
+
+    private static let maxReconnectAttempts = 6
+    private static let maxBackoffSeconds: UInt64 = 30
 
     private let urlSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -44,36 +56,22 @@ actor WebSocketClient {
     }()
 
     /// Async stream of decoded server messages. A fresh stream is handed out per connect call.
+    /// The stream survives transient disconnects — only an explicit `disconnect()` or an
+    /// exhausted reconnect budget terminates it.
     func connect(sessionID: UUID, token: String) -> AsyncStream<WSServerMessage> {
-        disconnect()
+        teardownSocket()
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        continuation?.finish()
 
         let stream = AsyncStream<WSServerMessage> { continuation in
             self.continuation = continuation
         }
+        connectionParams = (sessionID, token)
+        shouldReconnect = true
+        reconnectAttempt = 0
 
-        state = .connecting
-
-        var components = URLComponents(string: Config.webSocketBaseURL)!
-        components.path += "/sessions/\(sessionID.uuidString)/ws"
-
-        guard let url = components.url else {
-            state = .disconnected
-            continuation?.finish()
-            continuation = nil
-            return stream
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let task = urlSession.webSocketTask(with: request)
-        self.task = task
-        task.resume()
-        state = .connected
-
-        startReceiveLoop()
-        startHeartbeat()
-
+        openSocket()
         return stream
     }
 
@@ -84,15 +82,49 @@ actor WebSocketClient {
     }
 
     func disconnect() {
+        shouldReconnect = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        teardownSocket()
+        continuation?.finish()
+        continuation = nil
+        connectionParams = nil
+        state = .disconnected
+    }
+
+    private func openSocket() {
+        guard let params = connectionParams else { return }
+        state = .connecting
+
+        var components = URLComponents(string: Config.webSocketBaseURL)!
+        components.path += "/sessions/\(params.sessionID.uuidString)/ws"
+
+        guard let url = components.url else {
+            state = .disconnected
+            continuation?.finish()
+            continuation = nil
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(params.token)", forHTTPHeaderField: "Authorization")
+
+        let task = urlSession.webSocketTask(with: request)
+        self.task = task
+        task.resume()
+        state = .connected
+
+        startReceiveLoop()
+        startHeartbeat()
+    }
+
+    private func teardownSocket() {
         heartbeatTask?.cancel()
         heartbeatTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
-        continuation?.finish()
-        continuation = nil
-        state = .disconnected
     }
 
     private func startReceiveLoop() {
@@ -116,6 +148,10 @@ actor WebSocketClient {
     }
 
     private func handleIncoming(_ raw: URLSessionWebSocketTask.Message) {
+        // A successful receive means we're fully connected again — reset the
+        // backoff counter so the next blip starts from 1s, not where we left off.
+        reconnectAttempt = 0
+
         switch raw {
         case .data(let data):
             if let decoded = try? decoder.decode(WSServerMessage.self, from: data) {
@@ -132,10 +168,30 @@ actor WebSocketClient {
     }
 
     private func handleDisconnect() {
+        teardownSocket()
         state = .disconnected
-        continuation?.finish()
-        continuation = nil
-        task = nil
+
+        guard shouldReconnect, reconnectAttempt < Self.maxReconnectAttempts else {
+            continuation?.finish()
+            continuation = nil
+            return
+        }
+        scheduleReconnect()
+    }
+
+    private func scheduleReconnect() {
+        reconnectAttempt += 1
+        // 1s, 2s, 4s, 8s, 16s, 30s — capped at maxBackoffSeconds. Jitter (0–25%)
+        // keeps a fleet of clients from reconnecting in lockstep after a server blip.
+        let base = min(UInt64(1) << (reconnectAttempt - 1), Self.maxBackoffSeconds)
+        let jitter = UInt64.random(in: 0...(base * 250_000_000))
+        let delayNanos = base * 1_000_000_000 + jitter
+
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self, !Task.isCancelled else { return }
+            await self.openSocket()
+        }
     }
 
     private func startHeartbeat() {

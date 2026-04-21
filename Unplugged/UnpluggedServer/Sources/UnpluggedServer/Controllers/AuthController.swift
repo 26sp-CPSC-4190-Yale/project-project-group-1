@@ -15,10 +15,10 @@ extension AuthResponse: @retroactive Content {}
 struct AuthController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let auth = routes.grouped("auth")
-        auth.post("register", use: register)
-        auth.post("login", use: login)
-        auth.post("apple", use: signInWithApple)
-        auth.post("google", use: signInWithGoogle)
+        auth.grouped(RateLimit.register).post("register", use: register)
+        auth.grouped(RateLimit.login).post("login", use: login)
+        auth.grouped(RateLimit.oauth).post("apple", use: signInWithApple)
+        auth.grouped(RateLimit.oauth).post("google", use: signInWithGoogle)
     }
 
     @Sendable
@@ -29,7 +29,7 @@ struct AuthController: RouteCollection {
             throw Abort(.badRequest, reason: "Username must be 3-20 characters, letters/numbers only.")
         }
         guard InputValidation.isValidPassword(body.password) else {
-            throw Abort(.badRequest, reason: "Password must be at least 8 characters.")
+            throw Abort(.badRequest, reason: InputValidation.passwordRequirementsMessage)
         }
 
         let existing = try await UserModel.query(on: req.db)
@@ -57,6 +57,12 @@ struct AuthController: RouteCollection {
     @Sendable
     func login(req: Request) async throws -> AuthResponse {
         let body = try req.content.decode(LoginRequest.self)
+
+        // Per-username throttle on top of the per-IP middleware: blocks credential
+        // stuffing that rotates IPs but hammers one account.
+        guard await RateLimit.shared.allowUsername(body.username) else {
+            throw Abort(.tooManyRequests, reason: "Too many login attempts. Try again in a minute.")
+        }
 
         guard let user = try await UserModel.query(on: req.db)
             .filter(\.$username == body.username)
@@ -92,7 +98,13 @@ struct AuthController: RouteCollection {
         do {
             appleToken = try await req.jwt.apple.verify(body.identityToken)
         } catch {
-            req.logger.warning("Apple identity token verification failed: \(error)")
+            // Log only the error type at warning — the full error description can
+            // embed decoded claims (subject, email) which we don't want in prod logs.
+            // Set LOG_LEVEL=debug to see the full error during investigation.
+            req.logger.warning("Apple identity token verification failed", metadata: [
+                "error_type": "\(type(of: error))"
+            ])
+            req.logger.debug("Apple verify error detail: \(error)")
             throw Abort(.unauthorized, reason: "Invalid Apple identity token.")
         }
 
@@ -109,10 +121,13 @@ struct AuthController: RouteCollection {
         }
 
         // Otherwise create a new user. Username must be unique, so derive one.
+        // Fallback must NOT derive from the Apple subject — that made usernames
+        // enumerable for anyone scraping the social graph. A random suffix keeps
+        // the account un-linkable to its OAuth identity.
         let baseUsername = usernameCandidate(
             fromFullName: body.fullName,
             email: body.email ?? appleToken.email,
-            fallback: "apple_\(String(subject.suffix(8)))"
+            fallback: "u_\(UUID().uuidString.prefix(8).lowercased())"
         )
         let username = try await uniqueUsername(baseUsername, on: req.db)
 
@@ -134,7 +149,10 @@ struct AuthController: RouteCollection {
         do {
             googleToken = try await req.jwt.google.verify(body.idToken)
         } catch {
-            req.logger.warning("Google identity token verification failed: \(error)")
+            req.logger.warning("Google identity token verification failed", metadata: [
+                "error_type": "\(type(of: error))"
+            ])
+            req.logger.debug("Google verify error detail: \(error)")
             throw Abort(.unauthorized, reason: "Invalid Google ID token.")
         }
 
@@ -152,7 +170,7 @@ struct AuthController: RouteCollection {
         let baseUsername = usernameCandidate(
             fromFullName: googleToken.name,
             email: googleToken.email,
-            fallback: "google_\(String(subject.suffix(8)))"
+            fallback: "u_\(UUID().uuidString.prefix(8).lowercased())"
         )
         let username = try await uniqueUsername(baseUsername, on: req.db)
 

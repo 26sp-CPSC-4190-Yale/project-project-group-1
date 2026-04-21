@@ -1,4 +1,5 @@
 import SwiftUI
+import UnpluggedShared
 
 struct UsernameLoginView: View {
     @Bindable var viewModel: AuthViewModel
@@ -51,6 +52,12 @@ struct UsernameLoginView: View {
                                     .padding(14)
                                     .background(Color.surfaceColor)
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                                if isRegistering {
+                                    Text(InputValidation.passwordRequirementsMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                                        .padding(.top, 2)
+                                }
                             }
                         }
 
@@ -85,6 +92,12 @@ struct UsernameLoginView: View {
                         }
                         .font(.subheadline)
                         .foregroundStyle(Color.secondaryColor)
+
+                        // App Store guideline 5.1.1(v) + 3.1.2: ToS and Privacy Policy
+                        // must be accessible in-app, not just on the App Store listing,
+                        // and must appear before account creation.
+                        LegalFooter()
+                            .padding(.top, .spacingSm)
                     }
                     .padding(.horizontal, .spacingLg)
                 }

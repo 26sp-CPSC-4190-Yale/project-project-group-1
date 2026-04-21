@@ -49,8 +49,12 @@ struct ActiveRoomView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        onClose()
-                        dismiss()
+                        if phase == .locked {
+                            viewModel.showLeaveConfirmation = true
+                        } else {
+                            onClose()
+                            dismiss()
+                        }
                     } label: {
                         Image(systemName: "xmark")
                             .foregroundStyle(Color.tertiaryColor)
@@ -88,6 +92,17 @@ struct ActiveRoomView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will end the session for all participants.")
+        }
+        .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
+            Button("Leave Room", role: .destructive) {
+                onClose()
+                dismiss()
+            }
+            Button("Stay", role: .cancel) {}
+        } message: {
+            // Screen Time shield is enforced by the OS until the countdown ends,
+            // so leaving the view doesn't unlock the phone — just exits the room UI.
+            Text("Your phone stays locked until the session ends. You'll lose the countdown and member list.")
         }
         .sheet(item: $reportTarget) { target in
             ReportUserSheet(username: target.username) { reason, details in

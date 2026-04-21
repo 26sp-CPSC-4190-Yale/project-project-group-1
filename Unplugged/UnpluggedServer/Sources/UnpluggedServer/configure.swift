@@ -14,6 +14,27 @@ import Vapor
 import VaporAPNS
 
 public func configure(_ app: Application) async throws {
+    // CORS: iOS clients don't enforce CORS, but any browser-based admin
+    // tooling or future web client will. Declaring an explicit policy now
+    // avoids the "it works in dev, fails in prod behind a real origin"
+    // surprise later. Origins are pulled from ALLOWED_ORIGINS (comma-separated);
+    // in development we allow any origin for local tooling.
+    let corsOrigins: CORSMiddleware.AllowOriginSetting
+    if let raw = Environment.get("ALLOWED_ORIGINS"), !raw.isEmpty {
+        let origins = raw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+        corsOrigins = .any(origins)
+    } else if app.environment == .development {
+        corsOrigins = .all
+    } else {
+        corsOrigins = .none
+    }
+    let cors = CORSMiddleware(configuration: .init(
+        allowedOrigin: corsOrigins,
+        allowedMethods: [.GET, .POST, .PUT, .PATCH, .DELETE, .OPTIONS],
+        allowedHeaders: [.accept, .authorization, .contentType, .origin, .xRequestedWith]
+    ))
+    app.middleware.use(cors, at: .beginning)
+
     let dbHost = Environment.get("DB_HOST") ?? "localhost"
     let dbPort = Int(Environment.get("DB_PORT") ?? "") ?? 5432
     let dbUser = Environment.get("DB_USER") ?? "unplugged"
@@ -48,6 +69,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddDeletedAtToUsers())
     app.migrations.add(CreateUserBlocks())
     app.migrations.add(CreateUserReports())
+    app.migrations.add(AddPerformanceIndexes())
 
     try await app.autoMigrate()
 

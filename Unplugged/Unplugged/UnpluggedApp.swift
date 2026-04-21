@@ -22,6 +22,7 @@ struct UnpluggedApp: App {
         WindowGroup {
             ContentView()
                 .environment(container)
+                .dismissKeyboardOnTap()
         }
     }
 }

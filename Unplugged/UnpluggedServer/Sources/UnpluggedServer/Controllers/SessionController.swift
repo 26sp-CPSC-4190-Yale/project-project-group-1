@@ -54,12 +54,16 @@ struct SessionController: RouteCollection {
             latitude: body.latitude,
             longitude: body.longitude
         )
-        try await room.save(on: req.db)
 
-        let member = MemberModel()
-        member.userID = userID
-        member.roomID = try room.requireID()
-        try await member.save(on: req.db)
+        // Room + owner-membership must be atomic — a room with no host row is
+        // a ghost that passes auth checks but can never be joined or ended.
+        try await req.db.transaction { db in
+            try await room.save(on: db)
+            let member = MemberModel()
+            member.userID = userID
+            member.roomID = try room.requireID()
+            try await member.save(on: db)
+        }
 
         return try await buildSessionResponse(room: room, db: req.db)
     }
@@ -89,6 +93,13 @@ struct SessionController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
+        // Cursor pagination: `before` is the endedAt of the last row from the
+        // previous page; clients request older rows by passing it back. Limit
+        // is clamped to [1, 100] with a default of 25 so unbounded queries
+        // can't blow up on users with long histories.
+        let limit = min(max(req.query[Int.self, at: "limit"] ?? 25, 1), 100)
+        let before = req.query[Date.self, at: "before"]
+
         let memberships = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
             .all()
@@ -96,10 +107,15 @@ struct SessionController: RouteCollection {
 
         guard !roomIDs.isEmpty else { return [] }
 
-        let rooms = try await RoomModel.query(on: req.db)
+        var query = RoomModel.query(on: req.db)
             .filter(\.$id ~~ roomIDs)
             .filter(\.$endedAt != nil)
+        if let before {
+            query = query.filter(\.$endedAt < before)
+        }
+        let rooms = try await query
             .sort(\.$endedAt, .descending)
+            .limit(limit)
             .all()
 
         var results: [SessionHistoryResponse] = []

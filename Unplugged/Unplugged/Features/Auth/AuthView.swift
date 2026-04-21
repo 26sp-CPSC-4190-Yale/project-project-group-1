@@ -49,23 +49,11 @@ struct AuthView: View {
                         .frame(height: 50)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        Button(action: {
-                            viewModel.errorMessage = "Google Sign-In is coming soon."
-                        }) {
-                            HStack(spacing: 8) {
-                                Image("GoogleLogo")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 20, height: 20)
-                                Text("Sign in with Google")
-                                    .fontWeight(.medium)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(.white.opacity(0.5))
-                            .foregroundStyle(.black.opacity(0.4))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
+                        // Google Sign-In: server + view-model plumbing is in place
+                        // (AuthController.signInWithGoogle + AuthViewModel.signInWithGoogle),
+                        // but the client SDK integration isn't wired up yet. Hiding the
+                        // button until it is — shipping a dead "coming soon" button is a
+                        // known App Store rejection pattern (Guideline 5.1.1(v)).
 
                         Button {
                             showUsernameLogin = true

@@ -27,7 +27,7 @@ class CreateRoomViewModel {
                 location: nil
             )
         } catch {
-            self.error = "Failed to create room"
+            self.error = "Failed to create room: \(Self.errorMessage(for: error))"
         }
         isCreating = false
     }
@@ -37,7 +37,7 @@ class CreateRoomViewModel {
         do {
             try await touchTips.activate(roomID: roomID)
         } catch {
-            self.error = "Failed to start sharing"
+            self.error = "Failed to start sharing: \(Self.errorMessage(for: error))"
             isAdvertising = false
         }
     }
@@ -45,5 +45,10 @@ class CreateRoomViewModel {
     func stopAdvertising(touchTips: TouchTipsService) {
         Task { await touchTips.stop() }
         isAdvertising = false
+    }
+
+    private static func errorMessage(for error: Error) -> String {
+        let message = (error as NSError).localizedDescription
+        return message.isEmpty ? "Unknown error" : message
     }
 }

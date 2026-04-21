@@ -27,10 +27,14 @@ struct JWTAuthMiddleware: AsyncBearerAuthenticator {
         // Touch last-seen timestamp for presence. Fire-and-forget — never block auth on this.
         if let userID = try? payload.userID {
             let db = request.db
+            let logger = request.logger
             Task {
-                if let user = try? await UserModel.find(userID, on: db), !user.isDeleted {
+                do {
+                    guard let user = try await UserModel.find(userID, on: db), !user.isDeleted else { return }
                     user.lastSeenAt = Date()
-                    try? await user.save(on: db)
+                    try await user.save(on: db)
+                } catch {
+                    logger.warning("lastSeenAt update failed for user \(userID): \(error)")
                 }
             }
         }

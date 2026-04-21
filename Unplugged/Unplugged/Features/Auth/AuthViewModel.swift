@@ -20,10 +20,14 @@ class AuthViewModel {
 
     private var authService: AuthAPIService?
     private var cache: LocalCacheService?
+    private var sessionOrchestrator: SessionOrchestrator?
 
-    func configure(authService: AuthAPIService, cache: LocalCacheService) {
+    func configure(authService: AuthAPIService,
+                   cache: LocalCacheService,
+                   sessionOrchestrator: SessionOrchestrator) {
         self.authService = authService
         self.cache = cache
+        self.sessionOrchestrator = sessionOrchestrator
         self.isConfigured = true
     }
 
@@ -120,6 +124,13 @@ class AuthViewModel {
     }
 
     func signOut() {
+        // Close the session WebSocket and stop the watchdog BEFORE clearing auth —
+        // the socket authenticates via JWT, so it keeps the user's identity alive
+        // on the wire even after clearAuth() runs locally. Without this, the listener
+        // loop spins until the TCP connection naturally drops.
+        if let orchestrator = sessionOrchestrator {
+            Task { await orchestrator.teardown() }
+        }
         cache?.clearAuth()
         isAuthenticated = false
     }

@@ -7,6 +7,7 @@ import UnpluggedShared
 final class ActiveRoomViewModel {
     let isHost: Bool
     var showEndConfirmation = false
+    var showLeaveConfirmation = false
     var showRecap = false
 
     init(isHost: Bool) {

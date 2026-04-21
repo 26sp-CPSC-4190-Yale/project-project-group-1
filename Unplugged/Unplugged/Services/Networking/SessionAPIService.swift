@@ -30,8 +30,8 @@ struct SessionAPIService {
         try await client.send(.listSessions)
     }
 
-    func listHistory() async throws -> [SessionHistoryResponse] {
-        try await client.send(.sessionHistory)
+    func listHistory(limit: Int? = nil, before: Date? = nil) async throws -> [SessionHistoryResponse] {
+        try await client.send(.sessionHistory(limit: limit, before: before))
     }
 
     func getSession(id: UUID) async throws -> SessionResponse {
