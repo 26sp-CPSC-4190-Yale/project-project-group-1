@@ -96,6 +96,24 @@ struct FriendsListView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
                                     }
                                     .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button {
+                                            viewModel.reportTarget = friend
+                                        } label: {
+                                            Label("Report", systemImage: "flag")
+                                        }
+                                        Button(role: .destructive) {
+                                            Task {
+                                                await viewModel.blockUser(
+                                                    id: friend.id,
+                                                    user: deps.user,
+                                                    friends: deps.friends
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Block", systemImage: "hand.raised")
+                                        }
+                                    }
                                 }
                             } header: {
                                 Text("My Friends")
@@ -146,6 +164,16 @@ struct FriendsListView: View {
                 AddFriendSheet { username in
                     viewModel.addFriendUsername = username
                     await viewModel.addFriend(service: deps.friends)
+                }
+            }
+            .sheet(item: $viewModel.reportTarget) { target in
+                ReportUserSheet(username: target.username) { reason, details in
+                    await viewModel.reportUser(
+                        id: target.id,
+                        reason: reason,
+                        details: details,
+                        user: deps.user
+                    )
                 }
             }
             .task {

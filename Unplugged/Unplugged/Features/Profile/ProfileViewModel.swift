@@ -19,6 +19,11 @@ class ProfileViewModel {
     var isLoading = false
     var error: String?
 
+    // Account deletion
+    var isShowingDeleteAccountSheet = false
+    var isDeletingAccount = false
+    var deleteAccountError: String?
+
     // Computed display-friendly values — empty until stats load.
     var hoursUnplugged: Int { stats?.hoursUnplugged ?? 0 }
     var rank: String {
@@ -53,6 +58,25 @@ class ProfileViewModel {
             self.error = "Could not load stats"
         }
         isLoading = false
+    }
+
+    /// Soft-deletes the account via the server, then signs out on success.
+    /// On failure, surfaces the error in-sheet and leaves the user signed in.
+    func deleteAccount(password: String?, user: UserAPIService, auth: AuthViewModel) async {
+        isDeletingAccount = true
+        deleteAccountError = nil
+        do {
+            try await user.deleteAccount(password: password)
+            isShowingDeleteAccountSheet = false
+            auth.signOut()
+        } catch let err as NSError where err.code == 401 {
+            deleteAccountError = "Incorrect password."
+        } catch let err as NSError where err.code == 400 {
+            deleteAccountError = "Password required."
+        } catch {
+            deleteAccountError = "Couldn't delete account. Try again."
+        }
+        isDeletingAccount = false
     }
 
     enum ProfileTab: String, CaseIterable, Identifiable {

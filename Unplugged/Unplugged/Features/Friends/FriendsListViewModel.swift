@@ -20,6 +20,9 @@ class FriendsListViewModel {
     var isLoading = false
     var error: String?
 
+    // Report flow state
+    var reportTarget: FriendResponse?
+
     var filteredFriends: [FriendResponse] {
         if searchText.isEmpty { return friends }
         return friends.filter {
@@ -72,6 +75,28 @@ class FriendsListViewModel {
             await load(service: service)
         } catch {
             self.error = "Failed to reject friend request"
+        }
+    }
+
+    func blockUser(id: UUID, user: UserAPIService, friends friendsService: FriendAPIService) async {
+        // Optimistically remove so the row disappears immediately; refresh covers any drift.
+        self.friends.removeAll { $0.id == id }
+        self.incomingRequests.removeAll { $0.id == id }
+        do {
+            try await user.blockUser(id: id)
+            await load(service: friendsService)
+        } catch {
+            self.error = "Could not block user"
+            await load(service: friendsService)
+        }
+    }
+
+    func reportUser(id: UUID, reason: String, details: String, user: UserAPIService) async {
+        let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await user.reportUser(id: id, reason: reason, details: trimmedDetails.isEmpty ? nil : trimmedDetails)
+        } catch {
+            self.error = "Could not submit report"
         }
     }
 }

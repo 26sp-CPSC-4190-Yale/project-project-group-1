@@ -48,6 +48,13 @@ struct FriendController: RouteCollection {
         guard targetID != userID else {
             throw Abort(.badRequest, reason: "Cannot add yourself as a friend.")
         }
+
+        // If either side has blocked the other, silently refuse. Using 404 rather than a
+        // dedicated status prevents leaking "this user blocked you" to the sender.
+        if try await BlockService.isBlocked(between: userID, and: targetID, on: req.db) {
+            throw Abort(.notFound, reason: "User not found.")
+        }
+
         // check for existing relationship
         let existingQuery = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
@@ -141,8 +148,10 @@ struct FriendController: RouteCollection {
             }
             .all()
 
-        let friendIDs = friendships.map { f in
-            f.user1ID == userID ? f.user2ID : f.user1ID
+        let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+        let friendIDs = friendships.compactMap { f -> UUID? in
+            let other = f.user1ID == userID ? f.user2ID : f.user1ID
+            return hiddenIDs.contains(other) ? nil : other
         }
 
         guard !friendIDs.isEmpty else { return [] }
@@ -164,12 +173,14 @@ struct FriendController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
+        let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+
         let incoming = try await FriendshipModel.query(on: req.db)
             .filter(\.$user2ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let requesterIDs = incoming.map { $0.user1ID }
+        let requesterIDs = incoming.map { $0.user1ID }.filter { !hiddenIDs.contains($0) }
         guard !requesterIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)
@@ -201,12 +212,14 @@ struct FriendController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
+        let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+
         let outgoing = try await FriendshipModel.query(on: req.db)
             .filter(\.$user1ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let targetIDs = outgoing.map { $0.user2ID }
+        let targetIDs = outgoing.map { $0.user2ID }.filter { !hiddenIDs.contains($0) }
         guard !targetIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)

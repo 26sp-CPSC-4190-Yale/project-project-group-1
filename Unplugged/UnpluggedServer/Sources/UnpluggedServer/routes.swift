@@ -21,8 +21,10 @@ func routes(_ app: Application) throws {
     try protected.register(collection: GroupController())
 
     // WebSocket route for real-time session sync.
-    // URLSessionWebSocketTask can't set custom headers cleanly, so the client
-    // passes its JWT as a `?token=...` query parameter.
+    // Auth is a Bearer token in the `Authorization` header on the HTTP upgrade request.
+    // URLSessionWebSocketTask DOES support custom headers when initialized with a URLRequest.
+    // We previously passed the token in the query string, which leaks into access logs /
+    // proxy logs / URL history — so that path has been removed.
     app.webSocket("sessions", ":sessionID", "ws") { req, ws in
         // 1. MUST register handlers synchronously on the EventLoop to avoid NIOLoopBoundBox crash
         ws.onText { ws, text in
@@ -49,7 +51,7 @@ private func handleIncomingText(req: Request, ws: WebSocket, text: String) async
           let roomID = UUID(uuidString: idString) else { return }
 
     // Parse token to get userID
-    guard let token = req.query[String.self, at: "token"],
+    guard let token = req.headers.bearerAuthorization?.token,
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
           let userID = try? payload.userID else { return }
 
@@ -77,7 +79,7 @@ private func handleClose(req: Request, ws: WebSocket) async {
     guard let idString = req.parameters.get("sessionID"),
           let roomID = UUID(uuidString: idString) else { return }
 
-    guard let token = req.query[String.self, at: "token"],
+    guard let token = req.headers.bearerAuthorization?.token,
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
           let userID = try? payload.userID else { return }
 
@@ -86,8 +88,9 @@ private func handleClose(req: Request, ws: WebSocket) async {
 
 @Sendable
 private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
-    // 1. Verify token from query string
-    guard let token = req.query[String.self, at: "token"] else {
+    // 1. Verify token from Authorization header (set by the client's URLRequest
+    //    when initializing its URLSessionWebSocketTask).
+    guard let token = req.headers.bearerAuthorization?.token else {
         try? await ws.send("unauthorized")
         try? await ws.close(code: .policyViolation)
         return

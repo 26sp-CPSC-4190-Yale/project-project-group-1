@@ -9,6 +9,8 @@ struct ActiveRoomView: View {
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ActiveRoomViewModel
+    @State private var reportTarget: ParticipantResponse?
+    @State private var moderationError: String?
 
     init(session: SessionResponse, isHost: Bool, onClose: @escaping () -> Void) {
         self.initialSession = session
@@ -87,6 +89,37 @@ struct ActiveRoomView: View {
         } message: {
             Text("This will end the session for all participants.")
         }
+        .sheet(item: $reportTarget) { target in
+            ReportUserSheet(username: target.username) { reason, details in
+                let trimmed = details.trimmingCharacters(in: .whitespacesAndNewlines)
+                do {
+                    try await deps.user.reportUser(
+                        id: target.userID,
+                        reason: reason,
+                        details: trimmed.isEmpty ? nil : trimmed
+                    )
+                } catch {
+                    moderationError = "Could not submit report"
+                }
+            }
+        }
+        .alert("Error",
+               isPresented: Binding(
+                   get: { moderationError != nil },
+                   set: { if !$0 { moderationError = nil } }
+               )) {
+            Button("OK") { moderationError = nil }
+        } message: {
+            Text(moderationError ?? "")
+        }
+    }
+
+    private func blockParticipant(_ participant: ParticipantResponse) async {
+        do {
+            try await deps.user.blockUser(id: participant.userID)
+        } catch {
+            moderationError = "Could not block user"
+        }
     }
 
     @ViewBuilder
@@ -145,6 +178,20 @@ struct ActiveRoomView: View {
                 }
                 .padding(.horizontal, .spacingLg)
                 .padding(.vertical, 6)
+                .contextMenu {
+                    if participant.userID != deps.cache.readUser()?.id {
+                        Button {
+                            reportTarget = participant
+                        } label: {
+                            Label("Report", systemImage: "flag")
+                        }
+                        Button(role: .destructive) {
+                            Task { await blockParticipant(participant) }
+                        } label: {
+                            Label("Block", systemImage: "hand.raised")
+                        }
+                    }
+                }
             }
         }
     }

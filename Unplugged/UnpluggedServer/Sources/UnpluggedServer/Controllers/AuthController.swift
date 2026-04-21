@@ -69,6 +69,10 @@ struct AuthController: RouteCollection {
             throw Abort(.unauthorized, reason: "Invalid credentials.")
         }
 
+        if user.isDeleted {
+            throw Abort(.gone, reason: "This account was deleted. Contact support to restore it.")
+        }
+
         let userID = try user.requireID()
         let payload = UserPayload.create(userID: userID)
         let token = try await req.jwt.sign(payload)
@@ -98,6 +102,9 @@ struct AuthController: RouteCollection {
         if let existing = try await UserModel.query(on: req.db)
             .filter(\.$appleSubject == subject)
             .first() {
+            if existing.isDeleted {
+                throw Abort(.gone, reason: "This account was deleted. Contact support to restore it.")
+            }
             return try await issueToken(for: existing, req: req)
         }
 
@@ -136,6 +143,9 @@ struct AuthController: RouteCollection {
         if let existing = try await UserModel.query(on: req.db)
             .filter(\.$googleSubject == subject)
             .first() {
+            if existing.isDeleted {
+                throw Abort(.gone, reason: "This account was deleted. Contact support to restore it.")
+            }
             return try await issueToken(for: existing, req: req)
         }
 

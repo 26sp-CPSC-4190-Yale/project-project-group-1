@@ -41,6 +41,15 @@ final class UserModel: Model, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
+    /// Set when the user initiates account deletion. During the grace window the account is
+    /// considered terminated from the app's perspective: auth tokens are rejected and the
+    /// username is hidden from other users. A separate background job hard-deletes rows
+    /// after the retention period elapses.
+    @OptionalField(key: "deleted_at")
+    var deletedAt: Date?
+
+    var isDeleted: Bool { deletedAt != nil }
+
     init() {}
 
     init(id: UUID? = nil, username: String, passwordHash: String) {

@@ -78,6 +78,9 @@ struct AuthView: View {
                                 .foregroundStyle(Color.tertiaryColor)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
+
+                        LegalFooter()
+                            .padding(.top, .spacingSm)
                     }
                     .padding(.horizontal, .spacingXl)
                     .padding(.bottom, .spacingXl)

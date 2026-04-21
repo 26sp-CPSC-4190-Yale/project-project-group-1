@@ -9,8 +9,9 @@ import Foundation
 import UnpluggedShared
 
 /// Thin wrapper around `URLSessionWebSocketTask` that emits server-side session events
-/// as an `AsyncStream<WSServerMessage>`. The auth token is passed as a query param
-/// because `URLSessionWebSocketTask` does not allow custom headers to be set cleanly.
+/// as an `AsyncStream<WSServerMessage>`. The auth token is sent as a Bearer Authorization
+/// header on the HTTP upgrade request — query-string auth leaks into access logs and
+/// proxy caches, which is why we use the header path.
 actor WebSocketClient {
     enum ConnectionState {
         case idle
@@ -54,7 +55,6 @@ actor WebSocketClient {
 
         var components = URLComponents(string: Config.webSocketBaseURL)!
         components.path += "/sessions/\(sessionID.uuidString)/ws"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
 
         guard let url = components.url else {
             state = .disconnected
@@ -63,7 +63,10 @@ actor WebSocketClient {
             return stream
         }
 
-        let task = urlSession.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let task = urlSession.webSocketTask(with: request)
         self.task = task
         task.resume()
         state = .connected

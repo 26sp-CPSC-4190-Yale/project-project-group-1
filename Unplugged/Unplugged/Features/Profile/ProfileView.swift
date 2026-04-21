@@ -112,10 +112,12 @@ struct ProfileView: View {
                     .tint(.secondaryColor)
             }
 
-            settingsRow(icon: "shield.fill", title: "Privacy") {
-                Text("Coming soon")
-                    .font(.caption)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+            Link(destination: LegalFooter.termsURL) {
+                settingsLabel(icon: "doc.text.fill", title: "Terms of Service", trailing: "↗")
+            }
+
+            Link(destination: LegalFooter.privacyURL) {
+                settingsLabel(icon: "shield.fill", title: "Privacy Policy", trailing: "↗")
             }
 
             settingsRow(icon: "questionmark.circle.fill", title: "Help & Support") {
@@ -145,8 +147,48 @@ struct ProfileView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding(.top, .spacingMd)
+
+            Button(role: .destructive) {
+                viewModel.isShowingDeleteAccountSheet = true
+            } label: {
+                HStack {
+                    Image(systemName: "trash.fill")
+                    Text("Delete Account")
+                }
+                .font(.body)
+                .foregroundStyle(Color.destructiveColor)
+                .frame(maxWidth: .infinity)
+                .padding(.spacingMd)
+                .background(Color.surfaceColor)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
         }
         .padding(.horizontal, .spacingLg)
+        .sheet(isPresented: $viewModel.isShowingDeleteAccountSheet) {
+            DeleteAccountSheet(
+                onConfirm: { password in
+                    await viewModel.deleteAccount(password: password, user: deps.user, auth: authViewModel)
+                }
+            )
+        }
+    }
+
+    private func settingsLabel(icon: String, title: String, trailing: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(Color.tertiaryColor)
+                .frame(width: 24)
+            Text(title)
+                .font(.body)
+                .foregroundStyle(Color.tertiaryColor)
+            Spacer()
+            Text(trailing)
+                .font(.caption)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+        }
+        .padding(.spacingMd)
+        .background(Color.surfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func settingsRow<Trailing: View>(icon: String, title: String, @ViewBuilder trailing: () -> Trailing) -> some View {

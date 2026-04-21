@@ -12,8 +12,6 @@
 	<true/>
 	<key>com.apple.developer.family-controls.app-and-website-usage</key>
 	<true/>
-	<key>com.apple.developer.group-session</key>
-	<true/>
 	<key>com.apple.developer.location.push</key>
 	<true/>
 	<key>com.apple.developer.nearbyinteraction.dltdoa</key>

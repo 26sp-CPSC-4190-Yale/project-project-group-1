@@ -9,9 +9,18 @@
 		<string>nearby-interaction</string>
 		<string>bluetooth-peripheral</string>
 	</array>
-	<key>NSGroupActivityTypes</key>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Unplugged uses the local network to find friends nearby so you can join a session without typing a code.</string>
+	<key>NSBonjourServices</key>
 	<array>
-		<string>com.unplugged.room-join</string>
+		<string>_unplugged-rm._tcp</string>
+		<string>_unplugged-rm._udp</string>
 	</array>
+	<key>NSNearbyInteractionUsageDescription</key>
+	<string>Unplugged uses Ultra Wideband to confirm your friend's phone is right next to yours before pairing.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Unplugged uses Bluetooth to find friends nearby when you're joining a session.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

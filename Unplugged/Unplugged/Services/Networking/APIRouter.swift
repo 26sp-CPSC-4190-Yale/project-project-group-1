@@ -29,6 +29,11 @@ enum APIRouter {
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
+    case deleteMe(DeleteAccountRequest)
+    case blockUser(id: UUID)
+    case unblockUser(id: UUID)
+    case listBlocks
+    case reportUser(id: UUID, body: ReportUserRequest)
 
     // Stats
     case getStats
@@ -69,9 +74,13 @@ enum APIRouter {
         case .register:                 return "/auth/register"
         case .signInWithApple:          return "/auth/apple"
         case .signInWithGoogle:         return "/auth/google"
-        case .getMe, .updateMe:         return "/users/me"
+        case .getMe, .updateMe, .deleteMe: return "/users/me"
         case .searchUsers(let q):       return "/users/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         case .registerDeviceToken:      return "/users/device-token"
+        case .listBlocks:               return "/users/blocks"
+        case .blockUser(let id), .unblockUser(let id):
+            return "/users/\(id)/block"
+        case .reportUser(let id, _):    return "/users/\(id)/report"
         case .getStats:                 return "/users/me/stats"
         case .createSession, .listSessions:
             return "/sessions"
@@ -102,17 +111,17 @@ enum APIRouter {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
              .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
-             .createGroup, .addGroupMember:
+             .createGroup, .addGroupMember, .blockUser, .reportUser:
             return .post
         case .registerDeviceToken:
             return .put
         case .getMe, .getStats, .listSessions, .sessionHistory, .getSession, .getRecap,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
-             .listGroups, .getGroup, .searchUsers:
+             .listGroups, .getGroup, .searchUsers, .listBlocks:
             return .get
         case .updateMe:
             return .patch
-        case .removeFriend, .removeGroupMember, .deleteGroup:
+        case .removeFriend, .removeGroupMember, .deleteGroup, .deleteMe, .unblockUser:
             return .delete
         }
     }
@@ -135,6 +144,8 @@ enum APIRouter {
         case .updateMe(let r):          return r
         case .registerDeviceToken(let token):
             return DeviceTokenRequest(deviceToken: token)
+        case .deleteMe(let r):          return r
+        case .reportUser(_, let r):     return r
         case .createSession(let r):     return r
         case .reportJailbreak(_, let r): return r
         case .addFriend(let r):         return r
