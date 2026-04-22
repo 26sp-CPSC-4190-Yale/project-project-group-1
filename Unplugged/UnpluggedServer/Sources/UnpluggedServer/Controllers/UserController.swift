@@ -10,6 +10,7 @@ import UnpluggedShared
 import Vapor
 
 extension User: @retroactive Content {}
+extension UserStatsResponse: @retroactive Content {}
 
 struct UserController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
@@ -17,6 +18,7 @@ struct UserController: RouteCollection {
         users.get("me", use: getMe)
         users.patch("me", use: updateMe)
         users.put("device-token", use: registerDeviceToken)
+        users.get("me", "stats", use: getMyStats)
     }
 
     @Sendable
@@ -54,6 +56,13 @@ struct UserController: RouteCollection {
         user.username = body.username
         try await user.save(on: req.db)
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
+    }
+
+    @Sendable
+    func getMyStats(req: Request) async throws -> UserStatsResponse {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        return try await StatsService(db: req.db).getStats(for: userID)
     }
 
     @Sendable

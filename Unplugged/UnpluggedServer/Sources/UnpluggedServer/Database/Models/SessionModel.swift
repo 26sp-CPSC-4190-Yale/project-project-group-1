@@ -29,6 +29,9 @@ final class RoomModel: Model, @unchecked Sendable {
     @Field(key: "is_active")
     var isActive: Bool
 
+    @OptionalField(key: "ended_at")
+    var endedAt: Date?
+
     init() {}
 
     init(id: UUID? = nil, roomOwner: UUID, isActive: Bool = true) {
