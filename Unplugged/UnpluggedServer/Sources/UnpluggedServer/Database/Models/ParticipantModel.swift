@@ -32,7 +32,12 @@ final class MemberModel: Model, @unchecked Sendable {
     @Field(key: "left_early")
     var leftEarly: Bool
 
-    init() {}
+    init() {
+        // keep non-optional stored properties
+        // safe if accessed before a row is loaded.
+        self.joinedAt = Date()
+        self.leftEarly = false
+    }
 
     init(id: UUID? = nil, userID: UUID, roomID: UUID, config: String? = nil) {
         self.id = id

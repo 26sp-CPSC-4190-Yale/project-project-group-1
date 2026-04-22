@@ -6,6 +6,7 @@
 //
 
 import Fluent
+import SQLKit
 import UnpluggedShared
 import Vapor
 
@@ -91,24 +92,33 @@ struct SessionController: RouteCollection {
         }
 
         let roomID = try room.requireID()
-        guard let member = try await MemberModel.query(on: req.db)
-            .filter(\.$userID == userID)
-            .filter(\.$roomID == roomID)
-            .first()
-        else {
-            throw Abort(.notFound, reason: "Not a member of this session")
+
+        try await req.db.transaction { db in
+            guard let member = try await MemberModel.query(on: db)
+                .filter(\.$userID == userID)
+                .filter(\.$roomID == roomID)
+                .first()
+            else {
+                throw Abort(.notFound, reason: "Not a member of this session")
+            }
+
+            guard member.leftAt == nil else {
+                throw Abort(.conflict, reason: "Already left this session")
+            }
+
+            let now = Date()
+            member.leftAt = now
+            member.leftEarly = true
+            try await member.save(on: db)
+
+            try await awardPoints(
+                to: userID,
+                joinedAt: member.joinedAt,
+                leftAt: now,
+                on: db,
+                logger: req.logger
+            )
         }
-
-        guard member.leftAt == nil else {
-            throw Abort(.conflict, reason: "Already left this session")
-        }
-
-        let now = Date()
-        member.leftAt = now
-        member.leftEarly = true
-        try await member.save(on: req.db)
-
-        try await awardPoints(to: userID, joinedAt: member.joinedAt, leftAt: now, db: req.db)
 
         return .noContent
     }
@@ -161,20 +171,31 @@ struct SessionController: RouteCollection {
 
             if wasActive && !isActive {
                 let now = Date()
-                room.endedAt = now
-                try await room.save(on: req.db)
-
-                // Stamp leftAt for everyone still in the session and award their points
                 let roomID = try room.requireID()
-                let activeMembers = try await MemberModel.query(on: req.db)
-                    .filter(\.$roomID == roomID)
-                    .filter(\.$leftAt == nil)
-                    .all()
 
-                for member in activeMembers {
-                    member.leftAt = now
-                    try await member.save(on: req.db)
-                    try await awardPoints(to: member.userID, joinedAt: member.joinedAt, leftAt: now, db: req.db)
+                try await req.db.transaction { db in
+                    room.endedAt = now
+                    try await room.save(on: db)
+
+                    // Stamp leftAt for everyone still in the session and award
+                    // their points atomically. A failure in any iteration
+                    // rolls back the whole end-session operation.
+                    let activeMembers = try await MemberModel.query(on: db)
+                        .filter(\.$roomID == roomID)
+                        .filter(\.$leftAt == nil)
+                        .all()
+
+                    for member in activeMembers {
+                        member.leftAt = now
+                        try await member.save(on: db)
+                        try await awardPoints(
+                            to: member.userID,
+                            joinedAt: member.joinedAt,
+                            leftAt: now,
+                            on: db,
+                            logger: req.logger
+                        )
+                    }
                 }
             } else {
                 try await room.save(on: req.db)
@@ -197,10 +218,33 @@ struct SessionController: RouteCollection {
         }
 
         let roomID = try room.requireID()
-        try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
-            .delete()
-        try await room.delete(on: req.db)
+        let wasActive = room.isActive
+        let now = Date()
+
+        try await req.db.transaction { db in
+            // If the host deletes a live session, still credit any member
+            // who hadn't already left so their stats aren't erased silently.
+            if wasActive {
+                let activeMembers = try await MemberModel.query(on: db)
+                    .filter(\.$roomID == roomID)
+                    .filter(\.$leftAt == nil)
+                    .all()
+                for member in activeMembers {
+                    try await awardPoints(
+                        to: member.userID,
+                        joinedAt: member.joinedAt,
+                        leftAt: now,
+                        on: db,
+                        logger: req.logger
+                    )
+                }
+            }
+
+            try await MemberModel.query(on: db)
+                .filter(\.$roomID == roomID)
+                .delete()
+            try await room.delete(on: db)
+        }
         return .noContent
     }
 
@@ -235,7 +279,10 @@ struct SessionController: RouteCollection {
         let participants: [ParticipantResponse] = members.compactMap { member in
             guard let memberID = member.id,
                   let user = userMap[member.userID] else { return nil }
-            let status: ParticipantStatus = member.leftAt != nil ? .left : .active
+            // leftAt is stamped on everyone when the host ends a session,
+            // so that alone doesn't mean the user bailed. leftEarly is only
+            // true when the user explicitly called /leave mid-session.
+            let status: ParticipantStatus = member.leftEarly ? .left : .active
             return ParticipantResponse(
                 id: memberID,
                 userID: member.userID,
@@ -255,13 +302,42 @@ struct SessionController: RouteCollection {
         return SessionResponse(session: session, participants: participants)
     }
 
-    /// Awards 1 point per minute of session participation.
-    private func awardPoints(to userID: UUID, joinedAt: Date, leftAt: Date, db: Database) async throws {
+    //MARK: Point awarding
+
+    /// Awards points like tax brackets.
+    ///
+    ///   - first 60 min           → ×1
+    ///   - minutes 60–180         → ×2
+    ///   - minutes beyond 180     → ×3
+    ///
+    /// Uses an atomic SQL increment. Time credit is given
+    /// regardless of whether the user left early.
+    private func awardPoints(
+        to userID: UUID,
+        joinedAt: Date,
+        leftAt: Date,
+        on db: Database,
+        logger: Logger
+    ) async throws {
         let minutes = Int(leftAt.timeIntervalSince(joinedAt) / 60)
-        guard minutes > 0 else { return }
-        guard let user = try await UserModel.find(userID, on: db) else { return }
-        user.points += minutes
-        try await user.save(on: db)
+        guard minutes > 0 else {
+            logger.info("[Stats] Skipped award for user \(userID): duration < 1 minute")
+            return
+        }
+
+        let tier1 = min(minutes, 60)                   // ×1
+        let tier2 = max(0, min(minutes, 180) - 60)     // ×2
+        let tier3 = max(0, minutes - 180)              // ×3
+        let points = tier1 + (tier2 * 2) + (tier3 * 3)
+
+        guard let sql = db as? SQLDatabase else {
+            logger.error("[Stats] Database is not SQL-backed; cannot atomically award points to user \(userID)")
+            throw Abort(.internalServerError, reason: "Points ledger unavailable")
+        }
+        try await sql.raw("""
+            UPDATE users SET points = points + \(bind: points) WHERE id = \(bind: userID)
+            """).run()
+        logger.info("[Stats] Awarded \(points) points to user \(userID) for \(minutes) min (t1=\(tier1), t2=\(tier2), t3=\(tier3))")
     }
 }
 

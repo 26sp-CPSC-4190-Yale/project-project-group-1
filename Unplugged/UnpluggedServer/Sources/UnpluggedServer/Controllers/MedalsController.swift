@@ -12,7 +12,7 @@ struct MedalsController: RouteCollection {
         users.get(":userID", "medals", use: getUserMedals)            // GET  /users/:userID/medals
     }
 
-    // Create a new medal type?
+    // Create a new medal type
     func createMedal(req: Request) async throws -> MedalModel {
         let medal = try req.content.decode(MedalModel.self)
         try await medal.save(on: req.db)

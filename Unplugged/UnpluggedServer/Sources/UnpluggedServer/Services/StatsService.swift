@@ -35,10 +35,13 @@ struct StatsService {
         for member in memberships {
             let room = roomMap[member.roomID]
 
-            // Duration: time from join until they left, session ended, or now if still active
-            let effectiveEnd = member.leftAt ?? room?.endedAt ?? Date()
-            let minutes = Int(effectiveEnd.timeIntervalSince(member.joinedAt) / 60)
-            totalMinutes += max(0, minutes)
+            // Only count settled participation, so the user has left, or the
+            // session has ended. Active-session time is excluded so stats
+            // don't drift on every read.
+            if let endTime = member.leftAt ?? room?.endedAt {
+                let minutes = Int(endTime.timeIntervalSince(member.joinedAt) / 60)
+                totalMinutes += max(0, minutes)
+            }
 
             // Completed: session ended and user did not leave early
             if room?.isActive == false && !member.leftEarly {
