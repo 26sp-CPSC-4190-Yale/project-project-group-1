@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import AudioToolbox
 import UnpluggedShared
 
 struct ActiveRoomView: View {
@@ -86,6 +88,10 @@ struct ActiveRoomView: View {
             if newPhase == .ended {
                 viewModel.showRecap = true
             }
+        }
+        .onChange(of: orchestrator.participants.count) { oldCount, newCount in
+            guard isHost, newCount > oldCount else { return }
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
         .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
             guard didLeave else { return }
