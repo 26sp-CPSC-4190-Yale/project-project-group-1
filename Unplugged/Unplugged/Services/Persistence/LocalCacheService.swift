@@ -17,6 +17,7 @@ class LocalCacheService {
     private let keychainQueue = DispatchQueue(label: "unplugged.keychain", qos: .userInitiated)
     private var cachedToken: String?
     private var didLoadToken = false
+    private var cachedUser: User?
 
     private let jsonEncoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -125,16 +126,21 @@ class LocalCacheService {
     }
 
     func saveUser(_ user: User) {
+        cachedUser = user
         let encoded = try? jsonEncoder.encode(user)
         UserDefaults.standard.set(encoded, forKey: userKey)
     }
 
     func readUser() -> User? {
+        if let cachedUser { return cachedUser }
         guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
-        return try? jsonDecoder.decode(User.self, from: data)
+        let user = try? jsonDecoder.decode(User.self, from: data)
+        cachedUser = user
+        return user
     }
 
     func clearUser() {
+        cachedUser = nil
         UserDefaults.standard.removeObject(forKey: userKey)
     }
 

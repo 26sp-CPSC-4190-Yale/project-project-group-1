@@ -356,17 +356,31 @@ final class SessionOrchestrator {
     private func startLockedProximityEnforcementIfNeeded() async {
         guard phase == .locked,
               let session = currentSession?.session,
-              lockedProximitySessionID != session.id else { return }
+              lockedProximitySessionID != session.id else {
+            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — phase: %@, hasSession: %@, alreadyMonitoring: %@",
+                  "\(phase)",
+                  currentSession?.session != nil ? "YES" : "NO",
+                  lockedProximitySessionID != nil ? "YES" : "NO")
+            return
+        }
 
-        guard let userID = cache.readUser()?.id, userID != session.hostID else {
+        guard let userID = cache.readUser()?.id else {
+            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — cache.readUser() returned nil")
+            stopLockedProximityEnforcement()
+            return
+        }
+        guard userID != session.hostID else {
+            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — user IS host (userID: %@, hostID: %@)", userID.uuidString, session.hostID.uuidString)
             stopLockedProximityEnforcement()
             return
         }
 
         guard await touchTips.supportsLockedProximityMonitoring() else {
+            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — UWB not supported")
             stopLockedProximityEnforcement()
             return
         }
+        NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded — starting enforcement for session %@", session.id.uuidString)
 
         stopLockedProximityEnforcement()
         lockedProximitySessionID = session.id

@@ -19,13 +19,16 @@ class AuthViewModel {
     private(set) var isConfigured = false
 
     private var authService: AuthAPIService?
+    private var userService: UserAPIService?
     private var cache: LocalCacheService?
     private var sessionOrchestrator: SessionOrchestrator?
 
     func configure(authService: AuthAPIService,
+                   userService: UserAPIService,
                    cache: LocalCacheService,
                    sessionOrchestrator: SessionOrchestrator) {
         self.authService = authService
+        self.userService = userService
         self.cache = cache
         self.sessionOrchestrator = sessionOrchestrator
         self.isConfigured = true
@@ -33,9 +36,13 @@ class AuthViewModel {
 
     func restoreSession() async {
         guard let cache else { return }
-        if await cache.isLoggedInAsync() {
-            isAuthenticated = true
+        guard await cache.isLoggedInAsync() else { return }
+        if cache.readUser() == nil, let userService {
+            if let user = try? await userService.getMe() {
+                cache.saveUser(user)
+            }
         }
+        isAuthenticated = true
     }
 
     func loginWithUsername(username: String, password: String) async {

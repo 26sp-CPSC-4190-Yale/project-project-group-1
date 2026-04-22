@@ -26,6 +26,7 @@ struct ContentView: View {
             guard !authViewModel.isConfigured else { return }
             authViewModel.configure(
                 authService: container.auth,
+                userService: container.user,
                 cache: container.cache,
                 sessionOrchestrator: container.sessionOrchestrator
             )
