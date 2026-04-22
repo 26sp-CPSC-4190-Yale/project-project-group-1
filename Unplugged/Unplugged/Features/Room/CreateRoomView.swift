@@ -5,11 +5,13 @@ struct CreateRoomView: View {
     let sessions: SessionAPIService
     let touchTips: TouchTipsService
     let userID: UUID
+    @Binding var detent: PresentationDetent
     var onCreateRoom: (SessionResponse) -> Void
 
     @State private var viewModel = CreateRoomViewModel()
     @State private var roomName = ""
     @State private var createTask: Task<Void, Never>?
+    @FocusState private var isNameFocused: Bool
 
     private var trimmedRoomName: String {
         roomName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +34,9 @@ struct CreateRoomView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
         .errorAlert($viewModel.error)
+        .onChange(of: isNameFocused) { _, focused in
+            if focused { detent = .large }
+        }
     }
 
     private var createFormView: some View {
@@ -47,6 +52,7 @@ struct CreateRoomView: View {
                         .font(.body)
                         .foregroundStyle(Color.tertiaryColor)
                         .submitLabel(.done)
+                        .focused($isNameFocused)
                         .padding(14)
                         .background(Color.surfaceColor)
                         .clipShape(RoundedRectangle(cornerRadius: 10))

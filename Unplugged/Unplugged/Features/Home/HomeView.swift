@@ -3,6 +3,7 @@ import UnpluggedShared
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
+    @State private var createRoomDetent: PresentationDetent = .medium
     @Environment(DependencyContainer.self) private var deps
 
     var body: some View {
@@ -47,11 +48,14 @@ struct HomeView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.ultraThinMaterial)
             }
-            .sheet(isPresented: $viewModel.showCreateRoom) {
+            .sheet(isPresented: $viewModel.showCreateRoom, onDismiss: {
+                createRoomDetent = .medium
+            }) {
                 CreateRoomView(
                     sessions: deps.sessions,
                     touchTips: deps.touchTips,
-                    userID: UUID() // Pass a dummy ID or refactor CreateRoomView to not require it
+                    userID: UUID(), // Pass a dummy ID or refactor CreateRoomView to not require it
+                    detent: $createRoomDetent
                 ) { session in
                     viewModel.showCreateRoom = false
                     viewModel.isHost = true
@@ -63,7 +67,7 @@ struct HomeView: View {
                         viewModel.activeSession = session
                     }
                 }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.medium, .large], selection: $createRoomDetent)
                 .presentationDragIndicator(.visible)
                 .presentationBackground(.ultraThinMaterial)
             }
