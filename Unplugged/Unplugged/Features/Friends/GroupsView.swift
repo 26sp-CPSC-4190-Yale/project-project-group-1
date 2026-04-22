@@ -20,6 +20,15 @@ struct GroupsView: View {
 
                 ScrollView {
                     VStack(spacing: .spacingSm) {
+                        HStack {
+                            Text("Groups")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(Color.tertiaryColor)
+                            Spacer()
+                        }
+                        .padding(.top, .spacingSm)
+                        .padding(.bottom, .spacingSm)
+
                         if viewModel.groups.isEmpty && !viewModel.isLoading {
                             Text("No groups yet")
                                 .font(.captionFont)
@@ -52,14 +61,19 @@ struct GroupsView: View {
                     .padding(.horizontal, .spacingLg)
                 }
             }
-            .navigationTitle("Groups")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { viewModel.showCreate = true }) {
                         Image(systemName: "plus")
                             .foregroundColor(.tertiaryColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .alert("New Group", isPresented: $viewModel.showCreate) {

@@ -194,7 +194,7 @@ private func makeSessionResponse(room: RoomModel, db: Database) async throws -> 
             id: memberID,
             userID: member.userID,
             username: user.username,
-            status: .active,
+            status: member.participantStatus,
             joinedAt: nil,
             isHost: member.userID == room.roomOwner
         )
@@ -211,7 +211,7 @@ private func makeSessionResponse(room: RoomModel, db: Database) async throws -> 
 
     let session = Session(
         id: roomID,
-        code: roomID.uuidString,
+        code: room.code ?? legacyRoomCode(for: roomID),
         hostID: room.roomOwner,
         state: state,
         title: room.title,
@@ -224,4 +224,11 @@ private func makeSessionResponse(room: RoomModel, db: Database) async throws -> 
         longitude: room.longitude
     )
     return SessionResponse(session: session, participants: participants)
+}
+
+private func legacyRoomCode(for roomID: UUID) -> String {
+    String(roomID.uuidString
+        .filter { $0.isLetter || $0.isNumber }
+        .prefix(InputValidation.sessionCodeLength))
+        .uppercased()
 }

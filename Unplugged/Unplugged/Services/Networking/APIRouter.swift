@@ -50,6 +50,7 @@ enum APIRouter {
     case joinSessionCode(code: String)
     case startSession(id: UUID)
     case endSession(id: UUID)
+    case reportProximityExit(id: UUID)
     case reportJailbreak(id: UUID, body: ReportJailbreakRequest)
     case getRecap(id: UUID)
 
@@ -102,9 +103,12 @@ enum APIRouter {
             return "/sessions/history" + (comps.string ?? "")
         case .getSession(let id):       return "/sessions/\(id)"
         case .joinSession(let id):      return "/sessions/\(id)/join"
-        case .joinSessionCode(let code): return "/sessions/\(code)/join"
+        case .joinSessionCode(let code):
+            let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? code
+            return "/sessions/\(encoded)/join"
         case .startSession(let id):     return "/sessions/\(id)/start"
         case .endSession(let id):       return "/sessions/\(id)/end"
+        case .reportProximityExit(let id): return "/sessions/\(id)/proximity-exit"
         case .reportJailbreak(let id, _): return "/sessions/\(id)/jailbreaks"
         case .getRecap(let id):         return "/sessions/\(id)/recap"
         case .listFriends, .addFriend:  return "/friends"
@@ -125,7 +129,7 @@ enum APIRouter {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
-             .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
+             .reportProximityExit, .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
              .createGroup, .addGroupMember, .blockUser, .reportUser:
             return .post
         case .registerDeviceToken:

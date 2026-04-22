@@ -58,4 +58,8 @@ struct SessionAPIService {
         let body = ReportJailbreakRequest(reason: reason, detectedAt: detectedAt)
         try await client.sendVoid(.reportJailbreak(id: id, body: body))
     }
+
+    func reportProximityExit(id: UUID) async throws {
+        try await client.sendVoid(.reportProximityExit(id: id))
+    }
 }

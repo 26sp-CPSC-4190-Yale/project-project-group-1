@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import AudioToolbox
 import UnpluggedShared
 
 struct ActiveRoomView: View {
@@ -42,43 +44,60 @@ struct ActiveRoomView: View {
 
                     footer(phase: phase, isHost: isHost, orchestrator: orchestrator)
                 }
+
+                if let seconds = orchestrator.proximityWarningSecondsRemaining {
+                    proximityWarningOverlay(secondsRemaining: seconds)
+                }
             }
             .navigationTitle(initialSession.session.title ?? "Room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        if phase == .locked {
-                            viewModel.showLeaveConfirmation = true
-                        } else {
-                            onClose()
-                            dismiss()
+                if !isHost && phase != .ended {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            if phase == .locked {
+                                viewModel.showLeaveConfirmation = true
+                            } else {
+                                onClose()
+                                dismiss()
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .foregroundStyle(Color.tertiaryColor)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(Color.tertiaryColor)
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
-        .task {
-            await orchestrator.enterLobby(session: initialSession)
+        .task(id: initialSession.session.id) {
             // Host keeps the room advertisable during the lobby phase so late
             // joiners can still pair via proximity while watching the member
             // list fill up. Advertising stops when the host locks (below) or
             // the view is dismissed.
-            if isHost {
-                try? await deps.touchTips.activate(roomID: initialSession.session.id)
-            }
+            await viewModel.startLobbyIfNeeded(
+                session: initialSession,
+                orchestrator: orchestrator,
+                touchTips: deps.touchTips
+            )
         }
         .onChange(of: orchestrator.phase) { _, newPhase in
             if newPhase == .ended {
                 viewModel.showRecap = true
             }
-            if newPhase == .locked, isHost {
-                Task { await deps.touchTips.stop() }
-            }
+        }
+        .onChange(of: orchestrator.participants.count) { oldCount, newCount in
+            guard isHost, newCount > oldCount else { return }
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        }
+        .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
+            guard didLeave else { return }
+            orchestrator.acknowledgeProximityExitDismissal()
+            onClose()
+            dismiss()
         }
         .onDisappear {
             if isHost {
@@ -144,6 +163,32 @@ struct ActiveRoomView: View {
         }
     }
 
+    private func proximityWarningOverlay(secondsRemaining: Int) -> some View {
+        VStack {
+            Spacer()
+            VStack(spacing: .spacingSm) {
+                Image(systemName: "figure.walk.motion")
+                    .font(.title2)
+                    .foregroundStyle(Color.destructiveColor)
+                Text("You're leaving the session as you're too far away")
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+                    .multilineTextAlignment(.center)
+                Text("\(secondsRemaining)s")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.destructiveColor)
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.spacingLg)
+            .background(Color.surfaceColor)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, .spacingLg)
+            .padding(.bottom, .spacingXl)
+        }
+        .background(Color.black.opacity(0.35).ignoresSafeArea())
+    }
+
     private func blockParticipant(_ participant: ParticipantResponse) async {
         do {
             try await deps.user.blockUser(id: participant.userID)
@@ -200,7 +245,7 @@ struct ActiveRoomView: View {
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-                Text(initialSession.session.id.uuidString.prefix(8).uppercased())
+                Text(initialSession.session.code.uppercased())
                     .font(.system(size: 28, weight: .bold, design: .monospaced))
                     .foregroundStyle(Color.tertiaryColor)
                     .kerning(4)
@@ -259,14 +304,26 @@ struct ActiveRoomView: View {
     private func footer(phase: SessionOrchestrator.LifecyclePhase,
                         isHost: Bool,
                         orchestrator: SessionOrchestrator) -> some View {
-        if isHost {
-            Group {
+        Group {
+            if phase == .ended {
+                Button {
+                    onClose()
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            } else if isHost {
                 switch phase {
                 case .idle, .lobby:
                     Button {
                         Task { await viewModel.start(orchestrator: orchestrator) }
                     } label: {
                         Text("Lock Session")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(PrimaryButtonStyle())
                 case .locked:
@@ -274,20 +331,16 @@ struct ActiveRoomView: View {
                         viewModel.showEndConfirmation = true
                     } label: {
                         Text("End Session")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(DestructiveButtonStyle())
                 case .ended:
-                    Button {
-                        onClose()
-                        dismiss()
-                    } label: {
-                        Text("Done")
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
+                    EmptyView()
                 }
             }
-            .padding(.horizontal, .spacingLg)
-            .padding(.bottom, .spacingMd)
         }
+        .padding(.horizontal, .spacingLg)
+        .padding(.bottom, .spacingMd)
     }
 }

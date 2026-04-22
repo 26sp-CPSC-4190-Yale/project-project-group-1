@@ -21,6 +21,16 @@ struct FriendsListView: View {
 
                 ScrollView {
                     LazyVStack(spacing: .spacingSm) {
+                        HStack {
+                            Text("Friends")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(Color.tertiaryColor)
+                            Spacer()
+                        }
+                        .padding(.horizontal, .spacingLg)
+                        .padding(.top, .spacingSm)
+                        .padding(.bottom, .spacingSm)
+
                         // Incoming Requests Section
                         if !viewModel.incomingRequests.isEmpty {
                             Section {
@@ -37,19 +47,24 @@ struct FriendsListView: View {
                                             Text("Accept")
                                                 .font(.subheadline.weight(.semibold))
                                                 .foregroundStyle(Color.primaryColor)
+                                                .fixedSize(horizontal: true, vertical: false)
                                                 .padding(.horizontal, 16)
                                                 .padding(.vertical, 8)
                                                 .background(Color.tertiaryColor)
                                                 .clipShape(Capsule())
+                                                .contentShape(Capsule())
                                         }
+                                        .buttonStyle(.plain)
                                         Button {
                                             Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
                                         } label: {
                                             Image(systemName: "xmark")
                                                 .font(.subheadline)
                                                 .foregroundStyle(Color.tertiaryColor.opacity(0.5))
-                                                .padding(8)
+                                                .frame(width: 44, height: 44)
+                                                .contentShape(Rectangle())
                                         }
+                                        .buttonStyle(.plain)
                                     }
                                     .padding(.spacingMd)
                                     .background(Color.surfaceColor)
@@ -91,9 +106,11 @@ struct FriendsListView: View {
                                                 .font(.caption)
                                                 .foregroundStyle(Color.tertiaryColor.opacity(0.3))
                                         }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.spacingMd)
                                         .background(Color.surfaceColor)
                                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                                        .contentShape(RoundedRectangle(cornerRadius: 12))
                                     }
                                     .buttonStyle(.plain)
                                     .contextMenu {
@@ -145,8 +162,9 @@ struct FriendsListView: View {
                     .padding(.horizontal, .spacingLg)
                 }
             }
-            .navigationTitle("Friends")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .searchable(text: $viewModel.searchText, prompt: "Search friends")
             .navigationDestination(item: $selectedFriend) { friend in
@@ -157,11 +175,14 @@ struct FriendsListView: View {
                     Button { viewModel.showAddFriend = true } label: {
                         Image(systemName: "person.badge.plus")
                             .foregroundStyle(Color.tertiaryColor)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .sheet(isPresented: $viewModel.showAddFriend) {
-                AddFriendSheet { username in
+                AddFriendSheet(existingFriendIDs: Set(viewModel.friends.map(\.id))) { username in
                     viewModel.addFriendUsername = username
                     await viewModel.addFriend(service: deps.friends)
                 }

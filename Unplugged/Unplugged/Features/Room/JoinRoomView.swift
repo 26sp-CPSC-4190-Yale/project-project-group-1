@@ -7,6 +7,7 @@ struct JoinRoomView: View {
     var onJoinRoom: (SessionResponse) -> Void
 
     @State private var viewModel = JoinRoomViewModel()
+    @State private var manualJoinTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -24,7 +25,7 @@ struct JoinRoomView: View {
                                 .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
                             TextField("", text: $viewModel.manualCode, prompt: Text("Enter code").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
-                                .font(.system(.title3, design: .monospaced))
+                                .font(.body)
                                 .foregroundStyle(Color.tertiaryColor)
                                 .textInputAutocapitalization(.characters)
                                 .autocorrectionDisabled()
@@ -34,8 +35,9 @@ struct JoinRoomView: View {
                         }
 
                         Button {
-                            Task {
-                                await viewModel.joinWithCode(sessions: sessions)
+                            manualJoinTask?.cancel()
+                            manualJoinTask = Task {
+                                await viewModel.joinWithCode(sessions: sessions, touchTips: touchTips)
                             }
                         } label: {
                             Text("Join")
@@ -45,7 +47,9 @@ struct JoinRoomView: View {
                                 .background(viewModel.canJoinManually ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
                                 .foregroundStyle(Color.primaryColor)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .contentShape(RoundedRectangle(cornerRadius: 12))
                         }
+                        .buttonStyle(.plain)
                         .disabled(!viewModel.canJoinManually)
 
                         // Divider
@@ -90,18 +94,14 @@ struct JoinRoomView: View {
             .navigationTitle("Join Room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(Color.tertiaryColor)
-                }
-            }
         }
         .errorAlert($viewModel.error)
         .onAppear {
             viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }
         .onDisappear {
+            manualJoinTask?.cancel()
+            manualJoinTask = nil
             viewModel.stopListening(touchTips: touchTips)
         }
         .onChange(of: viewModel.joinedSession?.id) { _, id in

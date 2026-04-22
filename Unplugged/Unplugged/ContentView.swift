@@ -26,42 +26,40 @@ struct ContentView: View {
             guard !authViewModel.isConfigured else { return }
             authViewModel.configure(
                 authService: container.auth,
+                userService: container.user,
                 cache: container.cache,
                 sessionOrchestrator: container.sessionOrchestrator
             )
-            authViewModel.restoreSession()
+            await authViewModel.restoreSession()
         }
     }
 }
 
 struct MainTabView: View {
     var authViewModel: AuthViewModel
+    @State private var selectedTab: MainTab = .home
 
     var body: some View {
-        if #available(iOS 18.0, *) {
-            TabView {
-                Tab("Home", systemImage: "house.fill") {
-                    HomeView()
-                }
-                Tab("Friends", systemImage: "person.2.fill") {
-                    FriendsListView()
-                }
-                Tab("Profile", systemImage: "person.fill") {
-                    ProfileView(authViewModel: authViewModel)
-                }
-            }
-            .tint(.tertiaryColor)
-        } else {
-            TabView {
-                HomeView()
-                    .tabItem { Label("Home", systemImage: "house.fill") }
-                FriendsListView()
-                    .tabItem { Label("Friends", systemImage: "person.2.fill") }
-                ProfileView(authViewModel: authViewModel)
-                    .tabItem { Label("Profile", systemImage: "person.fill") }
-            }
-            .tint(.tertiaryColor)
+        TabView(selection: $selectedTab) {
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(MainTab.home)
+
+            FriendsListView()
+                .tabItem { Label("Friends", systemImage: "person.2.fill") }
+                .tag(MainTab.friends)
+
+            ProfileView(authViewModel: authViewModel)
+                .tabItem { Label("Profile", systemImage: "person.fill") }
+                .tag(MainTab.profile)
         }
+        .tint(.tertiaryColor)
+    }
+
+    private enum MainTab: Hashable {
+        case home
+        case friends
+        case profile
     }
 }
 

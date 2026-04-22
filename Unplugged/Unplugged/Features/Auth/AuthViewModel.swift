@@ -19,23 +19,30 @@ class AuthViewModel {
     private(set) var isConfigured = false
 
     private var authService: AuthAPIService?
+    private var userService: UserAPIService?
     private var cache: LocalCacheService?
     private var sessionOrchestrator: SessionOrchestrator?
 
     func configure(authService: AuthAPIService,
+                   userService: UserAPIService,
                    cache: LocalCacheService,
                    sessionOrchestrator: SessionOrchestrator) {
         self.authService = authService
+        self.userService = userService
         self.cache = cache
         self.sessionOrchestrator = sessionOrchestrator
         self.isConfigured = true
     }
 
-    func restoreSession() {
+    func restoreSession() async {
         guard let cache else { return }
-        if cache.isLoggedIn {
-            isAuthenticated = true
+        guard await cache.isLoggedInAsync() else { return }
+        if cache.readUser() == nil, let userService {
+            if let user = try? await userService.getMe() {
+                cache.saveUser(user)
+            }
         }
+        isAuthenticated = true
     }
 
     func loginWithUsername(username: String, password: String) async {
@@ -136,6 +143,15 @@ class AuthViewModel {
     }
 
     private func message(for error: Error) -> String {
+        // APIClient wraps non-2xx responses as NSError(domain: "Vapor", ...)
+        // with the server's `reason` string in localizedDescription. Surface
+        // that directly so rate-limit responses, "Username already taken",
+        // etc. aren't buried under a generic fallback message.
+        let nsError = error as NSError
+        if nsError.domain == "Vapor" {
+            let description = nsError.localizedDescription
+            if !description.isEmpty { return description }
+        }
         switch error {
         case AppError.unauthorized:      return "Invalid username or password."
         case AppError.validationFailed:  return "Username already taken or invalid input."

@@ -16,6 +16,7 @@ class AddFriendViewModel {
     var isSearching = false
     var error: String?
     var addingUserID: UUID?
+    var excludedUserIDs: Set<UUID> = []
 
     private var searchTask: Task<Void, Never>?
 
@@ -45,7 +46,7 @@ class AddFriendViewModel {
             do {
                 let results = try await usersService.searchUsers(query: query)
                 guard !Task.isCancelled else { return }
-                self.users = results
+                self.users = results.filter { !self.excludedUserIDs.contains($0.id) }
                 self.error = nil
             } catch {
                 guard !Task.isCancelled else { return }
@@ -61,6 +62,7 @@ struct AddFriendSheet: View {
     @Environment(DependencyContainer.self) private var deps
     @State private var viewModel = AddFriendViewModel()
 
+    var existingFriendIDs: Set<UUID> = []
     var onAddFriend: (String) async -> Void
 
     var body: some View {
@@ -74,7 +76,8 @@ struct AddFriendSheet: View {
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.tertiaryColor.opacity(0.5))
-                        TextField("Search users by name", text: $viewModel.searchText)
+                        TextField("", text: $viewModel.searchText,
+                                  prompt: Text("Search users by name").foregroundColor(.tertiaryColor.opacity(0.6)))
                             .foregroundColor(.tertiaryColor)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
@@ -92,11 +95,14 @@ struct AddFriendSheet: View {
                             }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(.tertiaryColor.opacity(0.5))
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .frame(height: 44)
                     .background(Color.surfaceColor)
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
@@ -138,23 +144,23 @@ struct AddFriendSheet: View {
                                             // Do NOT call dismiss() here to avoid double-dismiss crash.
                                         }
                                     }) {
-                                        if viewModel.addingUserID == user.id {
-                                            ProgressView()
-                                                .tint(.primaryColor)
-                                                .frame(minWidth: 44, minHeight: 44)
-                                        } else {
-                                            Text("Add")
-                                                .font(.captionFont)
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.primaryColor)
-                                                .padding(.horizontal, 16)
-                                                .padding(.vertical, 8)
-                                                .background(Color.tertiaryColor)
-                                                .cornerRadius(16)
-                                                .frame(minHeight: 44)
-                                                .contentShape(Rectangle())
+                                        Group {
+                                            if viewModel.addingUserID == user.id {
+                                                ProgressView()
+                                                    .tint(.primaryColor)
+                                            } else {
+                                                Text("Add")
+                                                    .font(.captionFont)
+                                                    .fontWeight(.bold)
+                                            }
                                         }
+                                        .foregroundColor(.primaryColor)
+                                        .frame(minWidth: 64, minHeight: 44)
+                                        .background(Color.tertiaryColor)
+                                        .clipShape(Capsule())
+                                        .contentShape(Capsule())
                                     }
+                                    .buttonStyle(.plain)
                                     .disabled(viewModel.addingUserID != nil)
                                 }
                                 .listRowBackground(Color.clear)
@@ -175,6 +181,9 @@ struct AddFriendSheet: View {
                     }
                     .foregroundColor(.tertiaryColor)
                 }
+            }
+            .onAppear {
+                viewModel.excludedUserIDs = existingFriendIDs
             }
         }
     }

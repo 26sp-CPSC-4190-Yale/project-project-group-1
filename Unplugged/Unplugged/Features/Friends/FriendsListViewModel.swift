@@ -24,9 +24,21 @@ class FriendsListViewModel {
     var reportTarget: FriendResponse?
 
     var filteredFriends: [FriendResponse] {
-        if searchText.isEmpty { return friends }
-        return friends.filter {
-            $0.username.localizedCaseInsensitiveContains(searchText)
+        let base = searchText.isEmpty
+            ? friends
+            : friends.filter { $0.username.localizedCaseInsensitiveContains(searchText) }
+        return base.sorted { a, b in
+            let lhs = sortRecency(for: a)
+            let rhs = sortRecency(for: b)
+            if lhs != rhs { return lhs > rhs }
+            return a.username.localizedCaseInsensitiveCompare(b.username) == .orderedAscending
+        }
+    }
+
+    private func sortRecency(for friend: FriendResponse) -> Date {
+        switch friend.presence {
+        case .online, .unplugged: return .distantFuture
+        case .offline:            return friend.lastActiveAt ?? .distantPast
         }
     }
 

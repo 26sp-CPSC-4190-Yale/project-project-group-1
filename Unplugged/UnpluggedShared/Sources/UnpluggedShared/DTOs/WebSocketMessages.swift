@@ -15,6 +15,7 @@ public enum WSServerMessage: Codable, Sendable {
     case sessionEnded
     case stateSync(SessionResponse)
     case jailbreakReported(userID: UUID, reason: String)
+    case participantLeftDueToProximity(userID: UUID, username: String)
     case error(message: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -30,12 +31,14 @@ public enum WSServerMessage: Codable, Sendable {
         case sessionEnded
         case stateSync
         case jailbreakReported
+        case participantLeftDueToProximity
         case error
     }
 
     private struct ParticipantLeftPayload: Codable { let userID: UUID }
     private struct EndsAtPayload: Codable { let endsAt: Date }
     private struct JailbreakPayload: Codable { let userID: UUID; let reason: String }
+    private struct ProximityExitPayload: Codable { let userID: UUID; let username: String }
     private struct ErrorPayload: Codable { let message: String }
 
     public func encode(to encoder: Encoder) throws {
@@ -61,6 +64,9 @@ public enum WSServerMessage: Codable, Sendable {
         case .jailbreakReported(let userID, let reason):
             try container.encode(MessageType.jailbreakReported, forKey: .type)
             try container.encode(JailbreakPayload(userID: userID, reason: reason), forKey: .payload)
+        case .participantLeftDueToProximity(let userID, let username):
+            try container.encode(MessageType.participantLeftDueToProximity, forKey: .type)
+            try container.encode(ProximityExitPayload(userID: userID, username: username), forKey: .payload)
         case .error(let message):
             try container.encode(MessageType.error, forKey: .type)
             try container.encode(ErrorPayload(message: message), forKey: .payload)
@@ -89,6 +95,9 @@ public enum WSServerMessage: Codable, Sendable {
         case .jailbreakReported:
             let p = try container.decode(JailbreakPayload.self, forKey: .payload)
             self = .jailbreakReported(userID: p.userID, reason: p.reason)
+        case .participantLeftDueToProximity:
+            let p = try container.decode(ProximityExitPayload.self, forKey: .payload)
+            self = .participantLeftDueToProximity(userID: p.userID, username: p.username)
         case .error:
             let p = try container.decode(ErrorPayload.self, forKey: .payload)
             self = .error(message: p.message)

@@ -29,6 +29,9 @@ final class RoomModel: Model, @unchecked Sendable {
     @Field(key: "is_active")
     var isActive: Bool
 
+    @OptionalField(key: "code")
+    var code: String?
+
     @OptionalField(key: "title")
     var title: String?
 
@@ -50,6 +53,7 @@ final class RoomModel: Model, @unchecked Sendable {
         id: UUID? = nil,
         roomOwner: UUID,
         isActive: Bool = true,
+        code: String? = nil,
         title: String? = nil,
         durationSeconds: Int? = nil,
         latitude: Double? = nil,
@@ -59,6 +63,7 @@ final class RoomModel: Model, @unchecked Sendable {
         self.roomOwner = roomOwner
         self.startTime = Date()
         self.isActive = isActive
+        self.code = code
         self.title = title
         self.durationSeconds = durationSeconds
         self.latitude = latitude

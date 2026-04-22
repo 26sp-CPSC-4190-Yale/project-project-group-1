@@ -8,16 +8,26 @@ import UIKit
 class JoinRoomViewModel {
     var isListening = false
     var hasFoundRoom = false
-    var manualCode = ""
+    var manualCode = "" {
+        didSet {
+            let normalized = Self.normalizedRoomCode(manualCode)
+            if manualCode != normalized {
+                manualCode = normalized
+            }
+        }
+    }
     var isJoining = false
     var joinedSession: SessionResponse?
     var error: String?
 
     private var listenTask: Task<Void, Never>?
 
-    var canJoinManually: Bool { !manualCode.isEmpty && !isJoining }
+    var canJoinManually: Bool {
+        InputValidation.isValidSessionCode(manualCode) && !isJoining
+    }
 
     func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
+        guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
 
@@ -42,33 +52,78 @@ class JoinRoomViewModel {
         isListening = false
     }
 
+    func stopListeningNow(touchTips: TouchTipsService) async {
+        listenTask?.cancel()
+        listenTask = nil
+        await touchTips.stop()
+        isListening = false
+        hasFoundRoom = false
+    }
+
     func joinRoom(id: UUID, sessions: SessionAPIService) async {
         guard !isJoining else { return }
         isJoining = true
+        defer { isJoining = false }
+
         error = nil
+        let span = ResponsivenessDiagnostics.begin("join_room_proximity")
+        defer { span.end() }
+
         do {
             joinedSession = try await sessions.joinSession(id: id)
+        } catch is CancellationError {
+            joinedSession = nil
         } catch {
-            self.error = "Failed to join room"
+            guard !Task.isCancelled else {
+                joinedSession = nil
+                return
+            }
+            self.error = Self.joinErrorMessage(for: error)
         }
-        isJoining = false
     }
 
-    func joinWithCode(sessions: SessionAPIService) async {
-        let trimmed = manualCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 8 else {
-            error = "Invalid room code"
+    func joinWithCode(sessions: SessionAPIService, touchTips: TouchTipsService) async {
+        let code = Self.normalizedRoomCode(manualCode)
+        manualCode = code
+        guard InputValidation.isValidSessionCode(code) else {
+            error = "Enter a 6-character room code"
             return
         }
 
         guard !isJoining else { return }
         isJoining = true
+        defer { isJoining = false }
+
+        await stopListeningNow(touchTips: touchTips)
         error = nil
+        let span = ResponsivenessDiagnostics.begin("join_room_code")
+        defer { span.end() }
+
         do {
-            joinedSession = try await sessions.joinSession(code: trimmed)
+            joinedSession = try await sessions.joinSession(code: code)
+        } catch is CancellationError {
+            joinedSession = nil
         } catch {
-            self.error = "Failed to join room"
+            guard !Task.isCancelled else {
+                joinedSession = nil
+                return
+            }
+            self.error = Self.joinErrorMessage(for: error)
         }
-        isJoining = false
+    }
+
+    private static func normalizedRoomCode(_ code: String) -> String {
+        String(code
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { $0.isLetter || $0.isNumber }
+            .prefix(InputValidation.sessionCodeLength))
+            .uppercased()
+    }
+
+    private static func joinErrorMessage(for error: Error) -> String {
+        if (error as? URLError)?.code == .timedOut {
+            return "Joining timed out. Check your connection and try again."
+        }
+        return "Failed to join room"
     }
 }

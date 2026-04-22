@@ -78,6 +78,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddDeletedAtToUsers())
     app.migrations.add(CreateUserBlocks())
     app.migrations.add(CreateUserReports())
+    app.migrations.add(AddRoomCodeToRooms())
     app.migrations.add(AddPerformanceIndexes())
     app.migrations.add(SeedMedals())
 

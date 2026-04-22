@@ -5,30 +5,38 @@ import UnpluggedShared
 @MainActor
 @Observable
 class CreateRoomViewModel {
-    var roomName = ""
-    /// Minutes selected from the duration picker.
-    var selectedDuration: Int = 60
-    let durationOptions = [30, 60, 90, 120]
+    var duration = DurationValue(hours: 1, minutes: 0, isUnlimited: false)
 
     var isCreating = false
     var createdSession: SessionResponse?
     var error: String?
 
-    var canCreate: Bool { !roomName.isEmpty && !isCreating }
-
-    func createRoom(sessions: SessionAPIService) async {
+    func createRoom(title: String, sessions: SessionAPIService) async {
+        guard !isCreating else { return }
         isCreating = true
+        defer { isCreating = false }
+
         error = nil
+        createdSession = nil
+        let span = ResponsivenessDiagnostics.begin("create_room_tap")
+        defer { span.end() }
+
         do {
             createdSession = try await sessions.createSession(
-                title: roomName,
-                durationSeconds: selectedDuration * 60,
+                title: title,
+                durationSeconds: duration.durationSeconds,
                 location: nil
             )
+            ResponsivenessDiagnostics.event("create_room_response")
+        } catch is CancellationError {
+            createdSession = nil
         } catch {
+            guard !Task.isCancelled else {
+                createdSession = nil
+                return
+            }
             self.error = "Failed to create room: \(Self.errorMessage(for: error))"
         }
-        isCreating = false
     }
 
     private static func errorMessage(for error: Error) -> String {
