@@ -53,10 +53,7 @@ struct ProfileView: View {
                     }
                 }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .task {
             await viewModel.load(stats: deps.stats, cache: deps.cache)
@@ -267,6 +264,7 @@ private struct EmergencyAppsSettingsSheet: View {
 
 private struct ProfileTabPicker: View {
     @Binding var selection: ProfileViewModel.ProfileTab
+    @Namespace private var pillNamespace
 
     var body: some View {
         HStack(spacing: .spacingSm) {
@@ -281,17 +279,22 @@ private struct ProfileTabPicker: View {
     private func tab(_ value: ProfileViewModel.ProfileTab, label: String) -> some View {
         let isSelected = selection == value
         return Button {
-            withAnimation(.easeInOut(duration: 0.18)) { selection = value }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                selection = value
+            }
         } label: {
             Text(label)
-                .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(Color.tertiaryColor)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.tertiaryColor.opacity(isSelected ? 1.0 : 0.6))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.tertiaryColor, lineWidth: isSelected ? 1.5 : 0)
-                )
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.tertiaryColor, lineWidth: 1.5)
+                            .matchedGeometryEffect(id: "selectionPill", in: pillNamespace)
+                    }
+                }
                 .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
