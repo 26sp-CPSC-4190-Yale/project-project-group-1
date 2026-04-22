@@ -45,10 +45,6 @@ struct SessionHistoryView: View {
                         Text(durationLabel(for: session))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.tertiaryColor.opacity(0.7))
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.tertiaryColor.opacity(0.3))
                     }
                     .padding(.vertical, 12)
                     .padding(.horizontal, .spacingMd)
