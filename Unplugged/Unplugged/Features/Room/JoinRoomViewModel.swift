@@ -1,33 +1,129 @@
-//
-//  JoinRoomViewModel.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// TODO: Replace hardcoded rooms with SessionAPIService.listOpenRooms(); add pull-to-refresh
-
 import Foundation
 import Observation
-
-struct MockRoom: Identifiable {
-    let id: String
-    let name: String
-    let host: String
-    let participantCount: Int
-    let duration: Int
-}
+import UnpluggedShared
+import UIKit
 
 @MainActor
 @Observable
 class JoinRoomViewModel {
-    var openRooms: [MockRoom] = [
-        MockRoom(id: "1", name: "Sean's Room", host: "Sean", participantCount: 3, duration: 60),
-        MockRoom(id: "2", name: "Michael's Room", host: "Michael", participantCount: 2, duration: 120),
-        MockRoom(id: "3", name: "Jeff's Room", host: "Jeff", participantCount: 4, duration: 90),
-        MockRoom(id: "4", name: "McDonald's Room", host: "McDonald", participantCount: 1, duration: 30),
-        MockRoom(id: "5", name: "Joseph's Room", host: "Joseph", participantCount: 5, duration: 60),
-        MockRoom(id: "6", name: "William's Room", host: "William", participantCount: 2, duration: 45),
-        MockRoom(id: "7", name: "Edward's Room", host: "Edward", participantCount: 3, duration: 60),
-    ]
+    var isListening = false
+    var hasFoundRoom = false
+    var manualCode = "" {
+        didSet {
+            let normalized = Self.normalizedRoomCode(manualCode)
+            if manualCode != normalized {
+                manualCode = normalized
+            }
+        }
+    }
+    var isJoining = false
+    var joinedSession: SessionResponse?
+    var error: String?
+
+    private var listenTask: Task<Void, Never>?
+
+    var canJoinManually: Bool {
+        InputValidation.isValidSessionCode(manualCode) && !isJoining
+    }
+
+    func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
+        guard !isListening else { return }
+        isListening = true
+        hasFoundRoom = false
+
+        listenTask?.cancel()
+        listenTask = Task { [weak self] in
+            let stream = await touchTips.startListening()
+            for await roomID in stream {
+                guard let self, !Task.isCancelled else { return }
+                self.hasFoundRoom = true
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                #endif
+                await self.joinRoom(id: roomID, sessions: sessions)
+            }
+        }
+    }
+
+    func stopListening(touchTips: TouchTipsService) {
+        listenTask?.cancel()
+        listenTask = nil
+        Task { await touchTips.stop() }
+        isListening = false
+    }
+
+    func stopListeningNow(touchTips: TouchTipsService) async {
+        listenTask?.cancel()
+        listenTask = nil
+        await touchTips.stop()
+        isListening = false
+        hasFoundRoom = false
+    }
+
+    func joinRoom(id: UUID, sessions: SessionAPIService) async {
+        guard !isJoining else { return }
+        isJoining = true
+        defer { isJoining = false }
+
+        error = nil
+        let span = ResponsivenessDiagnostics.begin("join_room_proximity")
+        defer { span.end() }
+
+        do {
+            joinedSession = try await sessions.joinSession(id: id)
+        } catch is CancellationError {
+            joinedSession = nil
+        } catch {
+            guard !Task.isCancelled else {
+                joinedSession = nil
+                return
+            }
+            self.error = Self.joinErrorMessage(for: error)
+        }
+    }
+
+    func joinWithCode(sessions: SessionAPIService, touchTips: TouchTipsService) async {
+        let code = Self.normalizedRoomCode(manualCode)
+        manualCode = code
+        guard InputValidation.isValidSessionCode(code) else {
+            error = "Enter a 6-character room code"
+            return
+        }
+
+        guard !isJoining else { return }
+        isJoining = true
+        defer { isJoining = false }
+
+        await stopListeningNow(touchTips: touchTips)
+        error = nil
+        let span = ResponsivenessDiagnostics.begin("join_room_code")
+        defer { span.end() }
+
+        do {
+            joinedSession = try await sessions.joinSession(code: code)
+        } catch is CancellationError {
+            joinedSession = nil
+        } catch {
+            guard !Task.isCancelled else {
+                joinedSession = nil
+                return
+            }
+            self.error = Self.joinErrorMessage(for: error)
+        }
+    }
+
+    private static func normalizedRoomCode(_ code: String) -> String {
+        String(code
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { $0.isLetter || $0.isNumber }
+            .prefix(InputValidation.sessionCodeLength))
+            .uppercased()
+    }
+
+    private static func joinErrorMessage(for error: Error) -> String {
+        if (error as? URLError)?.code == .timedOut {
+            return "Joining timed out. Check your connection and try again."
+        }
+        return "Failed to join room"
+    }
 }

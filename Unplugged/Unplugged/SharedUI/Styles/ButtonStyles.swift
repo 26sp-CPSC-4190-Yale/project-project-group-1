@@ -28,7 +28,7 @@ struct LiquidGlassButtonStyle: ButtonStyle {
                     )
                     .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
             )
-            .clipShape(Circle())
+            .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
@@ -36,13 +36,18 @@ struct LiquidGlassButtonStyle: ButtonStyle {
 
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        HStack {
+            Spacer(minLength: 0)
+            configuration.label
+            Spacer(minLength: 0)
+        }
             .font(.headlineFont)
             .foregroundColor(.primaryColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, .spacingMd)
             .background(Color.tertiaryColor)
             .cornerRadius(.cornerRadius)
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }
@@ -50,13 +55,18 @@ struct PrimaryButtonStyle: ButtonStyle {
 
 struct DestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        HStack {
+            Spacer(minLength: 0)
+            configuration.label
+            Spacer(minLength: 0)
+        }
             .font(.headlineFont)
             .foregroundColor(.tertiaryColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, .spacingMd)
             .background(Color.destructiveColor)
             .cornerRadius(.cornerRadius)
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
     }

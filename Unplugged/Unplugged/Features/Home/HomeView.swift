@@ -1,96 +1,122 @@
-//
-//  HomeView.swift
-//  Unplugged.Features.Home
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
+import UnpluggedShared
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
+    @State private var createRoomDetent: PresentationDetent = .medium
+    @Environment(DependencyContainer.self) private var deps
 
     var body: some View {
-        ZStack {
-            Color.primaryColor
-                .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
 
-            GeometryReader { geo in
-                VStack(spacing: 0) {
-                    // Header
-                    HStack {
-                        Text("UNPLUGGED")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundColor(.tertiaryColor)
-                            .tracking(2)
+                VStack(spacing: .spacingLg) {
+                    Spacer()
+
+                    // Central action area
+                    VStack(spacing: .spacingXl) {
+                        homeAction(title: "Create Room", systemImage: "plus") {
+                            viewModel.showCreateRoom = true
+                        }
 
                         Spacer()
-                    }
-                    .padding(.horizontal, .spacingLg)
-                    .padding(.top, .spacingMd)
+                            .frame(height: .spacingMd)
 
-                    Spacer()
-                        .frame(height: geo.size.height * 0.28 - 80)
-
-                    // Create Room at 1/3
-                    Button(action: { viewModel.showCreateRoom = true }) {
-                        VStack(spacing: .spacingSm) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 36, weight: .medium))
-                                .foregroundColor(.tertiaryColor)
+                        homeAction(title: "Join Room", systemImage: "arrow.right") {
+                            viewModel.showJoinRoom = true
                         }
                     }
-                    .buttonStyle(LiquidGlassButtonStyle())
-
-                    Text("Create room")
-                        .font(.headlineFont)
-                        .foregroundColor(.tertiaryColor)
-                        .padding(.top, .spacingSm)
-
-                    Spacer()
-                        .frame(height: geo.size.height * 0.15)
-
-                    // Join Room at 2/3
-                    Button(action: { viewModel.showJoinRoom = true }) {
-                        VStack(spacing: .spacingSm) {
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 36, weight: .medium))
-                                .foregroundColor(.tertiaryColor)
-                        }
-                    }
-                    .buttonStyle(LiquidGlassButtonStyle())
-
-                    Text("Join room")
-                        .font(.headlineFont)
-                        .foregroundColor(.tertiaryColor)
-                        .padding(.top, .spacingSm)
 
                     Spacer()
                 }
             }
-        }
-        .sheet(isPresented: $viewModel.showJoinRoom) {
-            JoinRoomView { room in
-                viewModel.showJoinRoom = false
-                viewModel.activeRoom = room
+            .navigationTitle("UNPLUGGED")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .sheet(isPresented: $viewModel.showJoinRoom) {
+                JoinRoomView(
+                    sessions: deps.sessions,
+                    touchTips: deps.touchTips
+                ) { session in
+                    viewModel.showJoinRoom = false
+                    viewModel.isHost = false
+                    viewModel.activeSession = session
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
             }
-            .presentationBackground(.ultraThinMaterial)
-        }
-        .sheet(isPresented: $viewModel.showCreateRoom) {
-            CreateRoomView { room in
-                viewModel.showCreateRoom = false
-                viewModel.activeRoom = room
+            .sheet(isPresented: $viewModel.showCreateRoom, onDismiss: {
+                createRoomDetent = .medium
+            }) {
+                CreateRoomView(
+                    sessions: deps.sessions,
+                    touchTips: deps.touchTips,
+                    userID: UUID(), // Pass a dummy ID or refactor CreateRoomView to not require it
+                    detent: $createRoomDetent
+                ) { session in
+                    viewModel.showCreateRoom = false
+                    viewModel.isHost = true
+                    // Stagger the fullScreenCover presentation so UIKit finishes the
+                    // sheet dismiss animation before it tries to push the new container.
+                    // Presenting both in the same frame causes "containerToPush is nil"
+                    // and compounds the main-thread stall from lobby setup.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        viewModel.activeSession = session
+                    }
+                }
+                .presentationDetents([.medium, .large], selection: $createRoomDetent)
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
             }
-            .presentationBackground(.ultraThinMaterial)
-        }
-        .fullScreenCover(item: $viewModel.activeRoom) { room in
-            ActiveRoomView(room: room) {
-                viewModel.activeRoom = nil
+            .fullScreenCover(item: $viewModel.activeSession) { session in
+                ActiveRoomView(session: session, isHost: viewModel.isHost) {
+                    viewModel.activeSession = nil
+                    viewModel.isHost = false
+                }
+                .environment(deps)
             }
         }
+    }
+
+    private func homeAction(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: .spacingSm) {
+                ZStack {
+                    Circle()
+                        .fill(Color.surfaceColor.opacity(0.7))
+                        .overlay(
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.15), Color.clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
+
+                    Image(systemName: systemImage)
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(Color.tertiaryColor)
+                }
+                .frame(width: 140, height: 140)
+
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
 #Preview {
     HomeView()
+        .environment(DependencyContainer())
 }

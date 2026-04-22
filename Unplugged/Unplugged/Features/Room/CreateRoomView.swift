@@ -1,84 +1,108 @@
-//
-//  CreateRoomView.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
+import UnpluggedShared
 
 struct CreateRoomView: View {
+    let sessions: SessionAPIService
+    let touchTips: TouchTipsService
+    let userID: UUID
+    @Binding var detent: PresentationDetent
+    var onCreateRoom: (SessionResponse) -> Void
+
     @State private var viewModel = CreateRoomViewModel()
-    @Environment(\.dismiss) private var dismiss
-    var onCreateRoom: (MockRoom) -> Void
+    @State private var roomName = ""
+    @State private var createTask: Task<Void, Never>?
+    @FocusState private var isNameFocused: Bool
+
+    private var trimmedRoomName: String {
+        roomName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canCreate: Bool {
+        !trimmedRoomName.isEmpty && !viewModel.isCreating
+    }
 
     var body: some View {
-        VStack(spacing: .spacingMd) {
-            // Handle
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.tertiaryColor.opacity(0.3))
-                .frame(width: 40, height: 5)
-                .padding(.top, .spacingSm)
+        NavigationStack {
+            ZStack {
+                Color.primaryColor.opacity(0.85)
+                    .ignoresSafeArea()
 
-            Text("Create Room")
-                .font(.headlineFont)
-                .foregroundColor(.tertiaryColor)
-                .padding(.top, .spacingSm)
+                createFormView
+            }
+            .navigationTitle("Create Room")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+        .errorAlert($viewModel.error)
+        .onChange(of: isNameFocused) { _, focused in
+            if focused { detent = .large }
+        }
+    }
 
+    private var createFormView: some View {
+        ScrollView {
             VStack(spacing: .spacingLg) {
                 // Room Name
-                VStack(alignment: .leading, spacing: .spacingSm) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Room Name")
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.6))
+                        .font(.subheadline)
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-                    TextField("", text: $viewModel.roomName, prompt: Text("Enter room name").foregroundColor(.tertiaryColor.opacity(0.4)))
-                        .font(.bodyFont)
-                        .foregroundColor(.tertiaryColor)
-                        .padding(.spacingMd)
+                    TextField("", text: $roomName, prompt: Text("Enter room name").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
+                        .font(.body)
+                        .foregroundStyle(Color.tertiaryColor)
+                        .submitLabel(.done)
+                        .focused($isNameFocused)
+                        .padding(14)
                         .background(Color.surfaceColor)
-                        .cornerRadius(.cornerRadiusSm)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onChange(of: roomName) { _, _ in
+                            ResponsivenessDiagnostics.event("room_name_type")
+                        }
                 }
 
-                // Duration
-                VStack(alignment: .leading, spacing: .spacingSm) {
-                    Text("Duration")
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.6))
+                DurationSection(value: $viewModel.duration)
 
-                    HStack(spacing: .spacingSm) {
-                        ForEach(viewModel.durationOptions, id: \.self) { duration in
-                            Button(action: { viewModel.selectedDuration = duration }) {
-                                Text(duration >= 60 ? "\(duration / 60)h" : "\(duration)m")
-                                    .font(.bodyFont)
-                                    .foregroundColor(viewModel.selectedDuration == duration ? .primaryColor : .tertiaryColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, .spacingSm)
-                                    .background(viewModel.selectedDuration == duration ? Color.tertiaryColor : Color.surfaceColor)
-                                    .cornerRadius(.cornerRadiusSm)
-                            }
+                Spacer(minLength: .spacingXl)
+
+                // Create button hands straight off to the unified lobby
+                // (ActiveRoomView) — that view owns the room code display,
+                // member list, proximity advertising, and the lock action.
+                Button {
+                    createTask?.cancel()
+                    createTask = Task {
+                        await viewModel.createRoom(title: trimmedRoomName, sessions: sessions)
+                        guard !Task.isCancelled else { return }
+                        if let session = viewModel.createdSession {
+                            onCreateRoom(session)
                         }
                     }
+                } label: {
+                    Group {
+                        if viewModel.isCreating {
+                            ProgressView().tint(.primaryColor)
+                        } else {
+                            Text("Create")
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(canCreate ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                    .foregroundStyle(Color.primaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
                 }
-
-                Spacer()
-
-                // Create Button
-                Button("Create") {
-                    let room = viewModel.createRoom()
-                    onCreateRoom(room)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(!viewModel.canCreate)
-                .opacity(viewModel.canCreate ? 1 : 0.5)
+                .buttonStyle(.plain)
+                .disabled(!canCreate)
             }
             .padding(.horizontal, .spacingLg)
+            .padding(.top, .spacingMd)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.primaryColor.opacity(0.85))
+        .onDisappear {
+            createTask?.cancel()
+            createTask = nil
+        }
     }
-}
 
-#Preview {
-    CreateRoomView { _ in }
 }

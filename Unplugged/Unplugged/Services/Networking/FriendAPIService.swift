@@ -22,4 +22,24 @@ struct FriendAPIService {
     func removeFriend(id: UUID) async throws {
         try await client.sendVoid(.removeFriend(id: id))
     }
+
+    func acceptRequest(friendID: UUID) async throws -> FriendResponse {
+        try await client.send(.acceptFriend(id: friendID))
+    }
+
+    func rejectRequest(friendID: UUID) async throws {
+        try await client.sendVoid(.rejectFriend(id: friendID))
+    }
+
+    func nudge(friendID: UUID) async throws {
+        try await client.sendVoid(.nudgeFriend(id: friendID))
+    }
+
+    func listIncoming() async throws -> [FriendResponse] {
+        try await client.send(.incomingFriendRequests)
+    }
+
+    func listOutgoing() async throws -> [FriendResponse] {
+        try await client.send(.outgoingFriendRequests)
+    }
 }

@@ -6,61 +6,137 @@
 import Fluent
 import Foundation
 import UnpluggedShared
+import Vapor
 
 struct StatsService {
-    let db: Database
-
-    func getStats(for userID: UUID) async throws -> UserStatsResponse {
+    static func getStats(for userID: UUID, on db: Database) async throws -> UserStatsResponse {
+        // All memberships for this user
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
-
         let roomIDs = memberships.map { $0.roomID }
-        let roomMap: [UUID: RoomModel]
+
+        // Only ended rooms count for stats
+        let endedRooms: [RoomModel]
         if roomIDs.isEmpty {
-            roomMap = [:]
+            endedRooms = []
         } else {
-            let roomList = try await RoomModel.query(on: db)
+            endedRooms = try await RoomModel.query(on: db)
                 .filter(\.$id ~~ roomIDs)
+                .filter(\.$endedAt != nil)
                 .all()
-            roomMap = Dictionary(uniqueKeysWithValues: roomList.compactMap { r -> (UUID, RoomModel)? in
-                guard let id = r.id else { return nil }
-                return (id, r)
-            })
         }
 
-        var totalMinutes = 0
-        var completedSessions = 0
+        let totalSessions = endedRooms.count
+        let totalMinutes = endedRooms.reduce(0) { acc, room in
+            acc + ((room.durationSeconds ?? 0) / 60)
+        }
+        let avgSessionLengthMinutes: Double = totalSessions > 0
+            ? Double(totalMinutes) / Double(totalSessions)
+            : 0
 
-        for member in memberships {
-            let room = roomMap[member.roomID]
+        // Streaks — distinct days with an ended session, sorted descending
+        let calendar = Calendar(identifier: .gregorian)
+        let sessionDays: Set<Date> = Set(endedRooms.compactMap { room in
+            guard let ended = room.endedAt else { return nil }
+            return calendar.startOfDay(for: ended)
+        })
+        let sortedDays = sessionDays.sorted()
 
-            // Only count settled participation, so the user has left, or the
-            // session has ended. Active-session time is excluded so stats
-            // don't drift on every read.
-            if let endTime = member.leftAt ?? room?.endedAt {
-                let minutes = Int(endTime.timeIntervalSince(member.joinedAt) / 60)
-                totalMinutes += max(0, minutes)
+        var longestStreak = 0
+        var currentRun = 0
+        var previousDay: Date?
+        for day in sortedDays {
+            if let prev = previousDay,
+               let diff = calendar.dateComponents([.day], from: prev, to: day).day,
+               diff == 1 {
+                currentRun += 1
+            } else {
+                currentRun = 1
             }
+            longestStreak = max(longestStreak, currentRun)
+            previousDay = day
+        }
 
-            // Completed: session ended and user did not leave early
-            if room?.isActive == false && !member.leftEarly {
-                completedSessions += 1
+        // Current streak: consecutive days ending today or yesterday
+        var currentStreak = 0
+        let today = calendar.startOfDay(for: Date())
+        var cursor = today
+        while sessionDays.contains(cursor) {
+            currentStreak += 1
+            guard let prev = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = prev
+        }
+        if currentStreak == 0 {
+            let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+            var alt = yesterday
+            while sessionDays.contains(alt) {
+                currentStreak += 1
+                guard let prev = calendar.date(byAdding: .day, value: -1, to: alt) else { break }
+                alt = prev
             }
         }
 
-        let jailbreakCount = try await JailbreakModel.query(on: db)
-            .filter(\.$userID == userID)
+        // Friends count (accepted only)
+        let friendCount = try await FriendshipModel.query(on: db)
+            .group(.or) { group in
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == userID)
+                    g.filter(\.$status == "accepted")
+                }
+                group.group(.and) { g in
+                    g.filter(\.$user2ID == userID)
+                    g.filter(\.$status == "accepted")
+                }
+            }
             .count()
+
+        // Rank — global position by totalMinutes
+        let rank = try await computeRank(for: userID, totalMinutes: totalMinutes, on: db)
 
         let user = try await UserModel.find(userID, on: db)
 
         return UserStatsResponse(
-            totalSessions: memberships.count,
-            completedSessions: completedSessions,
+            hoursUnplugged: totalMinutes / 60,
+            rank: rank,
+            totalSessions: totalSessions,
+            longestStreak: longestStreak,
+            currentStreak: currentStreak,
+            avgSessionLengthMinutes: avgSessionLengthMinutes,
+            friendsCount: friendCount,
             totalMinutes: totalMinutes,
-            jailbreakCount: jailbreakCount,
             points: user?.points ?? 0
         )
+    }
+
+    /// Compute a user's rank among all users by total minutes unplugged.
+    private static func computeRank(for userID: UUID, totalMinutes: Int, on db: Database) async throws -> Int {
+        let allMemberships = try await MemberModel.query(on: db).all()
+        let allEndedRooms = try await RoomModel.query(on: db)
+            .filter(\.$endedAt != nil)
+            .all()
+
+        var roomDurations: [UUID: Int] = [:]
+        for room in allEndedRooms {
+            guard let id = room.id else { continue }
+            roomDurations[id] = (room.durationSeconds ?? 0) / 60
+        }
+
+        var userTotals: [UUID: Int] = [:]
+        for member in allMemberships {
+            let mins = roomDurations[member.roomID] ?? 0
+            userTotals[member.userID, default: 0] += mins
+        }
+
+        let allTotals = userTotals.values.sorted(by: >)
+        var rank = 1
+        for val in allTotals {
+            if val > totalMinutes {
+                rank += 1
+            } else {
+                break
+            }
+        }
+        return rank
     }
 }

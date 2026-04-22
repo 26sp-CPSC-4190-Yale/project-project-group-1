@@ -1,40 +1,57 @@
-//
-//  ActiveRoomViewModel.swift
-//  Unplugged.Features.Room
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// TODO: Replace MockParticipant with real WebSocket data; wire kick to SessionAPIService; add countdown state
-
 import Foundation
 import Observation
-
-struct MockParticipant: Identifiable {
-    let id: String
-    let name: String
-    let isHost: Bool
-}
+import UnpluggedShared
 
 @MainActor
 @Observable
-class ActiveRoomViewModel {
-    let room: MockRoom
+final class ActiveRoomViewModel {
     let isHost: Bool
-    var participants: [MockParticipant]
     var showEndConfirmation = false
+    var showLeaveConfirmation = false
+    var showRecap = false
+    var isStartingLobby = false
+    private var startedLobbySessionID: UUID?
 
-    init(room: MockRoom, isHost: Bool = true) {
-        self.room = room
+    init(isHost: Bool) {
         self.isHost = isHost
-        self.participants = [
-            MockParticipant(id: "1", name: "You", isHost: true),
-            MockParticipant(id: "2", name: "Sean", isHost: false),
-            MockParticipant(id: "3", name: "Michael", isHost: false),
-        ]
     }
 
-    func kickParticipant(_ participant: MockParticipant) {
-        participants.removeAll { $0.id == participant.id }
+    func isHost(orchestrator: SessionOrchestrator) -> Bool {
+        return isHost
+    }
+
+    func startLobbyIfNeeded(
+        session: SessionResponse,
+        orchestrator: SessionOrchestrator,
+        touchTips: TouchTipsService
+    ) async {
+        let sessionID = session.session.id
+        guard startedLobbySessionID != sessionID else { return }
+
+        startedLobbySessionID = sessionID
+        isStartingLobby = true
+        defer { isStartingLobby = false }
+
+        await Task.yield()
+        await orchestrator.enterLobby(session: session)
+
+        guard isHost else { return }
+        // Fire TouchTips activation off the main actor. MC/NI framework calls
+        // (MCSession init, startAdvertisingPeer) are heavyweight and stall the
+        // main thread 200-300ms when awaited inline. Running in a detached Task
+        // lets the lobby UI render immediately.
+        Task.detached { [sessionID] in
+            let span = ResponsivenessDiagnostics.begin("touchtips_activate")
+            defer { span.end() }
+            try? await touchTips.activate(roomID: sessionID)
+        }
+    }
+
+    func start(orchestrator: SessionOrchestrator) async {
+        await orchestrator.hostStart()
+    }
+
+    func end(orchestrator: SessionOrchestrator) async {
+        await orchestrator.hostEnd()
     }
 }

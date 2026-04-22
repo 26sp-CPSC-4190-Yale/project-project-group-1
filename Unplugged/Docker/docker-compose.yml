@@ -1,16 +1,4 @@
 services:
-  db:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: unplugged
-      POSTGRES_PASSWORD: unplugged
-      POSTGRES_DB: unplugged
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   server:
     build:
       context: ..
@@ -18,15 +6,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: db
+      DB_HOST: ep-gentle-surf-am4xf1os-pooler.c-5.us-east-1.aws.neon.tech
       DB_PORT: 5432
-      DB_USER: unplugged
-      DB_PASSWORD: unplugged
-      DB_NAME: unplugged
-      JWT_SECRET: dev-secret-change-in-production
-    depends_on:
-      - db
+      DB_USER: neondb_owner
+      DB_PASSWORD: npg_yLQ3SoAf5DRW
+      DB_NAME: neondb
+      JWT_SECRET: dev-secret-change-in-production-dev
     restart: unless-stopped
-
-volumes:
-  pgdata:

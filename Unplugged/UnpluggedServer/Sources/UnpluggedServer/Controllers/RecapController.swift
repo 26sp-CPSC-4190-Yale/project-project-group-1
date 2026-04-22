@@ -5,4 +5,6 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Implement RecapController (RouteCollection) — GET /sessions/:id/recap (return SessionRecap with participant details, jailbreak events, completion stats; only available after session ends)
+// Recap is served from SessionController at GET /sessions/:sessionID/recap.
+// This file is intentionally left as a placeholder to keep the build graph
+// simple while the recap lives alongside the session lifecycle handler.

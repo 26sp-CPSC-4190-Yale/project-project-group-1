@@ -6,10 +6,12 @@
 //
 
 import Fluent
+import UnpluggedShared
 import Vapor
 
 final class MemberModel: Model, @unchecked Sendable {
     static let schema = "member_info"
+    static let proximityExitConfig = "proximity_exit"
 
     @ID(key: .id)
     var id: UUID?
@@ -46,5 +48,9 @@ final class MemberModel: Model, @unchecked Sendable {
         self.config = config
         self.joinedAt = Date()
         self.leftEarly = false
+    }
+
+    var participantStatus: ParticipantStatus {
+        config == Self.proximityExitConfig ? .left : .active
     }
 }

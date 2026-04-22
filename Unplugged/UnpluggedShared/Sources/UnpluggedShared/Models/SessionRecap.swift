@@ -5,4 +5,27 @@
 //  Created by Sebastian Gonzalez on 3/12/26.
 //
 
-// TODO: Define SessionRecap struct (Codable) — sessionID, totalDuration, participantCount, jailbreakCount, completionRate; summary data returned after a session ends
+import Foundation
+
+public struct SessionRecap: Codable, Sendable, Identifiable {
+    public var id: UUID { sessionID }
+    public let sessionID: UUID
+    public let totalDurationSeconds: Int
+    public let participantCount: Int
+    public let jailbreakCount: Int
+    public let completionRate: Double
+
+    public init(
+        sessionID: UUID,
+        totalDurationSeconds: Int,
+        participantCount: Int,
+        jailbreakCount: Int,
+        completionRate: Double
+    ) {
+        self.sessionID = sessionID
+        self.totalDurationSeconds = totalDurationSeconds
+        self.participantCount = participantCount
+        self.jailbreakCount = jailbreakCount
+        self.completionRate = completionRate
+    }
+}

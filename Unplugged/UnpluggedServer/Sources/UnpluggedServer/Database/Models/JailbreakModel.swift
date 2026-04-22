@@ -23,12 +23,16 @@ final class JailbreakModel: Model, @unchecked Sendable {
     @Field(key: "detected_at")
     var detectedAt: Date
 
+    @OptionalField(key: "reason")
+    var reason: String?
+
     init() {}
 
-    init(id: UUID? = nil, sessionID: UUID, userID: UUID) {
+    init(id: UUID? = nil, sessionID: UUID, userID: UUID, reason: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.userID = userID
         self.detectedAt = Date()
+        self.reason = reason
     }
 }
