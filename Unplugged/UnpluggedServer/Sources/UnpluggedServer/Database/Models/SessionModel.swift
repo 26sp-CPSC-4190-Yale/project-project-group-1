@@ -26,9 +26,6 @@ final class RoomModel: Model, @unchecked Sendable {
     @OptionalField(key: "longitude")
     var longitude: Double?
 
-    @Field(key: "is_active")
-    var isActive: Bool
-
     @OptionalField(key: "code")
     var code: String?
 
@@ -41,18 +38,19 @@ final class RoomModel: Model, @unchecked Sendable {
     @OptionalField(key: "locked_at")
     var lockedAt: Date?
 
-    @OptionalField(key: "ends_at")
-    var endsAt: Date?
-
     @OptionalField(key: "ended_at")
     var endedAt: Date?
+
+    var endsAt: Date? {
+        guard let lockedAt, let durationSeconds else { return nil }
+        return lockedAt.addingTimeInterval(TimeInterval(durationSeconds))
+    }
 
     init() {}
 
     init(
         id: UUID? = nil,
         roomOwner: UUID,
-        isActive: Bool = true,
         code: String? = nil,
         title: String? = nil,
         durationSeconds: Int? = nil,
@@ -62,7 +60,6 @@ final class RoomModel: Model, @unchecked Sendable {
         self.id = id
         self.roomOwner = roomOwner
         self.startTime = Date()
-        self.isActive = isActive
         self.code = code
         self.title = title
         self.durationSeconds = durationSeconds
