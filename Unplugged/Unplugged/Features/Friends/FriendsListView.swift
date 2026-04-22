@@ -47,6 +47,7 @@ struct FriendsListView: View {
                                             Text("Accept")
                                                 .font(.subheadline.weight(.semibold))
                                                 .foregroundStyle(Color.primaryColor)
+                                                .fixedSize(horizontal: true, vertical: false)
                                                 .padding(.horizontal, 16)
                                                 .padding(.vertical, 8)
                                                 .background(Color.tertiaryColor)
@@ -181,7 +182,7 @@ struct FriendsListView: View {
                 }
             }
             .sheet(isPresented: $viewModel.showAddFriend) {
-                AddFriendSheet { username in
+                AddFriendSheet(existingFriendIDs: Set(viewModel.friends.map(\.id))) { username in
                     viewModel.addFriendUsername = username
                     await viewModel.addFriend(service: deps.friends)
                 }
