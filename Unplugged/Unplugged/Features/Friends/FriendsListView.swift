@@ -21,6 +21,16 @@ struct FriendsListView: View {
 
                 ScrollView {
                     LazyVStack(spacing: .spacingSm) {
+                        HStack {
+                            Text("Friends")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(Color.tertiaryColor)
+                            Spacer()
+                        }
+                        .padding(.horizontal, .spacingLg)
+                        .padding(.top, .spacingSm)
+                        .padding(.bottom, .spacingSm)
+
                         // Incoming Requests Section
                         if !viewModel.incomingRequests.isEmpty {
                             Section {
@@ -151,8 +161,9 @@ struct FriendsListView: View {
                     .padding(.horizontal, .spacingLg)
                 }
             }
-            .navigationTitle("Friends")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .searchable(text: $viewModel.searchText, prompt: "Search friends")
             .navigationDestination(item: $selectedFriend) { friend in

@@ -51,21 +51,23 @@ struct ActiveRoomView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        if phase == .locked {
-                            viewModel.showLeaveConfirmation = true
-                        } else {
-                            onClose()
-                            dismiss()
+                if !isHost && phase != .ended {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            if phase == .locked {
+                                viewModel.showLeaveConfirmation = true
+                            } else {
+                                onClose()
+                                dismiss()
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .foregroundStyle(Color.tertiaryColor)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(Color.tertiaryColor)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -296,8 +298,18 @@ struct ActiveRoomView: View {
     private func footer(phase: SessionOrchestrator.LifecyclePhase,
                         isHost: Bool,
                         orchestrator: SessionOrchestrator) -> some View {
-        if isHost {
-            Group {
+        Group {
+            if phase == .ended {
+                Button {
+                    onClose()
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            } else if isHost {
                 switch phase {
                 case .idle, .lobby:
                     Button {
@@ -318,19 +330,11 @@ struct ActiveRoomView: View {
                     }
                     .buttonStyle(DestructiveButtonStyle())
                 case .ended:
-                    Button {
-                        onClose()
-                        dismiss()
-                    } label: {
-                        Text("Done")
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
+                    EmptyView()
                 }
             }
-            .padding(.horizontal, .spacingLg)
-            .padding(.bottom, .spacingMd)
         }
+        .padding(.horizontal, .spacingLg)
+        .padding(.bottom, .spacingMd)
     }
 }

@@ -21,6 +21,15 @@ struct ProfileView: View {
 
                 ScrollView {
                     VStack(spacing: .spacingMd) {
+                        HStack {
+                            Text("Profile")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(Color.tertiaryColor)
+                            Spacer()
+                        }
+                        .padding(.horizontal, .spacingLg)
+                        .padding(.top, .spacingSm)
+
                         // Profile header
                         VStack(spacing: .spacingSm) {
                             ParticipantAvatar(name: viewModel.userName, size: 64)
@@ -31,12 +40,8 @@ struct ProfileView: View {
                         .padding(.top, .spacingMd)
 
                         // Tab picker
-                        Picker("", selection: $selectedTab) {
-                            Text("Dashboard").tag(ProfileViewModel.ProfileTab.history)
-                            Text("Settings").tag(ProfileViewModel.ProfileTab.settings)
-                        }
-                        .pickerStyle(.segmented)
-                        .padding(.horizontal, .spacingLg)
+                        ProfileTabPicker(selection: $selectedTab)
+                            .padding(.horizontal, .spacingLg)
 
                         // Content
                         switch selectedTab {
@@ -48,8 +53,9 @@ struct ProfileView: View {
                     }
                 }
             }
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
         .task {
@@ -256,6 +262,39 @@ private struct EmergencyAppsSettingsSheet: View {
             }
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
+    }
+}
+
+private struct ProfileTabPicker: View {
+    @Binding var selection: ProfileViewModel.ProfileTab
+
+    var body: some View {
+        HStack(spacing: .spacingSm) {
+            tab(.history, label: "Dashboard")
+            tab(.settings, label: "Settings")
+        }
+        .padding(4)
+        .background(Color.surfaceColor.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func tab(_ value: ProfileViewModel.ProfileTab, label: String) -> some View {
+        let isSelected = selection == value
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) { selection = value }
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(Color.tertiaryColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.tertiaryColor, lineWidth: isSelected ? 1.5 : 0)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 }
 

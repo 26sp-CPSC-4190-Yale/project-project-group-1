@@ -9,16 +9,10 @@ struct CreateRoomView: View {
 
     @State private var viewModel = CreateRoomViewModel()
     @State private var roomName = ""
-    @State private var showDiscardConfirmation = false
     @State private var createTask: Task<Void, Never>?
-    @Environment(\.dismiss) private var dismiss
 
     private var trimmedRoomName: String {
         roomName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var hasUnsavedInput: Bool {
-        !trimmedRoomName.isEmpty
     }
 
     private var canCreate: Bool {
@@ -36,28 +30,6 @@ struct CreateRoomView: View {
             .navigationTitle("Create Room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        if hasUnsavedInput {
-                            showDiscardConfirmation = true
-                        } else {
-                            dismiss()
-                        }
-                    }
-                    .foregroundStyle(Color.tertiaryColor)
-                }
-            }
-            .confirmationDialog(
-                "Discard this room?",
-                isPresented: $showDiscardConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Discard", role: .destructive) { dismiss() }
-                Button("Keep Editing", role: .cancel) {}
-            } message: {
-                Text("Your room name and settings will be lost.")
-            }
         }
         .errorAlert($viewModel.error)
     }
@@ -83,30 +55,7 @@ struct CreateRoomView: View {
                         }
                 }
 
-                // Duration
-                VStack(alignment: .leading, spacing: .spacingSm) {
-                    Text("Duration")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.6))
-
-                    HStack(spacing: .spacingSm) {
-                        ForEach(viewModel.durationOptions, id: \.self) { duration in
-                            Button {
-                                viewModel.selectedDuration = duration
-                            } label: {
-                                Text(Self.formatDuration(duration))
-                                    .font(.subheadline.weight(.medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(viewModel.selectedDuration == duration ? Color.tertiaryColor : Color.surfaceColor)
-                                    .foregroundStyle(viewModel.selectedDuration == duration ? Color.primaryColor : .tertiaryColor)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .contentShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
+                DurationSection(value: $viewModel.duration)
 
                 Spacer(minLength: .spacingXl)
 
@@ -150,11 +99,4 @@ struct CreateRoomView: View {
         }
     }
 
-    private static func formatDuration(_ minutes: Int) -> String {
-        let h = minutes / 60
-        let m = minutes % 60
-        if h > 0 && m > 0 { return "\(h)h \(m)m" }
-        if h > 0 { return "\(h)h" }
-        return "\(m)m"
-    }
 }
