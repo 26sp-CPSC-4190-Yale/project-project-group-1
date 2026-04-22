@@ -25,7 +25,7 @@ struct JoinRoomView: View {
                                 .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
                             TextField("", text: $viewModel.manualCode, prompt: Text("Enter code").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
-                                .font(.system(.title3, design: .monospaced))
+                                .font(.body)
                                 .foregroundStyle(Color.tertiaryColor)
                                 .textInputAutocapitalization(.characters)
                                 .autocorrectionDisabled()
@@ -94,12 +94,6 @@ struct JoinRoomView: View {
             .navigationTitle("Join Room")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(Color.tertiaryColor)
-                }
-            }
         }
         .errorAlert($viewModel.error)
         .onAppear {
