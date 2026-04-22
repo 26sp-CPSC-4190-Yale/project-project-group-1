@@ -307,6 +307,10 @@ struct SessionController: RouteCollection {
             )
         }
 
+        for member in members {
+            await MedalService.evaluateAndAward(userID: member.userID, on: req.db, logger: req.logger)
+        }
+
         return try await buildSessionResponse(room: room, db: req.db)
     }
 

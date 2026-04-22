@@ -17,6 +17,7 @@ class DependencyContainer {
     let sessions: SessionAPIService
     let friends: FriendAPIService
     let stats: StatsAPIService
+    let medals: MedalsAPIService
     let groups: GroupAPIService
     let recap: RecapAPIService
     let touchTips: TouchTipsService
@@ -44,6 +45,7 @@ class DependencyContainer {
         self.sessions = sessions
         self.friends = FriendAPIService(client: client)
         self.stats = StatsAPIService(client: client)
+        self.medals = MedalsAPIService(client: client)
         self.groups = GroupAPIService(client: client)
         let recap = RecapAPIService(client: client)
         self.recap = recap

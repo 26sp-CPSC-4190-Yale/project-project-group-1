@@ -367,6 +367,18 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
+        let friendship = try await FriendshipModel.query(on: req.db)
+            .filter(\.$status == "accepted")
+            .group(.or) { group in
+                group
+                    .group(.and) { $0.filter(\.$user1ID == senderID).filter(\.$user2ID == friendID) }
+                    .group(.and) { $0.filter(\.$user1ID == friendID).filter(\.$user2ID == senderID) }
+            }
+            .first()
+        guard friendship != nil else {
+            throw Abort(.forbidden, reason: "You can only nudge accepted friends.")
+        }
+
         guard let sender = try await UserModel.find(senderID, on: req.db) else {
             throw Abort(.notFound)
         }
