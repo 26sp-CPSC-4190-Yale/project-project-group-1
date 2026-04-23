@@ -2,8 +2,6 @@
 //  StatsService.swift
 //  UnpluggedServer.Services
 //
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
 
 import Fluent
 import Foundation
@@ -96,6 +94,8 @@ struct StatsService {
         // Rank — global position by totalMinutes
         let rank = try await computeRank(for: userID, totalMinutes: totalMinutes, on: db)
 
+        let user = try await UserModel.find(userID, on: db)
+
         return UserStatsResponse(
             hoursUnplugged: totalMinutes / 60,
             rank: rank,
@@ -104,7 +104,8 @@ struct StatsService {
             currentStreak: currentStreak,
             avgSessionLengthMinutes: avgSessionLengthMinutes,
             friendsCount: friendCount,
-            totalMinutes: totalMinutes
+            totalMinutes: totalMinutes,
+            points: user?.points ?? 0
         )
     }
 
@@ -128,7 +129,6 @@ struct StatsService {
         }
 
         let allTotals = userTotals.values.sorted(by: >)
-        // Find position where value > totalMinutes stops
         var rank = 1
         for val in allTotals {
             if val > totalMinutes {

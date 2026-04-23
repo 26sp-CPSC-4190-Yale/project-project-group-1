@@ -83,6 +83,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(DropIsActiveFromRooms())
     app.migrations.add(DropEndsAtFromRooms())
     app.migrations.add(SeedMedals())
+    app.migrations.add(AddTimestampsToMembers())
 
     try await app.autoMigrate()
 

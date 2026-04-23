@@ -16,6 +16,7 @@ public struct UserStatsResponse: Codable, Sendable {
     public let avgSessionLengthMinutes: Double
     public let friendsCount: Int
     public let totalMinutes: Int
+    public let points: Int
 
     public init(
         hoursUnplugged: Int,
@@ -25,7 +26,8 @@ public struct UserStatsResponse: Codable, Sendable {
         currentStreak: Int,
         avgSessionLengthMinutes: Double,
         friendsCount: Int,
-        totalMinutes: Int
+        totalMinutes: Int,
+        points: Int
     ) {
         self.hoursUnplugged = hoursUnplugged
         self.rank = rank
@@ -35,5 +37,6 @@ public struct UserStatsResponse: Codable, Sendable {
         self.avgSessionLengthMinutes = avgSessionLengthMinutes
         self.friendsCount = friendsCount
         self.totalMinutes = totalMinutes
+        self.points = points
     }
 }
