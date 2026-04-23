@@ -1,0 +1,9 @@
+- [ ] add point system and medals (field + model exist, still need PointsService award logic and MedalService auto-award triggers)
+- [x] device token for notifications
+    - [x] Add `PUT /users/device-token` endpoint to `UserController`
+    - [x] Write `AddDeviceTokenToUsers.swift` migration
+- [x] Implement friend request system
+    - [x] add statuses such as pending
+    - [x] Refactor `FriendController`
+- [x] implement notifications through `apnswift` package
+- [ ] Write CompletionModel and CompletionController

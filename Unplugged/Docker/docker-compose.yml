@@ -1,0 +1,15 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: ep-gentle-surf-am4xf1os-pooler.c-5.us-east-1.aws.neon.tech
+      DB_PORT: 5432
+      DB_USER: neondb_owner
+      DB_PASSWORD: npg_yLQ3SoAf5DRW
+      DB_NAME: neondb
+      JWT_SECRET: dev-secret-change-in-production-dev
+    restart: unless-stopped

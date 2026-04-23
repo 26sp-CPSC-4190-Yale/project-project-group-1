@@ -1,0 +1,178 @@
+import AuthenticationServices
+import Foundation
+import Observation
+import UnpluggedShared
+
+@MainActor
+@Observable
+class AuthViewModel {
+    var isAuthenticated = false
+    var isLoading = false
+    var errorMessage: String?
+    private(set) var isConfigured = false
+
+    private var authService: AuthAPIService?
+    private var userService: UserAPIService?
+    private var cache: LocalCacheService?
+    private var sessionOrchestrator: SessionOrchestrator?
+
+    func configure(authService: AuthAPIService,
+                   userService: UserAPIService,
+                   cache: LocalCacheService,
+                   sessionOrchestrator: SessionOrchestrator) {
+        self.authService = authService
+        self.userService = userService
+        self.cache = cache
+        self.sessionOrchestrator = sessionOrchestrator
+        self.isConfigured = true
+    }
+
+    func restoreSession() async {
+        guard let cache else {
+            AppLogger.auth.warning("restoreSession called before configure()")
+            return
+        }
+        guard await cache.isLoggedInAsync() else { return }
+        if cache.readUser() == nil, let userService {
+            do {
+                let user = try await userService.getMe()
+                cache.saveUser(user)
+            } catch {
+                AppLogger.auth.error("restoreSession: getMe failed, proceeding without cached user", error: error)
+            }
+        }
+        isAuthenticated = true
+    }
+
+    func loginWithUsername(username: String, password: String) async {
+        guard let authService, let cache else {
+            AppLogger.auth.warning("loginWithUsername called before configure()")
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await authService.login(username: username, password: password)
+            cache.saveAuth(response)
+            isAuthenticated = true
+        } catch {
+            AppLogger.auth.warning("username login failed", context: ["error": String(describing: error)])
+            errorMessage = message(for: error)
+        }
+        isLoading = false
+    }
+
+    func registerWithUsername(username: String, password: String) async {
+        guard let authService, let cache else {
+            AppLogger.auth.warning("registerWithUsername called before configure()")
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await authService.register(username: username, password: password)
+            cache.saveAuth(response)
+            isAuthenticated = true
+        } catch {
+            AppLogger.auth.warning("username registration failed", context: ["error": String(describing: error)])
+            errorMessage = message(for: error)
+        }
+        isLoading = false
+    }
+
+    func handleAppleSignInResult(_ result: Result<ASAuthorization, Error>) async {
+        guard let authService, let cache else {
+            AppLogger.auth.warning("handleAppleSignInResult called before configure()")
+            return
+        }
+        switch result {
+        case .failure(let err):
+            if (err as? ASAuthorizationError)?.code == .canceled { return }
+            AppLogger.auth.error("Apple sign-in returned failure", error: err)
+            errorMessage = "Apple sign-in failed."
+        case .success(let auth):
+            guard
+                let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                let tokenData = credential.identityToken,
+                let identityToken = String(data: tokenData, encoding: .utf8)
+            else {
+                AppLogger.auth.error(
+                    "Apple credential missing identity token",
+                    context: [
+                        "credential_type": String(describing: type(of: auth.credential)),
+                        "has_token_data": (auth.credential as? ASAuthorizationAppleIDCredential)?.identityToken != nil
+                    ]
+                )
+                errorMessage = "Apple sign-in produced no identity token."
+                return
+            }
+            let authCodeData = credential.authorizationCode
+            let authorizationCode = authCodeData.flatMap { String(data: $0, encoding: .utf8) }
+            let fullName: String? = [credential.fullName?.givenName, credential.fullName?.familyName]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .nilIfEmpty
+
+            isLoading = true
+            errorMessage = nil
+            do {
+                let response = try await authService.signInWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: authorizationCode,
+                    fullName: fullName,
+                    email: credential.email
+                )
+                cache.saveAuth(response)
+                isAuthenticated = true
+            } catch {
+                AppLogger.auth.error("Apple sign-in API failed", error: error)
+                errorMessage = message(for: error)
+            }
+            isLoading = false
+        }
+    }
+
+    func signInWithGoogle(idToken: String) async {
+        guard let authService, let cache else {
+            AppLogger.auth.warning("signInWithGoogle called before configure()")
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await authService.signInWithGoogle(idToken: idToken)
+            cache.saveAuth(response)
+            isAuthenticated = true
+        } catch {
+            AppLogger.auth.error("Google sign-in API failed", error: error)
+            errorMessage = message(for: error)
+        }
+        isLoading = false
+    }
+
+    func signOut() {
+        if let orchestrator = sessionOrchestrator {
+            Task { await orchestrator.teardown() }
+        }
+        cache?.clearAuth()
+        isAuthenticated = false
+    }
+
+    private func message(for error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == "Vapor" {
+            let description = nsError.localizedDescription
+            if !description.isEmpty { return description }
+        }
+        switch error {
+        case AppError.unauthorized:      return "Invalid username or password."
+        case AppError.validationFailed:  return "Username already taken or invalid input."
+        case AppError.serverError:       return "Server error. Please try again."
+        default:                         return "Something went wrong. Check your connection."
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
