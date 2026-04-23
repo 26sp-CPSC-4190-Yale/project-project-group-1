@@ -121,22 +121,33 @@ struct StatsService {
             }
         }
 
-        // Friends count (accepted only)
-        let friendCount = try await FriendshipModel.query(on: db)
+        // Friends (accepted) — used both for the friend count and to scope the
+        // rank to "among friends" so it matches what the leaderboard shows.
+        let friendships = try await FriendshipModel.query(on: db)
+            .filter(\.$status == "accepted")
             .group(.or) { group in
-                group.group(.and) { g in
-                    g.filter(\.$user1ID == userID)
-                    g.filter(\.$status == "accepted")
-                }
-                group.group(.and) { g in
-                    g.filter(\.$user2ID == userID)
-                    g.filter(\.$status == "accepted")
-                }
+                group.filter(\.$user1ID == userID)
+                group.filter(\.$user2ID == userID)
             }
-            .count()
+            .all()
+        let friendCount = friendships.count
 
-        // Rank — global position by focused minutes
-        let rank = try await computeRank(for: userID, focusedMinutes: totalMinutes, on: db)
+        // Rank — position among caller's accepted friends + self (mirrors
+        // FriendController.leaderboard's scope, including block exclusion).
+        let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: db)
+        var rankScope: Set<UUID> = [userID]
+        for f in friendships {
+            let other = f.user1ID == userID ? f.user2ID : f.user1ID
+            if !hiddenIDs.contains(other) {
+                rankScope.insert(other)
+            }
+        }
+        let rank = try await computeRank(
+            for: userID,
+            focusedMinutes: totalMinutes,
+            scopeIDs: rankScope,
+            on: db
+        )
 
         return UserStatsResponse(
             hoursUnplugged: totalMinutes / 60,
@@ -171,10 +182,18 @@ struct StatsService {
         return max(0, min(elapsed, planned))
     }
 
-    /// Compute the user's rank globally by focused minutes.
-    /// (Joins every membership with every ended room's focused-time contribution
-    /// for that user — O(N × M) but N and M are small in practice.)
-    private static func computeRank(for userID: UUID, focusedMinutes: Int, on db: Database) async throws -> Int {
+    /// Compute the user's rank by focused minutes within `scopeIDs`
+    /// (callers pass in {self} ∪ accepted-friends to match the leaderboard).
+    /// Ties share the same rank, matching `buildLeaderboard`.
+    private static func computeRank(
+        for userID: UUID,
+        focusedMinutes: Int,
+        scopeIDs: Set<UUID>,
+        on db: Database
+    ) async throws -> Int {
+        guard !scopeIDs.isEmpty else { return 1 }
+        let scopeArray = Array(scopeIDs)
+
         let allEndedRooms = try await RoomModel.query(on: db)
             .filter(\.$endedAt != nil)
             .all()
@@ -183,9 +202,11 @@ struct StatsService {
 
         let allMemberships = try await MemberModel.query(on: db)
             .filter(\.$roomID ~~ endedRoomIDs)
+            .filter(\.$userID ~~ scopeArray)
             .all()
         let allJailbreaks = try await JailbreakModel.query(on: db)
             .filter(\.$sessionID ~~ endedRoomIDs)
+            .filter(\.$userID ~~ scopeArray)
             .all()
 
         // (userID, roomID) -> earliest leave
@@ -205,13 +226,17 @@ struct StatsService {
             if let id = room.id { roomsByID[id] = room }
         }
 
-        var userMinutes: [UUID: Int] = [:]
+        // Seed every scoped user at 0 so users with no ended rooms still rank.
+        var userMinutes: [UUID: Int] = Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
         for member in allMemberships {
             guard let room = roomsByID[member.roomID] else { continue }
             let leave = leaveMap[member.userID]?[member.roomID]
             let focused = focusedSeconds(room: room, earliestLeaveAt: leave)
             userMinutes[member.userID, default: 0] += focused / 60
         }
+        // Ensure the caller's canonical total is used (avoids any drift between
+        // this recomputation and the caller's already-computed totalMinutes).
+        userMinutes[userID] = focusedMinutes
 
         let allTotals = userMinutes.values.sorted(by: >)
         var rank = 1
