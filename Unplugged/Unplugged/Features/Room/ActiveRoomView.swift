@@ -13,6 +13,9 @@ struct ActiveRoomView: View {
     @State private var viewModel: ActiveRoomViewModel
     @State private var reportTarget: ParticipantResponse?
     @State private var moderationError: String?
+    private var roomTitle: String {
+        initialSession.session.title ?? "Room"
+    }
 
     init(session: SessionResponse, isHost: Bool, onClose: @escaping () -> Void) {
         self.initialSession = session
@@ -49,10 +52,17 @@ struct ActiveRoomView: View {
                     proximityWarningOverlay(secondsRemaining: seconds)
                 }
             }
-            .navigationTitle(initialSession.session.title ?? "Room")
+            .navigationTitle(roomTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(roomTitle)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+
                 if shouldShowCloseButton(phase: phase, isHost: isHost) {
                     ToolbarItem(placement: .cancellationAction) {
                         closeButton(phase: phase, isHost: isHost)

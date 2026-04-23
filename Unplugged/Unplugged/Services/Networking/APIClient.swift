@@ -18,14 +18,12 @@ struct APIClient {
         return e
     }()
 
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
+    private let decoder = APIClient.makeDecoder()
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
         config.timeoutIntervalForRequest = 8
         config.timeoutIntervalForResource = 12
         config.waitsForConnectivity = false
@@ -102,8 +100,11 @@ struct APIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = route.method.rawValue
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
         if route.requiresAuth, let token = cache.readCachedToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -174,6 +175,36 @@ struct APIClient {
         let clipped = data.prefix(limit)
         let text = String(data: clipped, encoding: .utf8) ?? "<binary \(data.count) bytes>"
         return data.count > limit ? "\(text)…(\(data.count)B)" : text
+    }
+
+    private static func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+
+            if let timestamp = try? container.decode(Double.self) {
+                return Date(timeIntervalSince1970: timestamp)
+            }
+
+            let value = try container.decode(String.self)
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractional.date(from: value) {
+                return date
+            }
+
+            let standard = ISO8601DateFormatter()
+            standard.formatOptions = [.withInternetDateTime]
+            if let date = standard.date(from: value) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected ISO-8601 date string"
+            )
+        }
+        return decoder
     }
 }
 

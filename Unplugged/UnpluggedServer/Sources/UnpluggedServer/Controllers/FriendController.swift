@@ -80,6 +80,7 @@ struct FriendController: RouteCollection {
             if existing.status == "pending" && existing.user1ID == targetID && existing.user2ID == userID {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
+                try await Self.deletePendingFriendships(between: userID, and: targetID, on: req.db)
                 return try await Self.buildFriendResponse(user: target, status: "accepted", db: req.db)
             }
             // if there's already a pending from this user, inform conflict
@@ -179,12 +180,17 @@ struct FriendController: RouteCollection {
 
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
 
+        let acceptedIDs = try await Self.acceptedFriendIDs(for: userID, on: req.db)
+
         let incoming = try await FriendshipModel.query(on: req.db)
             .filter(\.$user2ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let requesterIDs = incoming.map { $0.user1ID }.filter { !hiddenIDs.contains($0) }
+        let visibleIncoming = incoming.filter {
+            !hiddenIDs.contains($0.user1ID) && !acceptedIDs.contains($0.user1ID)
+        }
+        let requesterIDs = visibleIncoming.map { $0.user1ID }
         guard !requesterIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)
@@ -197,7 +203,7 @@ struct FriendController: RouteCollection {
         })
 
         var results: [FriendResponse] = []
-        for friendship in incoming {
+        for friendship in visibleIncoming {
             guard let user = userMap[friendship.user1ID] else { continue }
             results.append(try await Self.buildFriendResponse(
                 user: user,
@@ -217,12 +223,17 @@ struct FriendController: RouteCollection {
 
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
 
+        let acceptedIDs = try await Self.acceptedFriendIDs(for: userID, on: req.db)
+
         let outgoing = try await FriendshipModel.query(on: req.db)
             .filter(\.$user1ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let targetIDs = outgoing.map { $0.user2ID }.filter { !hiddenIDs.contains($0) }
+        let visibleOutgoing = outgoing.filter {
+            !hiddenIDs.contains($0.user2ID) && !acceptedIDs.contains($0.user2ID)
+        }
+        let targetIDs = visibleOutgoing.map { $0.user2ID }
         guard !targetIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)
@@ -230,7 +241,13 @@ struct FriendController: RouteCollection {
             .all()
 
         var results: [FriendResponse] = []
-        for user in users {
+        let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
+            guard let id = u.id else { return nil }
+            return (id, u)
+        })
+
+        for friendship in visibleOutgoing {
+            guard let user = userMap[friendship.user2ID] else { continue }
             results.append(try await Self.buildFriendResponse(user: user, status: "pending", db: req.db))
         }
         return results
@@ -254,15 +271,20 @@ struct FriendController: RouteCollection {
             throw Abort(.forbidden)
         }
 
+        let otherUser = try await UserModel.find(friendship.user1ID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
+
+        if friendship.status == "accepted" {
+            return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
+        }
+
         guard friendship.status == "pending" else {
             throw Abort(.badRequest, reason: "Request is not pending")
         }
 
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
-
-        let otherUser = try await UserModel.find(friendship.user1ID, on: req.db)
-            ?? { throw Abort(.internalServerError) }()
+        try await Self.deletePendingFriendships(between: userID, and: friendship.user1ID, on: req.db)
 
         await NotificationService.send(
             to: friendship.user1ID,
@@ -312,11 +334,21 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        guard let friendship = try await FriendshipModel.query(on: req.db)
+        let friendships = try await FriendshipModel.query(on: req.db)
             .filter(\.$user1ID == requesterID)
             .filter(\.$user2ID == userID)
-            .first() else {
+            .all()
+
+        guard let friendship = friendships.first(where: { $0.status == "pending" })
+            ?? friendships.first(where: { $0.status == "accepted" }) else {
             throw Abort(.notFound)
+        }
+
+        let otherUser = try await UserModel.find(requesterID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
+
+        if friendship.status == "accepted" {
+            return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
         }
 
         guard friendship.status == "pending" else {
@@ -325,9 +357,7 @@ struct FriendController: RouteCollection {
 
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
-
-        let otherUser = try await UserModel.find(requesterID, on: req.db)
-            ?? { throw Abort(.internalServerError) }()
+        try await Self.deletePendingFriendships(between: userID, and: requesterID, on: req.db)
 
         await NotificationService.send(
             to: requesterID,
@@ -486,6 +516,36 @@ struct FriendController: RouteCollection {
     }
 
     // MARK: - Helpers
+
+    static func acceptedFriendIDs(for userID: UUID, on db: Database) async throws -> Set<UUID> {
+        let friendships = try await FriendshipModel.query(on: db)
+            .filter(\.$status == "accepted")
+            .group(.or) { group in
+                group.filter(\.$user1ID == userID)
+                group.filter(\.$user2ID == userID)
+            }
+            .all()
+
+        return Set(friendships.map { friendship in
+            friendship.user1ID == userID ? friendship.user2ID : friendship.user1ID
+        })
+    }
+
+    static func deletePendingFriendships(between firstID: UUID, and secondID: UUID, on db: Database) async throws {
+        try await FriendshipModel.query(on: db)
+            .filter(\.$status == "pending")
+            .group(.or) { group in
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == firstID)
+                    g.filter(\.$user2ID == secondID)
+                }
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == secondID)
+                    g.filter(\.$user2ID == firstID)
+                }
+            }
+            .delete()
+    }
 
     /// Build a FriendResponse with computed presence and hoursUnplugged for the given user.
     /// - Parameter overrideID: if non-nil, used as the response ID (useful when

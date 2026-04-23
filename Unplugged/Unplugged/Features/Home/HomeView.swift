@@ -35,6 +35,13 @@ struct HomeView: View {
             .navigationTitle("UNPLUGGED")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("UNPLUGGED")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+            }
             .fullScreenCover(isPresented: $viewModel.showJoinRoom, onDismiss: activatePendingSessionIfNeeded) {
                 JoinRoomView(
                     sessions: deps.sessions,

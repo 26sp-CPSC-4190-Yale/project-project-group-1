@@ -134,7 +134,7 @@ struct FriendsListView: View {
                 }
             }
             .sheet(isPresented: $viewModel.showAddFriend) {
-                AddFriendSheet(existingFriendIDs: Set(viewModel.friends.map(\.id))) { username in
+                AddFriendSheet(existingFriendIDs: viewModel.excludedAddFriendIDs) { username in
                     viewModel.addFriendUsername = username
                     await viewModel.addFriend(service: deps.friends)
                 }
