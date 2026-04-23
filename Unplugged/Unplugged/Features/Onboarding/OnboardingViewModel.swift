@@ -199,6 +199,7 @@ final class OnboardingViewModel {
             }
             return notificationsGranted
         } catch {
+            AppLogger.onboarding.error("UNUserNotificationCenter.requestAuthorization threw", error: error)
             notificationsGranted = false
             notificationPermissionStatus = .denied
             return false
@@ -230,6 +231,7 @@ final class OnboardingViewModel {
             screenTimePermissionStatus = .granted
             return true
         } catch {
+            AppLogger.onboarding.warning("screen time authorization request denied/failed", context: ["error": String(describing: error)])
             screenTimeGranted = false
             screenTimePermissionStatus = .denied
             screenTimeAuthFailed = true

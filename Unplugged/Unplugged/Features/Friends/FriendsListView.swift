@@ -35,48 +35,22 @@ struct FriendsListView: View {
                         if !viewModel.incomingRequests.isEmpty {
                             Section {
                                 ForEach(viewModel.incomingRequests) { request in
-                                    HStack(spacing: .spacingMd) {
-                                        ParticipantAvatar(name: request.username, size: 40)
-                                        Text(request.username)
-                                            .font(.body)
-                                            .foregroundStyle(Color.tertiaryColor)
-                                        Spacer()
-                                        Button {
-                                            Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
-                                        } label: {
-                                            Text("Accept")
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundStyle(Color.primaryColor)
-                                                .fixedSize(horizontal: true, vertical: false)
-                                                .padding(.horizontal, 16)
-                                                .padding(.vertical, 8)
-                                                .background(Color.tertiaryColor)
-                                                .clipShape(Capsule())
-                                                .contentShape(Capsule())
-                                        }
-                                        .buttonStyle(.plain)
-                                        Button {
-                                            Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
-                                        } label: {
-                                            Image(systemName: "xmark")
-                                                .font(.subheadline)
-                                                .foregroundStyle(Color.tertiaryColor.opacity(0.5))
-                                                .frame(width: 44, height: 44)
-                                                .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                    .padding(.spacingMd)
-                                    .background(Color.surfaceColor)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    incomingRow(request: request)
                                 }
                             } header: {
-                                Text("Friend Requests")
-                                    .font(.headline)
-                                    .foregroundStyle(Color.tertiaryColor)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.top, .spacingSm)
-                                    .padding(.bottom, 4)
+                                sectionHeader("Friend Requests")
+                            }
+                            .padding(.bottom, .spacingMd)
+                        }
+
+                        // Outgoing Pending Requests Section
+                        if !viewModel.outgoingRequests.isEmpty {
+                            Section {
+                                ForEach(viewModel.outgoingRequests) { request in
+                                    outgoingRow(request: request)
+                                }
+                            } header: {
+                                sectionHeader("Pending")
                             }
                             .padding(.bottom, .spacingMd)
                         }
@@ -88,29 +62,7 @@ struct FriendsListView: View {
                                     Button {
                                         selectedFriend = friend
                                     } label: {
-                                        HStack(spacing: .spacingMd) {
-                                            ParticipantAvatar(name: friend.username, size: 44)
-
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(friend.username)
-                                                    .font(.body)
-                                                    .foregroundStyle(Color.tertiaryColor)
-                                                Text(statusLabel(for: friend))
-                                                    .font(.caption)
-                                                    .foregroundStyle(statusColor(for: friend))
-                                            }
-
-                                            Spacer()
-
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption)
-                                                .foregroundStyle(Color.tertiaryColor.opacity(0.3))
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.spacingMd)
-                                        .background(Color.surfaceColor)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                                        friendRow(friend: friend)
                                     }
                                     .buttonStyle(.plain)
                                     .contextMenu {
@@ -133,10 +85,7 @@ struct FriendsListView: View {
                                     }
                                 }
                             } header: {
-                                Text("My Friends")
-                                    .font(.headline)
-                                    .foregroundStyle(Color.tertiaryColor)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                sectionHeader("My Friends")
                             }
                         }
 
@@ -144,7 +93,9 @@ struct FriendsListView: View {
                             ProgressView()
                                 .tint(.tertiaryColor)
                                 .padding(.top, 60)
-                        } else if viewModel.friends.isEmpty {
+                        } else if viewModel.friends.isEmpty
+                                    && viewModel.incomingRequests.isEmpty
+                                    && viewModel.outgoingRequests.isEmpty {
                             VStack(spacing: .spacingMd) {
                                 Image(systemName: "person.2")
                                     .font(.system(size: 48))
@@ -168,7 +119,7 @@ struct FriendsListView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .searchable(text: $viewModel.searchText, prompt: "Search friends")
             .navigationDestination(item: $selectedFriend) { friend in
-                FriendDetailView(friend: friend)
+                FriendProfileView(friend: friend)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -207,6 +158,118 @@ struct FriendsListView: View {
         }
     }
 
+    // MARK: - Rows
+
+    private func incomingRow(request: FriendResponse) -> some View {
+        HStack(spacing: .spacingMd) {
+            ParticipantAvatar(name: request.username, size: 40)
+            Text(request.username)
+                .font(.body)
+                .foregroundStyle(Color.tertiaryColor)
+            Spacer()
+            Button {
+                Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
+            } label: {
+                Text("Accept")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.primaryColor)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.tertiaryColor)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Button {
+                Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.spacingMd)
+        .background(Color.surfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func outgoingRow(request: FriendResponse) -> some View {
+        HStack(spacing: .spacingMd) {
+            ParticipantAvatar(name: request.username, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.username)
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor)
+                Text("Request sent")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+            }
+            Spacer()
+            Button {
+                Task {
+                    await viewModel.cancelOutgoingRequest(
+                        service: deps.friends,
+                        targetID: request.id
+                    )
+                }
+            } label: {
+                Text("Cancel")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.8))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .strokeBorder(Color.tertiaryColor.opacity(0.3), lineWidth: 1)
+                    )
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.spacingMd)
+        .background(Color.surfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func friendRow(friend: FriendResponse) -> some View {
+        HStack(spacing: .spacingMd) {
+            ParticipantAvatar(name: friend.username, size: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(friend.username)
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor)
+                Text(statusLabel(for: friend))
+                    .font(.caption)
+                    .foregroundStyle(statusColor(for: friend))
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.spacingMd)
+        .background(Color.surfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(Color.tertiaryColor)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, .spacingSm)
+            .padding(.bottom, 4)
+    }
+
     private func statusLabel(for friend: FriendResponse) -> String {
         switch friend.presence {
         case .unplugged: return "Currently unplugged"
@@ -224,59 +287,6 @@ struct FriendsListView: View {
         case .unplugged: return .green
         case .online:    return .tertiaryColor.opacity(0.6)
         case .offline:   return .tertiaryColor.opacity(0.4)
-        }
-    }
-}
-
-struct FriendDetailView: View {
-    let friend: FriendResponse
-
-    var body: some View {
-        ZStack {
-            Color.primaryColor
-                .ignoresSafeArea()
-
-            VStack(spacing: .spacingLg) {
-                ParticipantAvatar(name: friend.username, size: 80)
-                    .padding(.top, .spacingXl)
-
-                Text(friend.username)
-                    .font(.title.bold())
-                    .foregroundStyle(Color.tertiaryColor)
-
-                // Presence badge
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(presenceColor(for: friend.presence))
-                        .frame(width: 8, height: 8)
-                    Text(presenceLabel(for: friend.presence))
-                        .font(.subheadline)
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.7))
-                }
-
-                StatBadge(value: "\(friend.hoursUnplugged)", label: "Hours Focused", valueSize: 28)
-                    .padding(.horizontal, .spacingLg)
-
-                Spacer()
-            }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-    }
-
-    private func presenceLabel(for presence: PresenceStatus) -> String {
-        switch presence {
-        case .online:    return "Online"
-        case .unplugged: return "Currently unplugged"
-        case .offline:   return "Offline"
-        }
-    }
-
-    private func presenceColor(for presence: PresenceStatus) -> Color {
-        switch presence {
-        case .online:    return .green
-        case .unplugged: return .orange
-        case .offline:   return .gray
         }
     }
 }

@@ -7,9 +7,22 @@ import UnpluggedShared
 class CreateRoomViewModel {
     var duration = DurationValue(hours: 1, minutes: 0, isUnlimited: false)
 
+    // roomName lives here so the text field and create button can read it
+    // in isolated subviews, leaving CreateRoomView.body untouched on each
+    // keystroke. That prevents typing from invalidating the duration picker.
+    var roomName: String = ""
+
     var isCreating = false
     var createdSession: SessionResponse?
     var error: String?
+
+    var trimmedRoomName: String {
+        roomName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var canCreate: Bool {
+        !trimmedRoomName.isEmpty && !isCreating
+    }
 
     func createRoom(title: String, sessions: SessionAPIService) async {
         guard !isCreating else { return }
@@ -18,8 +31,6 @@ class CreateRoomViewModel {
 
         error = nil
         createdSession = nil
-        let span = ResponsivenessDiagnostics.begin("create_room_tap")
-        defer { span.end() }
 
         do {
             createdSession = try await sessions.createSession(
@@ -27,7 +38,6 @@ class CreateRoomViewModel {
                 durationSeconds: duration.durationSeconds,
                 location: nil
             )
-            ResponsivenessDiagnostics.event("create_room_response")
         } catch is CancellationError {
             createdSession = nil
         } catch {
@@ -35,6 +45,11 @@ class CreateRoomViewModel {
                 createdSession = nil
                 return
             }
+            AppLogger.room.error(
+                "createRoom failed",
+                error: error,
+                context: ["has_title": !title.isEmpty]
+            )
             self.error = "Failed to create room: \(Self.errorMessage(for: error))"
         }
     }

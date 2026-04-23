@@ -41,8 +41,17 @@ class LocalCacheService {
                 kSecAttrAccount as String: key,
                 kSecValueData as String: data
             ]
-            SecItemDelete(query as CFDictionary)
-            SecItemAdd(query as CFDictionary, nil)
+            let deleteStatus = SecItemDelete(query as CFDictionary)
+            if deleteStatus != errSecSuccess, deleteStatus != errSecItemNotFound {
+                AppLogger.cache.warning("SecItemDelete before save non-fatal failure", context: ["status": deleteStatus])
+            }
+            let addStatus = SecItemAdd(query as CFDictionary, nil)
+            if addStatus != errSecSuccess {
+                // Loss of keychain write means the user will be silently
+                // signed out on next cold launch — that's bad enough to warrant
+                // a fault-level log.
+                AppLogger.cache.critical("SecItemAdd(token) failed", context: ["status": addStatus])
+            }
         }
     }
 
@@ -95,7 +104,17 @@ class LocalCacheService {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        if status == errSecItemNotFound {
+            // Expected on a fresh install — not worth logging.
+            return nil
+        }
+        guard status == errSecSuccess, let data = result as? Data else {
+            AppLogger.cache.error(
+                "SecItemCopyMatching(token) failed",
+                context: ["status": status]
+            )
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
@@ -114,7 +133,10 @@ class LocalCacheService {
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrAccount as String: key
             ]
-            SecItemDelete(query as CFDictionary)
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess, status != errSecItemNotFound {
+                AppLogger.cache.warning("SecItemDelete(token) failed", context: ["status": status])
+            }
         }
     }
 
@@ -127,16 +149,28 @@ class LocalCacheService {
 
     func saveUser(_ user: User) {
         cachedUser = user
-        let encoded = try? jsonEncoder.encode(user)
-        UserDefaults.standard.set(encoded, forKey: userKey)
+        do {
+            let encoded = try jsonEncoder.encode(user)
+            UserDefaults.standard.set(encoded, forKey: userKey)
+        } catch {
+            AppLogger.cache.error("user encode failed — cached user not persisted", error: error)
+        }
     }
 
     func readUser() -> User? {
         if let cachedUser { return cachedUser }
         guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
-        let user = try? jsonDecoder.decode(User.self, from: data)
-        cachedUser = user
-        return user
+        do {
+            let user = try jsonDecoder.decode(User.self, from: data)
+            cachedUser = user
+            return user
+        } catch {
+            // Schema drift: old User shape saved, new app version trying to
+            // decode it. Log and clear so next sign-in writes a fresh copy.
+            AppLogger.cache.error("user decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+            UserDefaults.standard.removeObject(forKey: userKey)
+            return nil
+        }
     }
 
     func clearUser() {
@@ -158,7 +192,10 @@ class LocalCacheService {
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrAccount as String: key
             ]
-            SecItemDelete(query as CFDictionary)
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess, status != errSecItemNotFound {
+                AppLogger.cache.warning("SecItemDelete during clearAuth failed", context: ["status": status])
+            }
         }
         clearUser()
         UserDefaults.standard.removeObject(forKey: statsKey)
@@ -168,24 +205,44 @@ class LocalCacheService {
     // MARK: - Stats cache
 
     func saveStats(_ stats: UserStatsResponse) {
-        guard let data = try? jsonEncoder.encode(stats) else { return }
-        UserDefaults.standard.set(data, forKey: statsKey)
+        do {
+            let data = try jsonEncoder.encode(stats)
+            UserDefaults.standard.set(data, forKey: statsKey)
+        } catch {
+            AppLogger.cache.error("stats encode failed", error: error)
+        }
     }
 
     func readStats() -> UserStatsResponse? {
         guard let data = UserDefaults.standard.data(forKey: statsKey) else { return nil }
-        return try? jsonDecoder.decode(UserStatsResponse.self, from: data)
+        do {
+            return try jsonDecoder.decode(UserStatsResponse.self, from: data)
+        } catch {
+            AppLogger.cache.error("stats decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+            UserDefaults.standard.removeObject(forKey: statsKey)
+            return nil
+        }
     }
 
     // MARK: - History cache
 
     func saveHistory(_ history: [SessionHistoryResponse]) {
-        guard let data = try? jsonEncoder.encode(history) else { return }
-        UserDefaults.standard.set(data, forKey: historyKey)
+        do {
+            let data = try jsonEncoder.encode(history)
+            UserDefaults.standard.set(data, forKey: historyKey)
+        } catch {
+            AppLogger.cache.error("history encode failed", error: error)
+        }
     }
 
     func readHistory() -> [SessionHistoryResponse]? {
         guard let data = UserDefaults.standard.data(forKey: historyKey) else { return nil }
-        return try? jsonDecoder.decode([SessionHistoryResponse].self, from: data)
+        do {
+            return try jsonDecoder.decode([SessionHistoryResponse].self, from: data)
+        } catch {
+            AppLogger.cache.error("history decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+            UserDefaults.standard.removeObject(forKey: historyKey)
+            return nil
+        }
     }
 }

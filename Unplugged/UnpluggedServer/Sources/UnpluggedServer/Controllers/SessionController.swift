@@ -121,12 +121,36 @@ struct SessionController: RouteCollection {
             .limit(limit)
             .all()
 
+        let returnedRoomIDs = rooms.compactMap { try? $0.requireID() }
+        let jailbreaks: [JailbreakModel]
+        if returnedRoomIDs.isEmpty {
+            jailbreaks = []
+        } else {
+            jailbreaks = try await JailbreakModel.query(on: req.db)
+                .filter(\.$userID == userID)
+                .filter(\.$sessionID ~~ returnedRoomIDs)
+                .all()
+        }
+        // earliest leave per room + its reason
+        var leaveMap: [UUID: (at: Date, reason: String?)] = [:]
+        for jb in jailbreaks {
+            if let existing = leaveMap[jb.sessionID], existing.at <= jb.detectedAt {
+                continue
+            }
+            leaveMap[jb.sessionID] = (jb.detectedAt, jb.reason)
+        }
+
         var results: [SessionHistoryResponse] = []
         for room in rooms {
             let roomID = try room.requireID()
             let participantCount = try await MemberModel.query(on: req.db)
                 .filter(\.$roomID == roomID)
                 .count()
+            let leave = leaveMap[roomID]
+            let focused = StatsService.focusedSeconds(room: room, earliestLeaveAt: leave?.at)
+            let planned = max(0, room.durationSeconds ?? 0)
+            let leftEarly = focused + StatsService.earlyLeaveToleranceSeconds < planned
+
             results.append(
                 SessionHistoryResponse(
                     id: roomID,
@@ -136,7 +160,11 @@ struct SessionController: RouteCollection {
                     durationSeconds: room.durationSeconds,
                     participantCount: participantCount,
                     latitude: room.latitude,
-                    longitude: room.longitude
+                    longitude: room.longitude,
+                    actualFocusedSeconds: focused,
+                    leftEarly: leftEarly,
+                    leftAt: leave?.at,
+                    leaveReason: leave?.reason
                 )
             )
         }

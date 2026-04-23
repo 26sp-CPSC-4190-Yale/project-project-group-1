@@ -14,6 +14,7 @@ import UnpluggedShared
 class FriendsListViewModel {
     var friends: [FriendResponse] = []
     var incomingRequests: [FriendResponse] = []
+    var outgoingRequests: [FriendResponse] = []
     var searchText = ""
     var showAddFriend = false
     var addFriendUsername = ""
@@ -49,10 +50,18 @@ class FriendsListViewModel {
         do {
             async let fetchFriends = service.listFriends()
             async let fetchIncoming = service.listIncoming()
+            async let fetchOutgoing = service.listOutgoing()
 
             self.friends = try await fetchFriends
             self.incomingRequests = try await fetchIncoming
+            self.outgoingRequests = try await fetchOutgoing
+        } catch is CancellationError {
+            // View torn down or refresh superseded — not a user-facing error.
         } catch {
+            guard !Task.isCancelled else {
+                isLoading = false
+                return
+            }
             self.error = "Could not load friends"
         }
         isLoading = false
@@ -90,10 +99,25 @@ class FriendsListViewModel {
         }
     }
 
+    /// Cancel an outgoing friend request. Uses the same reject endpoint on the
+    /// server (which deletes pending rows regardless of direction once it matches).
+    func cancelOutgoingRequest(service: FriendAPIService, targetID: UUID) async {
+        // Optimistically remove so the row disappears immediately.
+        outgoingRequests.removeAll { $0.id == targetID }
+        do {
+            try await service.rejectRequest(friendID: targetID)
+            await load(service: service)
+        } catch {
+            self.error = "Failed to cancel request"
+            await load(service: service)
+        }
+    }
+
     func blockUser(id: UUID, user: UserAPIService, friends friendsService: FriendAPIService) async {
         // Optimistically remove so the row disappears immediately; refresh covers any drift.
         self.friends.removeAll { $0.id == id }
         self.incomingRequests.removeAll { $0.id == id }
+        self.outgoingRequests.removeAll { $0.id == id }
         do {
             try await user.blockUser(id: id)
             await load(service: friendsService)

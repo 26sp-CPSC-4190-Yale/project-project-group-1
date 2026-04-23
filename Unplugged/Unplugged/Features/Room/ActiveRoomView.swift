@@ -53,22 +53,9 @@ struct ActiveRoomView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                if !isHost && phase != .ended {
+                if shouldShowCloseButton(phase: phase, isHost: isHost) {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button {
-                            if phase == .locked {
-                                viewModel.showLeaveConfirmation = true
-                            } else {
-                                onClose()
-                                dismiss()
-                            }
-                        } label: {
-                            Image(systemName: "xmark")
-                                .foregroundStyle(Color.tertiaryColor)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        closeButton(phase: phase, isHost: isHost)
                     }
                 }
             }
@@ -100,7 +87,7 @@ struct ActiveRoomView: View {
             dismiss()
         }
         .onDisappear {
-            if isHost {
+            if isHost && deps.sessionOrchestrator.phase != .locked {
                 Task { await deps.touchTips.stop() }
             }
         }
@@ -126,6 +113,19 @@ struct ActiveRoomView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will end the session for all participants.")
+        }
+        .confirmationDialog("Close Room?", isPresented: $viewModel.showCloseConfirmation, titleVisibility: .visible) {
+            Button("Close Room", role: .destructive) {
+                Task {
+                    await viewModel.end(orchestrator: orchestrator)
+                    await orchestrator.teardown()
+                    onClose()
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will end the room for anyone who has joined.")
         }
         .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
             Button("Leave Room", role: .destructive) {
@@ -161,6 +161,40 @@ struct ActiveRoomView: View {
         } message: {
             Text(moderationError ?? "")
         }
+    }
+
+    private func shouldShowCloseButton(
+        phase: SessionOrchestrator.LifecyclePhase,
+        isHost: Bool
+    ) -> Bool {
+        guard phase != .ended else { return false }
+        if isHost {
+            return phase == .idle || phase == .lobby
+        }
+        return true
+    }
+
+    private func closeButton(
+        phase: SessionOrchestrator.LifecyclePhase,
+        isHost: Bool
+    ) -> some View {
+        Button {
+            if isHost {
+                viewModel.showCloseConfirmation = true
+            } else if phase == .locked {
+                viewModel.showLeaveConfirmation = true
+            } else {
+                onClose()
+                dismiss()
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .foregroundStyle(Color.tertiaryColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close")
     }
 
     private func proximityWarningOverlay(secondsRemaining: Int) -> some View {

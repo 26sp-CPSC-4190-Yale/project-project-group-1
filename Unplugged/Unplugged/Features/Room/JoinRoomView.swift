@@ -8,106 +8,181 @@ struct JoinRoomView: View {
 
     @State private var viewModel = JoinRoomViewModel()
     @State private var manualJoinTask: Task<Void, Never>?
+    @State private var proximityStartTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.primaryColor.opacity(0.85)
-                    .ignoresSafeArea()
+    private let proximityListenDelay: UInt64 = 1_500_000_000
 
+    var body: some View {
+        ZStack {
+            Color.primaryColor
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
                 ScrollView {
                     VStack(spacing: .spacingLg) {
-                        // Room code entry (primary action)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Room Code")
-                                .font(.subheadline)
-                                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                        roomCodeField
 
-                            TextField("", text: $viewModel.manualCode, prompt: Text("Enter code").foregroundStyle(Color.tertiaryColor.opacity(0.3)))
-                                .font(.body)
-                                .foregroundStyle(Color.tertiaryColor)
-                                .textInputAutocapitalization(.characters)
-                                .autocorrectionDisabled()
-                                .padding(14)
-                                .background(Color.surfaceColor)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
+                        joinButton
 
-                        Button {
-                            manualJoinTask?.cancel()
-                            manualJoinTask = Task {
-                                await viewModel.joinWithCode(sessions: sessions, touchTips: touchTips)
-                            }
-                        } label: {
-                            Text("Join")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(viewModel.canJoinManually ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
-                                .foregroundStyle(Color.primaryColor)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .contentShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!viewModel.canJoinManually)
+                        orDivider
 
-                        // Divider
-                        HStack {
-                            Rectangle()
-                                .fill(Color.tertiaryColor.opacity(0.15))
-                                .frame(height: 1)
-                            Text("or")
-                                .font(.caption)
-                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
-                            Rectangle()
-                                .fill(Color.tertiaryColor.opacity(0.15))
-                                .frame(height: 1)
-                        }
-                        .padding(.vertical, .spacingSm)
-
-                        // TouchTips / proximity join
-                        VStack(spacing: .spacingMd) {
-                            Image(systemName: "iphone.radiowaves.left.and.right")
-                                .font(.system(size: 48))
-                                .foregroundStyle(Color.tertiaryColor)
-                                .symbolEffect(.pulse, isActive: viewModel.isListening)
-
-                            Text(viewModel.hasFoundRoom ? "Room found" : "Bring your phone close to the host")
-                                .font(.subheadline)
-                                .foregroundStyle(viewModel.hasFoundRoom ? .green : .tertiaryColor.opacity(0.7))
-
-                            if viewModel.isJoining {
-                                ProgressView()
-                                    .tint(.tertiaryColor)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, .spacingLg)
-                        .background(Color.surfaceColor.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        proximitySection
                     }
                     .padding(.horizontal, .spacingLg)
                     .padding(.top, .spacingMd)
                 }
             }
-            .navigationTitle("Join Room")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
         }
         .errorAlert($viewModel.error)
-        .onAppear {
-            viewModel.startListening(touchTips: touchTips, sessions: sessions)
-        }
+        .onAppear { scheduleProximityListening() }
         .onDisappear {
             manualJoinTask?.cancel()
             manualJoinTask = nil
+            proximityStartTask?.cancel()
+            proximityStartTask = nil
             viewModel.stopListening(touchTips: touchTips)
+        }
+        .onChange(of: viewModel.manualCode) { _, code in
+            if code.isEmpty {
+                scheduleProximityListening()
+            } else {
+                proximityStartTask?.cancel()
+                proximityStartTask = nil
+                if viewModel.isListening {
+                    viewModel.stopListening(touchTips: touchTips)
+                }
+            }
         }
         .onChange(of: viewModel.joinedSession?.id) { _, id in
             if id != nil, let session = viewModel.joinedSession {
                 onJoinRoom(session)
             }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Button {
+                manualJoinTask?.cancel()
+                manualJoinTask = nil
+                proximityStartTask?.cancel()
+                proximityStartTask = nil
+                viewModel.stopListening(touchTips: touchTips)
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .foregroundStyle(Color.tertiaryColor)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+
+            Spacer(minLength: 0)
+
+            Text("Join Room")
+                .font(.headline)
+                .foregroundStyle(Color.tertiaryColor)
+
+            Spacer(minLength: 0)
+
+            Color.clear
+                .frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, .spacingMd)
+        .frame(height: 52)
+    }
+
+    private var roomCodeField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Room Code")
+                .font(.subheadline)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+
+            TextField("", text: $viewModel.manualCode, prompt: codePlaceholder)
+                .textFieldStyle(.plain)
+                .foregroundStyle(Color.tertiaryColor)
+                .tint(Color.tertiaryColor)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .padding(14)
+                .background(Color.surfaceColor)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private var codePlaceholder: Text {
+        Text("Enter code")
+            .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+    }
+
+    private var joinButton: some View {
+        Button {
+            manualJoinTask?.cancel()
+            manualJoinTask = Task {
+                await viewModel.joinWithCode(sessions: sessions, touchTips: touchTips)
+            }
+        } label: {
+            Text("Join")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(viewModel.canJoinManually ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.3))
+                .foregroundStyle(Color.primaryColor)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.canJoinManually)
+    }
+
+    private var orDivider: some View {
+        HStack {
+            Rectangle()
+                .fill(Color.tertiaryColor.opacity(0.15))
+                .frame(height: 1)
+            Text("or")
+                .font(.caption)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+            Rectangle()
+                .fill(Color.tertiaryColor.opacity(0.15))
+                .frame(height: 1)
+        }
+        .padding(.vertical, .spacingSm)
+    }
+
+    private var proximitySection: some View {
+        VStack(spacing: .spacingMd) {
+            Image(systemName: "iphone.radiowaves.left.and.right")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.tertiaryColor)
+                .symbolEffect(.pulse, isActive: viewModel.isListening)
+
+            Text(viewModel.hasFoundRoom ? "Room found" : "Bring your phone close to the host")
+                .font(.subheadline)
+                .foregroundStyle(viewModel.hasFoundRoom ? .green : .tertiaryColor.opacity(0.7))
+
+            if viewModel.isJoining {
+                ProgressView()
+                    .tint(.tertiaryColor)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, .spacingLg)
+        .background(Color.surfaceColor.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func scheduleProximityListening() {
+        guard viewModel.manualCode.isEmpty, !viewModel.isListening else { return }
+        proximityStartTask?.cancel()
+        proximityStartTask = Task {
+            try? await Task.sleep(nanoseconds: proximityListenDelay)
+            guard !Task.isCancelled, viewModel.manualCode.isEmpty else { return }
+            viewModel.startListening(touchTips: touchTips, sessions: sessions)
         }
     }
 }

@@ -49,8 +49,11 @@ final class SessionOrchestrator {
     private var lockedProximityUpdatesTask: Task<Void, Never>?
     private var lockedProximityCheckTask: Task<Void, Never>?
     private var proximityCountdownTask: Task<Void, Never>?
+    private var lockedProximityRecoveryTask: Task<Void, Never>?
     private var lockedProximitySessionID: UUID?
     private var latestLockedProximityReading: LockedProximityReading?
+    private var lastLockedProximityAssessmentState: LockedProximityAssessment.State?
+    private var lastLockedProximityRecoveryAt: Date?
     private var isReportingProximityExit = false
     private var lastShieldWarningSessionID: UUID?
     private var lastShieldWarningEndsAt: Date?
@@ -77,9 +80,6 @@ final class SessionOrchestrator {
     /// Called after a host or guest has a `SessionResponse` in hand. Puts the device
     /// into lobby mode and opens the WebSocket.
     func enterLobby(session: SessionResponse) async {
-        let span = ResponsivenessDiagnostics.begin("enter_lobby")
-        defer { span.end() }
-
         let shouldConnect = currentSession?.session.id != session.session.id
         await applySessionSnapshot(session)
         guard session.session.endedAt == nil else { return }
@@ -91,11 +91,16 @@ final class SessionOrchestrator {
     /// Host-only. Tells the server to lock the room for all members. The server will
     /// broadcast `sessionLocked` which this orchestrator will handle via the WS stream.
     func hostStart() async {
-        guard let session = currentSession else { return }
+        guard let session = currentSession else {
+            AppLogger.session.warning("hostStart called with no currentSession")
+            return
+        }
+        guard await ensureScreenTimePermissionForLockAttempt() else { return }
         do {
             let updated = try await sessions.startSession(id: session.session.id)
             await applySessionSnapshot(updated)
         } catch {
+            AppLogger.session.error("hostStart failed", error: error, context: ["id": session.session.id.uuidString])
             errorMessage = "Couldn't start the session: \(error)"
         }
     }
@@ -103,10 +108,14 @@ final class SessionOrchestrator {
     /// Host-only. Tells the server to end the room. Server broadcasts `sessionEnded`
     /// which will clear the shield and load the recap.
     func hostEnd() async {
-        guard let session = currentSession else { return }
+        guard let session = currentSession else {
+            AppLogger.session.warning("hostEnd called with no currentSession")
+            return
+        }
         do {
             _ = try await sessions.endSession(id: session.session.id)
         } catch {
+            AppLogger.session.error("hostEnd failed", error: error, context: ["id": session.session.id.uuidString])
             errorMessage = "Couldn't end the session."
         }
     }
@@ -116,9 +125,19 @@ final class SessionOrchestrator {
     func applyRemoteLock(sessionID: UUID?, endsAt: Date) async {
         if let sessionID {
             startSessionSync(sessionID: sessionID)
-            if let response = try? await sessions.getSession(id: sessionID) {
+            do {
+                let response = try await sessions.getSession(id: sessionID)
                 await applySessionSnapshot(response)
                 return
+            } catch {
+                // Silent push woke us up but the backend fetch failed. We still
+                // engage the shield below using the push-provided endsAt, but
+                // the orchestrator state will be thinner than usual until the
+                // next sync tick catches up.
+                AppLogger.session.warning(
+                    "applyRemoteLock: getSession failed, falling back to push-only lock",
+                    context: ["id": sessionID.uuidString, "error": String(describing: error)]
+                )
             }
         }
         await applyLocked(endsAt: endsAt)
@@ -139,11 +158,19 @@ final class SessionOrchestrator {
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
+        await touchTips.stop()
         // §64: drop the Screen Time shield on teardown. If the user signs out
         // mid-session, leaving apps shielded with no session bound to them
         // strands the device — next launch shows a lock with no way to clear
         // it in-app. unlockApps is idempotent when nothing is shielded.
-        try? await screenTime.unlockApps()
+        do {
+            try await screenTime.unlockApps()
+        } catch {
+            // Shield leak on teardown. Not user-recoverable in-app — they'd
+            // need to yank the Screen Time permission. Critical because the
+            // user is now stranded.
+            AppLogger.shield.critical("unlockApps failed during teardown — shield may be stuck", error: error)
+        }
         phase = .idle
         currentSession = nil
         participants = []
@@ -179,14 +206,22 @@ final class SessionOrchestrator {
     // MARK: - WebSocket plumbing
 
     private func connectWebSocket(sessionID: UUID) async {
-        guard let token = cache.readCachedToken() else { return }
+        guard let token = cache.readCachedToken() else {
+            // No cached token => no auth => session will fall back to polling.
+            // This tends to happen when a silent push beats the keychain
+            // prewarm; the next `didBecomeActive` sync loop picks it up.
+            AppLogger.session.warning("connectWebSocket skipped: no cached token", context: ["id": sessionID.uuidString])
+            return
+        }
         listenerTask?.cancel()
         let stream = await webSocket.connect(sessionID: sessionID, token: token)
+        AppLogger.breadcrumb(.session, "ws_listener_started", context: ["id": sessionID.uuidString])
         listenerTask = Task { [weak self] in
             for await message in stream {
                 guard let self else { return }
                 await self.handle(message: message)
             }
+            AppLogger.session.warning("ws listener loop ended — stream closed", context: ["id": sessionID.uuidString])
         }
     }
 
@@ -259,8 +294,14 @@ final class SessionOrchestrator {
             let response = try await sessions.getSession(id: sessionID)
             await applySessionSnapshot(response)
         } catch {
-            // The WebSocket remains the primary real-time path; transient polling
-            // failures should not block the room UI or spam alerts.
+            // The WebSocket remains the primary real-time path; transient
+            // polling failures are expected. Log as warning (not error) so
+            // they're visible in trace but don't look like bugs. Repeated
+            // failures here == we're drifting from server truth.
+            AppLogger.session.warning(
+                "session reconcile poll failed",
+                context: ["id": sessionID.uuidString, "error": String(describing: error)]
+            )
         }
     }
 
@@ -282,6 +323,10 @@ final class SessionOrchestrator {
             if let endsAt = response.session.endsAt {
                 await engageShield(endsAt: endsAt)
             } else {
+                AppLogger.session.critical(
+                    "session locked but endsAt missing — server protocol violation",
+                    context: ["id": response.session.id.uuidString]
+                )
                 errorMessage = "This room is locked, but the server did not send an end time."
             }
             await startLockedProximityEnforcementIfNeeded()
@@ -312,13 +357,7 @@ final class SessionOrchestrator {
             return
         }
 
-        guard screenTime.isAvailable else {
-            setShieldWarning("Screen Time is unavailable on this device, so apps can't be blocked.", sessionID: sessionID, endsAt: endsAt)
-            return
-        }
-
-        guard screenTime.isAuthorized else {
-            setShieldWarning("Screen Time permission is required before Unplugged can lock apps.", sessionID: sessionID, endsAt: endsAt)
+        guard await ensureScreenTimePermissionForLockAttempt(sessionID: sessionID, endsAt: endsAt) else {
             return
         }
 
@@ -326,24 +365,100 @@ final class SessionOrchestrator {
             try await screenTime.lockApps(endsAt: endsAt)
             appliedShieldSessionID = sessionID
             appliedShieldEndsAt = endsAt
+            lastShieldWarningSessionID = nil
+            lastShieldWarningEndsAt = nil
+            lastShieldWarningMessage = nil
             startJailbreakWatchdog()
         } catch {
-            setShieldWarning("Couldn't engage the shield.", sessionID: sessionID, endsAt: endsAt)
+            // Shield engagement is the whole point of the app — a failure here
+            // means the session is effectively cosmetic. `critical` level so
+            // it lights up in log search.
+            AppLogger.shield.critical(
+                "lockApps failed",
+                error: error,
+                context: [
+                    "session": sessionID?.uuidString ?? "<none>",
+                    "endsAt": ISO8601DateFormatter().string(from: endsAt)
+                ]
+            )
+            AppLogger.dumpRecent("shield", limit: 30)
+            setShieldWarning("Couldn't engage the shield. Check Screen Time permission in Settings and try again.", sessionID: sessionID, endsAt: endsAt)
         }
+    }
+
+    private func ensureScreenTimePermissionForLockAttempt(
+        sessionID: UUID? = nil,
+        endsAt: Date? = nil
+    ) async -> Bool {
+        guard screenTime.isAvailable else {
+            if let endsAt {
+                setShieldWarning("Screen Time is unavailable on this device, so apps can't be blocked.", sessionID: sessionID, endsAt: endsAt)
+            } else {
+                errorMessage = "Screen Time is unavailable on this device, so apps can't be blocked."
+            }
+            return false
+        }
+
+        if screenTime.isAuthorized {
+            return true
+        }
+
+        do {
+            try await screenTime.requestAuthorization()
+        } catch {
+            // Fall through to the final status check. FamilyControls can lag when
+            // returning from Settings or the permission sheet, so the property is
+            // still the source of truth after a short revalidation attempt.
+            AppLogger.shield.warning(
+                "requestAuthorization threw — relying on status poll to resolve",
+                context: ["error": String(describing: error)]
+            )
+        }
+
+        if screenTime.isAuthorized {
+            return true
+        }
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard screenTime.isAuthorized else {
+            let message = "Screen Time permission is required before Unplugged can lock apps."
+            if let endsAt {
+                setShieldWarning(message, sessionID: sessionID, endsAt: endsAt)
+            } else {
+                errorMessage = message
+            }
+            return false
+        }
+
+        return true
     }
 
     private func handleSessionEnded() async {
         stopJailbreakWatchdog()
         stopSessionSync()
         stopLockedProximityEnforcement()
-        try? await screenTime.unlockApps()
+        do {
+            try await screenTime.unlockApps()
+        } catch {
+            AppLogger.shield.critical(
+                "unlockApps failed on session end — shield may be stuck",
+                error: error
+            )
+        }
+        await touchTips.stop()
         resetShieldTracking()
         self.phase = .ended
         if let id = currentSession?.session.id {
             do {
                 self.lastRecap = try await recap.getRecap(sessionID: id)
             } catch {
-                // Recap may not be available immediately; the recap screen will retry.
+                // Recap may not be available immediately; the recap screen
+                // will retry. Warning-level because repeated failures here
+                // mean the user never gets their recap.
+                AppLogger.session.warning(
+                    "recap fetch failed on session end",
+                    context: ["id": id.uuidString, "error": String(describing: error)]
+                )
             }
         }
         listenerTask?.cancel()
@@ -353,45 +468,89 @@ final class SessionOrchestrator {
 
     // MARK: - Locked-room proximity enforcement
 
+    private struct LockedProximityAssessment: Sendable {
+        enum State: String, Sendable {
+            case noReading
+            case stale
+            case missingDistance
+            case withinThreshold
+            case outOfRange
+        }
+
+        let state: State
+        let distanceMeters: Double?
+        let age: TimeInterval?
+        let reason: String?
+
+        var isWithinThreshold: Bool {
+            state == .withinThreshold
+        }
+
+        var isFreshOutOfRange: Bool {
+            state == .outOfRange
+        }
+
+        var needsSignalRecovery: Bool {
+            switch state {
+            case .noReading, .stale, .missingDistance:
+                return true
+            case .withinThreshold, .outOfRange:
+                return false
+            }
+        }
+
+        var recoveryReason: String {
+            switch state {
+            case .noReading:
+                return "no_reading"
+            case .stale:
+                return "stale_\(reason ?? "unknown")"
+            case .missingDistance:
+                return "missing_\(reason ?? "unknown")"
+            case .withinThreshold:
+                return "within_threshold"
+            case .outOfRange:
+                return "out_of_range"
+            }
+        }
+
+        var logDescription: String {
+            let distanceText = distanceMeters.map { String(format: "%.2fm", $0) } ?? "nil"
+            let ageText = age.map { String(format: "%.1fs", $0) } ?? "nil"
+            return "state: \(state.rawValue), distance: \(distanceText), threshold: \(String(format: "%.2fm", LockedSessionProximityPolicy.maxDistanceMeters)), age: \(ageText), reason: \(reason ?? "none")"
+        }
+    }
+
     private func startLockedProximityEnforcementIfNeeded() async {
         guard phase == .locked,
               let session = currentSession?.session,
               lockedProximitySessionID != session.id else {
-            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — phase: %@, hasSession: %@, alreadyMonitoring: %@",
-                  "\(phase)",
-                  currentSession?.session != nil ? "YES" : "NO",
-                  lockedProximitySessionID != nil ? "YES" : "NO")
+            AppLogger.proximity.info("enforcement start skipped — phase=\(phase) hasSession=\(currentSession?.session != nil) alreadyMonitoring=\(lockedProximitySessionID != nil)")
             return
         }
 
         guard let userID = cache.readUser()?.id else {
-            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — cache.readUser() returned nil")
+            AppLogger.proximity.warning("enforcement start skipped — no cached user")
             stopLockedProximityEnforcement()
             return
         }
         guard userID != session.hostID else {
-            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — user IS host (userID: %@, hostID: %@)", userID.uuidString, session.hostID.uuidString)
+            AppLogger.proximity.info("enforcement start skipped — user IS host", context: ["userID": userID.uuidString, "hostID": session.hostID.uuidString])
             stopLockedProximityEnforcement()
             return
         }
 
         guard await touchTips.supportsLockedProximityMonitoring() else {
-            NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded skipped — UWB not supported")
+            AppLogger.proximity.warning("enforcement start skipped — UWB not supported on device")
             stopLockedProximityEnforcement()
             return
         }
-        NSLog("[Unplugged][Proximity] startLockedProximityEnforcementIfNeeded — starting enforcement for session %@", session.id.uuidString)
+        AppLogger.proximity.info("enforcement starting for session \(session.id.uuidString)")
 
         stopLockedProximityEnforcement()
         lockedProximitySessionID = session.id
 
-        let stream = await touchTips.startLockedProximityMonitoring(roomID: session.id)
-        lockedProximityUpdatesTask = Task { [weak self] in
-            for await reading in stream {
-                guard let self else { return }
-                await self.recordLockedProximity(reading)
-            }
-        }
+        await installLockedProximityStream(sessionID: session.id, reason: "initial_start")
 
         lockedProximityCheckTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -410,54 +569,95 @@ final class SessionOrchestrator {
         lockedProximityCheckTask = nil
         proximityCountdownTask?.cancel()
         proximityCountdownTask = nil
+        lockedProximityRecoveryTask?.cancel()
+        lockedProximityRecoveryTask = nil
         lockedProximitySessionID = nil
         latestLockedProximityReading = nil
+        lastLockedProximityAssessmentState = nil
+        lastLockedProximityRecoveryAt = nil
         proximityWarningSecondsRemaining = nil
         if shouldStopTouchTips {
             Task { await touchTips.stop() }
         }
     }
 
+    private func installLockedProximityStream(sessionID: UUID, reason: String) async {
+        AppLogger.proximity.info("stream install — session=\(sessionID.uuidString) reason=\(reason)")
+        let stream = await touchTips.startLockedProximityMonitoring(roomID: sessionID)
+        lockedProximityUpdatesTask = Task { [weak self] in
+            for await reading in stream {
+                guard let self else { return }
+                await self.recordLockedProximity(reading)
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.handleLockedProximityStreamEnded(sessionID: sessionID)
+        }
+    }
+
+    private func handleLockedProximityStreamEnded(sessionID: UUID) {
+        guard phase == .locked, currentSession?.session.id == sessionID else { return }
+        AppLogger.proximity.warning("stream ended unexpectedly — requesting recovery", context: ["session": sessionID.uuidString])
+        requestLockedProximityRecovery(sessionID: sessionID, reason: "stream_ended")
+    }
+
     private func recordLockedProximity(_ reading: LockedProximityReading) {
         latestLockedProximityReading = reading
-        if isWithinLockedProximityThreshold() {
+        let assessment = lockedProximityAssessment()
+        let stateChanged = lastLockedProximityAssessmentState != assessment.state
+        lastLockedProximityAssessmentState = assessment.state
+        if assessment.isWithinThreshold {
+            if proximityCountdownTask != nil || stateChanged {
+                AppLogger.proximity.info("distance recovered — \(assessment.logDescription)")
+            }
             clearProximityWarning()
+        } else if reading.distanceMeters == nil, stateChanged {
+            AppLogger.proximity.warning("no-distance reading recorded — \(assessment.logDescription)")
         }
     }
 
     private func evaluateLockedProximity(sessionID: UUID) async {
         guard phase == .locked, currentSession?.session.id == sessionID else { return }
 
-        let reading = latestLockedProximityReading
-        let distance = reading?.distanceMeters
-        let stale = reading.map { Date().timeIntervalSince($0.observedAt) > LockedSessionProximityPolicy.staleReadingInterval } ?? true
-        let withinThreshold = isWithinLockedProximityThreshold()
-        if let d = distance {
-            NSLog("[Unplugged][Proximity] 30s check — distance: %.2fm, threshold: %.2fm, within: %@, stale: %@, countdown active: %@",
-                  d, LockedSessionProximityPolicy.maxDistanceMeters,
-                  withinThreshold ? "YES" : "NO",
-                  stale ? "YES" : "NO",
-                  proximityCountdownTask != nil ? "YES" : "NO")
-        } else {
-            NSLog("[Unplugged][Proximity] 30s check — no distance reading (stale: %@, countdown active: %@)",
-                  stale ? "YES" : "NO",
-                  proximityCountdownTask != nil ? "YES" : "NO")
+        let assessment = lockedProximityAssessment()
+        AppLogger.proximity.debug("30s check — \(assessment.logDescription), countdown active: \(proximityCountdownTask != nil)")
+
+        if assessment.isWithinThreshold {
+            clearProximityWarning()
+            return
         }
 
-        guard proximityCountdownTask == nil, !withinThreshold else { return }
+        if assessment.needsSignalRecovery {
+            if proximityCountdownTask != nil {
+                AppLogger.proximity.warning("clearing proximity warning because signal is unavailable — \(assessment.logDescription)")
+                clearProximityWarning()
+            }
+            requestLockedProximityRecovery(sessionID: sessionID, reason: assessment.recoveryReason)
+            return
+        }
 
-        beginProximityWarningCountdown(sessionID: sessionID)
+        guard proximityCountdownTask == nil, assessment.isFreshOutOfRange else { return }
+
+        beginProximityWarningCountdown(sessionID: sessionID, initialAssessment: assessment)
     }
 
-    private func beginProximityWarningCountdown(sessionID: UUID) {
+    private func beginProximityWarningCountdown(sessionID: UUID, initialAssessment: LockedProximityAssessment) {
         proximityCountdownTask?.cancel()
         proximityWarningSecondsRemaining = LockedSessionProximityPolicy.gracePeriodSeconds
+        AppLogger.proximity.warning("starting leave countdown — \(initialAssessment.logDescription)")
         proximityCountdownTask = Task { [weak self] in
             var remaining = LockedSessionProximityPolicy.gracePeriodSeconds
             while remaining > 0, !Task.isCancelled {
                 guard let self else { return }
-                if await self.isWithinLockedProximityThreshold() {
+                let assessment = await self.lockedProximityAssessment()
+                if assessment.isWithinThreshold {
+                    AppLogger.proximity.info("leave countdown cancelled: back within range — \(assessment.logDescription)")
                     await self.clearProximityWarning()
+                    return
+                }
+                if assessment.needsSignalRecovery {
+                    AppLogger.proximity.warning("leave countdown paused: signal unavailable — \(assessment.logDescription)")
+                    await self.clearProximityWarning()
+                    await self.requestLockedProximityRecovery(sessionID: sessionID, reason: assessment.recoveryReason)
                     return
                 }
 
@@ -467,10 +667,17 @@ final class SessionOrchestrator {
             }
 
             guard !Task.isCancelled, let self else { return }
-            if await self.isWithinLockedProximityThreshold() {
+            let finalAssessment = await self.lockedProximityAssessment()
+            if finalAssessment.isWithinThreshold {
+                AppLogger.proximity.info("leave countdown finished but device is within range — \(finalAssessment.logDescription)")
                 await self.clearProximityWarning()
-            } else {
+            } else if finalAssessment.isFreshOutOfRange {
+                AppLogger.proximity.warning("leave countdown finished with fresh out-of-range distance — \(finalAssessment.logDescription)")
                 await self.reportProximityExit(sessionID: sessionID)
+            } else {
+                AppLogger.proximity.warning("leave countdown finished without fresh distance; NOT reporting exit — \(finalAssessment.logDescription)")
+                await self.clearProximityWarning()
+                await self.requestLockedProximityRecovery(sessionID: sessionID, reason: finalAssessment.recoveryReason)
             }
         }
     }
@@ -486,16 +693,102 @@ final class SessionOrchestrator {
     }
 
     private func isWithinLockedProximityThreshold() -> Bool {
-        guard let reading = latestLockedProximityReading,
-              let distance = reading.distanceMeters,
-              Date().timeIntervalSince(reading.observedAt) <= LockedSessionProximityPolicy.staleReadingInterval else {
-            return false
+        lockedProximityAssessment().isWithinThreshold
+    }
+
+    private func lockedProximityAssessment(now: Date = Date()) -> LockedProximityAssessment {
+        guard let reading = latestLockedProximityReading else {
+            return LockedProximityAssessment(
+                state: .noReading,
+                distanceMeters: nil,
+                age: nil,
+                reason: "no_reading_recorded"
+            )
         }
-        return distance <= LockedSessionProximityPolicy.maxDistanceMeters
+
+        let age = now.timeIntervalSince(reading.observedAt)
+        if age > LockedSessionProximityPolicy.staleReadingInterval {
+            return LockedProximityAssessment(
+                state: .stale,
+                distanceMeters: reading.distanceMeters,
+                age: age,
+                reason: reading.reason ?? "reading_stale"
+            )
+        }
+
+        guard let distance = reading.distanceMeters else {
+            return LockedProximityAssessment(
+                state: .missingDistance,
+                distanceMeters: nil,
+                age: age,
+                reason: reading.reason ?? "distance_missing"
+            )
+        }
+
+        return LockedProximityAssessment(
+            state: distance <= LockedSessionProximityPolicy.maxDistanceMeters ? .withinThreshold : .outOfRange,
+            distanceMeters: distance,
+            age: age,
+            reason: reading.reason
+        )
+    }
+
+    private func requestLockedProximityRecovery(sessionID: UUID, reason: String) {
+        guard phase == .locked, currentSession?.session.id == sessionID else { return }
+        if lockedProximityRecoveryTask != nil {
+            AppLogger.proximity.debug("recovery already in flight — reason=\(reason)")
+            return
+        }
+        if let lastLockedProximityRecoveryAt,
+           Date().timeIntervalSince(lastLockedProximityRecoveryAt) < LockedSessionProximityPolicy.recoveryCooldown {
+            AppLogger.proximity.debug("recovery throttled — reason=\(reason)")
+            return
+        }
+
+        lastLockedProximityRecoveryAt = Date()
+        lockedProximityRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performLockedProximityRecovery(sessionID: sessionID, reason: reason)
+        }
+    }
+
+    private func performLockedProximityRecovery(sessionID: UUID, reason: String) async {
+        defer { lockedProximityRecoveryTask = nil }
+        guard phase == .locked, currentSession?.session.id == sessionID else { return }
+        AppLogger.proximity.warning("recovery starting — session=\(sessionID.uuidString) reason=\(reason)")
+
+        lockedProximityUpdatesTask?.cancel()
+        lockedProximityUpdatesTask = nil
+        latestLockedProximityReading = nil
+        lastLockedProximityAssessmentState = nil
+        await touchTips.stop()
+
+        guard !Task.isCancelled,
+              phase == .locked,
+              currentSession?.session.id == sessionID else { return }
+
+        guard await touchTips.supportsLockedProximityMonitoring() else {
+            AppLogger.proximity.warning("recovery stopped — UWB not supported")
+            return
+        }
+
+        lockedProximitySessionID = sessionID
+        await installLockedProximityStream(sessionID: sessionID, reason: "recovery_\(reason)")
+        AppLogger.proximity.info("recovery completed — session=\(sessionID.uuidString)")
     }
 
     private func reportProximityExit(sessionID: UUID) async {
         guard !isReportingProximityExit else { return }
+        let assessment = lockedProximityAssessment()
+        guard assessment.isFreshOutOfRange else {
+            AppLogger.proximity.warning("blocked proximity exit report without fresh out-of-range distance — \(assessment.logDescription)")
+            clearProximityWarning()
+            if assessment.needsSignalRecovery {
+                requestLockedProximityRecovery(sessionID: sessionID, reason: assessment.recoveryReason)
+            }
+            return
+        }
+
         isReportingProximityExit = true
         defer { isReportingProximityExit = false }
 
@@ -503,6 +796,11 @@ final class SessionOrchestrator {
             try await sessions.reportProximityExit(id: sessionID)
             await completeLocalProximityExit()
         } catch {
+            AppLogger.proximity.error(
+                "reportProximityExit failed — user still marked active on server",
+                error: error,
+                context: ["session": sessionID.uuidString]
+            )
             proximityWarningSecondsRemaining = nil
             proximityCountdownTask = nil
             errorMessage = "Couldn't leave the session after the proximity check."
@@ -556,17 +854,29 @@ final class SessionOrchestrator {
 
     private func startJailbreakWatchdog() {
         jailbreakWatchdog?.cancel()
-        guard let sessionID = currentSession?.session.id else { return }
+        guard let sessionID = currentSession?.session.id else {
+            AppLogger.shield.warning("startJailbreakWatchdog: no session to watch")
+            return
+        }
         jailbreakWatchdog = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard let self else { return }
                 if !(await self.isShieldStillAuthorized()) {
-                    try? await self.sessions.reportJailbreak(
-                        id: sessionID,
-                        reason: "screen_time_auth_cleared")
-                    try? await self.webSocket.send(
-                        .reportJailbreak(reason: "screen_time_auth_cleared"))
+                    AppLogger.shield.critical(
+                        "jailbreak detected — Screen Time permission cleared mid-session",
+                        context: ["session": sessionID.uuidString]
+                    )
+                    do {
+                        try await self.sessions.reportJailbreak(id: sessionID, reason: "screen_time_auth_cleared")
+                    } catch {
+                        AppLogger.shield.error("jailbreak REST report failed", error: error, context: ["session": sessionID.uuidString])
+                    }
+                    do {
+                        try await self.webSocket.send(.reportJailbreak(reason: "screen_time_auth_cleared"))
+                    } catch {
+                        AppLogger.shield.error("jailbreak WS report failed", error: error, context: ["session": sessionID.uuidString])
+                    }
                     return
                 }
             }

@@ -34,11 +34,31 @@ class ProfileViewModel {
     var longestStreak: Int { stats?.longestStreak ?? 0 }
     var friendsCount: Int { stats?.friendsCount ?? 0 }
     var currentStreak: Int { stats?.currentStreak ?? 0 }
-    var avgSessionLength: String {
-        guard let mins = stats?.avgSessionLengthMinutes, mins > 0 else { return "0" }
-        let hours = mins / 60
-        return String(format: "%.1f", hours)
+    var earlyLeaveCount: Int { stats?.earlyLeaveCount ?? 0 }
+
+    /// Average session focused length (the user's actual locked-in time, not
+    /// the planned duration). Renders as minutes when under an hour, hours
+    /// otherwise, so short sessions don't render as "0h".
+    var avgFocusedSessionLabel: String {
+        guard let mins = stats?.avgSessionLengthMinutes, mins > 0 else { return "0m" }
+        if mins >= 60 {
+            return String(format: "%.1fh", mins / 60.0)
+        }
+        return "\(Int(mins.rounded()))m"
     }
+
+    /// Average planned session length — what the user *scheduled*. Separate
+    /// from the focused average so users can compare intent vs. follow-through.
+    var avgPlannedSessionLabel: String {
+        guard let mins = stats?.avgPlannedMinutes, mins > 0 else { return "0m" }
+        if mins >= 60 {
+            return String(format: "%.1fh", mins / 60.0)
+        }
+        return "\(Int(mins.rounded()))m"
+    }
+
+    // Legacy API for any callers that still use the old field.
+    var avgSessionLength: String { avgFocusedSessionLabel }
 
     func load(stats service: StatsAPIService, medals medalsService: MedalsAPIService, cache: LocalCacheService) async {
         if let cachedUser = cache.readUser() {
@@ -58,6 +78,7 @@ class ProfileViewModel {
             cache.saveStats(s)
             medals = m
         } catch {
+            AppLogger.profile.error("profile stats/medals fetch failed", error: error)
             self.error = "Could not load stats"
         }
         isLoading = false
@@ -73,10 +94,13 @@ class ProfileViewModel {
             isShowingDeleteAccountSheet = false
             auth.signOut()
         } catch let err as NSError where err.code == 401 {
+            AppLogger.profile.warning("deleteAccount 401 — incorrect password")
             deleteAccountError = "Incorrect password."
         } catch let err as NSError where err.code == 400 {
+            AppLogger.profile.warning("deleteAccount 400 — password required")
             deleteAccountError = "Password required."
         } catch {
+            AppLogger.profile.error("deleteAccount failed", error: error)
             deleteAccountError = "Couldn't delete account. Try again."
         }
         isDeletingAccount = false

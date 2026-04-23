@@ -68,7 +68,6 @@ final class ScreenTimePermissionViewModel {
     }
 
     func beginEditingSelection(service: ScreenTimeService) async {
-        ResponsivenessDiagnostics.event("screen_time_picker_open")
         await loadSavedSelection(service: service)
         showPicker = true
     }
@@ -97,9 +96,16 @@ final class ScreenTimePermissionViewModel {
             savedSystemApplicationBundleIdentifiers = allowedSystemApplicationBundleIdentifiers
             didConfirm = true
             selectionError = nil
-            ResponsivenessDiagnostics.event("screen_time_picker_save")
             return true
         } catch {
+            AppLogger.onboarding.error(
+                "saveEmergencyAllowlist failed — user's emergency app choice not persisted",
+                error: error,
+                context: [
+                    "app_tokens": selection.applicationTokens.count,
+                    "system_bundles": allowedSystemApplicationBundleIdentifiers.count
+                ]
+            )
             selectionError = "Could not save emergency apps."
             return false
         }

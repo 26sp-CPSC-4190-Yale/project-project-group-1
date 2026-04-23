@@ -13,13 +13,17 @@ struct UnpluggedApp: App {
     @State private var container: DependencyContainer
 
     init() {
+        // Load the persisted logging kill switch BEFORE any call-sites fire.
+        // If a previous session set `AppLogger.disable()`, this honors it across
+        // launches without having to read the flag on every log call.
+        AppLogger.loadPersistedEnabledFlag()
+        AppLogger.launch.info("UnpluggedApp.init")
+
         let container = DependencyContainer()
         _container = State(initialValue: container)
         AppDelegate.sharedContainer = container
         Self.configureNavigationBarAppearance()
-        #if DEBUG
-        MainThreadWatchdog.shared.start()
-        #endif
+        FailureDiagnostics.start()
     }
 
     private static func configureNavigationBarAppearance() {

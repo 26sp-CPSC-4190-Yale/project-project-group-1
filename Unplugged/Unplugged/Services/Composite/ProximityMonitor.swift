@@ -14,11 +14,19 @@ enum LockedSessionProximityPolicy {
     static let gracePeriodSeconds: Int = 10
     static let graceCheckIntervalNanoseconds: UInt64 = 1_000_000_000
     static let staleReadingInterval: TimeInterval = 8
+    static let recoveryCooldown: TimeInterval = 5
 }
 
 struct LockedProximityReading: Sendable {
     let distanceMeters: Double?
     let observedAt: Date
+    let reason: String?
+
+    init(distanceMeters: Double?, observedAt: Date, reason: String? = nil) {
+        self.distanceMeters = distanceMeters
+        self.observedAt = observedAt
+        self.reason = reason
+    }
 
     var hasUsableDistance: Bool {
         distanceMeters != nil

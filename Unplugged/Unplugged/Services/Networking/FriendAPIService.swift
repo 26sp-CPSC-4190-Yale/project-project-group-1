@@ -42,4 +42,12 @@ struct FriendAPIService {
     func listOutgoing() async throws -> [FriendResponse] {
         try await client.send(.outgoingFriendRequests)
     }
+
+    func getProfile(id: UUID) async throws -> FriendProfileResponse {
+        try await client.send(.getFriendProfile(id: id))
+    }
+
+    func getLeaderboard() async throws -> [LeaderboardEntryResponse] {
+        try await client.send(.getLeaderboard)
+    }
 }

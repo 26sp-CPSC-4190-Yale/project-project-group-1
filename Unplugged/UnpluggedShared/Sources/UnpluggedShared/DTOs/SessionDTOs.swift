@@ -83,7 +83,7 @@ public struct ParticipantResponse: Codable, Sendable, Identifiable {
     }
 }
 
-public struct SessionHistoryResponse: Codable, Sendable, Identifiable {
+public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let title: String?
     public let startedAt: Date?
@@ -92,6 +92,10 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable {
     public let participantCount: Int
     public let latitude: Double?
     public let longitude: Double?
+    public let actualFocusedSeconds: Int?
+    public let leftEarly: Bool
+    public let leftAt: Date?
+    public let leaveReason: String?
 
     public init(
         id: UUID,
@@ -101,7 +105,11 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable {
         durationSeconds: Int?,
         participantCount: Int,
         latitude: Double? = nil,
-        longitude: Double? = nil
+        longitude: Double? = nil,
+        actualFocusedSeconds: Int? = nil,
+        leftEarly: Bool = false,
+        leftAt: Date? = nil,
+        leaveReason: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -111,5 +119,9 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable {
         self.participantCount = participantCount
         self.latitude = latitude
         self.longitude = longitude
+        self.actualFocusedSeconds = actualFocusedSeconds
+        self.leftEarly = leftEarly
+        self.leftAt = leftAt
+        self.leaveReason = leaveReason
     }
 }

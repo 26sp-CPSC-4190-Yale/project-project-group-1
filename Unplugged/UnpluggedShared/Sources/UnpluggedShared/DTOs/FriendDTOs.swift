@@ -54,3 +54,21 @@ public struct NudgeResponse: Codable, Sendable {
         self.status = status
     }
 }
+
+/// Expanded profile view for a single friend — richer than FriendResponse's summary.
+public struct FriendProfileResponse: Codable, Sendable, Identifiable {
+    public var id: UUID { friend.id }
+    public let friend: FriendResponse
+    public let stats: UserStatsResponse
+    public let medals: [UserMedalResponse]
+
+    public init(
+        friend: FriendResponse,
+        stats: UserStatsResponse,
+        medals: [UserMedalResponse]
+    ) {
+        self.friend = friend
+        self.stats = stats
+        self.medals = medals
+    }
+}

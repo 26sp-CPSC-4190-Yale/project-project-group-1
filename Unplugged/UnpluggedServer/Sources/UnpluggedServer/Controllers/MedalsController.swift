@@ -4,12 +4,14 @@ import Vapor
 
 extension MedalResponse: @retroactive Content {}
 extension UserMedalResponse: @retroactive Content {}
+extension MedalCatalogEntry: @retroactive Content {}
 
 struct MedalsController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let medals = routes.grouped("medals")
         medals.post(use: createMedal)
         medals.get(use: getAllMedals)
+        medals.get("catalog", use: getCatalog)
 
         let users = routes.grouped("users")
         users.get("me", "medals", use: getMyMedals)
@@ -68,5 +70,14 @@ struct MedalsController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
         return try await MedalService.getUserMedals(userID: userID, on: req.db)
+    }
+
+    /// Return every medal in the catalog with the current user's unlock status and
+    /// a short "how to unlock" rule description. Clients use this for a gallery of
+    /// locked + unlocked medals.
+    func getCatalog(req: Request) async throws -> [MedalCatalogEntry] {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        return try await MedalService.getCatalog(userID: userID, on: req.db)
     }
 }

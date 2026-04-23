@@ -66,8 +66,6 @@ class JoinRoomViewModel {
         defer { isJoining = false }
 
         error = nil
-        let span = ResponsivenessDiagnostics.begin("join_room_proximity")
-        defer { span.end() }
 
         do {
             joinedSession = try await sessions.joinSession(id: id)
@@ -78,6 +76,7 @@ class JoinRoomViewModel {
                 joinedSession = nil
                 return
             }
+            AppLogger.room.error("joinSession(id) failed", error: error, context: ["id": id.uuidString])
             self.error = Self.joinErrorMessage(for: error)
         }
     }
@@ -96,8 +95,6 @@ class JoinRoomViewModel {
 
         await stopListeningNow(touchTips: touchTips)
         error = nil
-        let span = ResponsivenessDiagnostics.begin("join_room_code")
-        defer { span.end() }
 
         do {
             joinedSession = try await sessions.joinSession(code: code)
@@ -108,6 +105,7 @@ class JoinRoomViewModel {
                 joinedSession = nil
                 return
             }
+            AppLogger.room.error("joinSession(code) failed", error: error, context: ["code_len": code.count])
             self.error = Self.joinErrorMessage(for: error)
         }
     }

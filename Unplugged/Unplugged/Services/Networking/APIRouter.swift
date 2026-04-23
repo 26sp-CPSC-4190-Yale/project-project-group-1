@@ -40,6 +40,7 @@ enum APIRouter {
 
     // Medals
     case getMyMedals
+    case getMedalCatalog
 
     // Sessions
     case createSession(CreateSessionRequest)
@@ -63,6 +64,8 @@ enum APIRouter {
     case nudgeFriend(id: UUID)
     case incomingFriendRequests
     case outgoingFriendRequests
+    case getFriendProfile(id: UUID)
+    case getLeaderboard
 
     // Groups
     case createGroup(CreateGroupRequest)
@@ -87,6 +90,7 @@ enum APIRouter {
         case .reportUser(let id, _):    return "/users/\(id)/report"
         case .getStats:                 return "/users/me/stats"
         case .getMyMedals:              return "/users/me/medals"
+        case .getMedalCatalog:          return "/medals/catalog"
         case .createSession, .listSessions:
             return "/sessions"
         case .sessionHistory(let limit, let before):
@@ -118,6 +122,8 @@ enum APIRouter {
         case .nudgeFriend(let id):      return "/friends/\(id)/nudge"
         case .incomingFriendRequests:   return "/friends/requests/incoming"
         case .outgoingFriendRequests:   return "/friends/requests/outgoing"
+        case .getFriendProfile(let id): return "/friends/\(id)/profile"
+        case .getLeaderboard:           return "/friends/leaderboard"
         case .createGroup, .listGroups: return "/groups"
         case .getGroup(let id), .deleteGroup(let id): return "/groups/\(id)"
         case .addGroupMember(let id, _): return "/groups/\(id)/members"
@@ -134,8 +140,9 @@ enum APIRouter {
             return .post
         case .registerDeviceToken:
             return .put
-        case .getMe, .getStats, .getMyMedals, .listSessions, .sessionHistory, .getSession, .getRecap,
+        case .getMe, .getStats, .getMyMedals, .getMedalCatalog, .listSessions, .sessionHistory, .getSession, .getRecap,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
+             .getFriendProfile, .getLeaderboard,
              .listGroups, .getGroup, .searchUsers, .listBlocks:
             return .get
         case .updateMe:

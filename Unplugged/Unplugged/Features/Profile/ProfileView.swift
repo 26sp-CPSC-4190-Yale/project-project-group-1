@@ -84,41 +84,83 @@ struct ProfileView: View {
 
     // MARK: - Dashboard
 
+    @ViewBuilder
     private var dashboardContent: some View {
         VStack(spacing: .spacingMd) {
-            // Stats grid
-            VStack(spacing: .spacingMd) {
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused")
+            statsGrid
+                .padding(.horizontal, .spacingLg)
+
+            medalsSection
+
+            recentSessionsSection
+        }
+    }
+
+    private var statsGrid: some View {
+        VStack(spacing: .spacingMd) {
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused")
+
+                NavigationLink {
+                    LeaderboardView()
+                } label: {
                     StatBadge(value: viewModel.rank, label: "Among Friends")
+                        .overlay(alignment: .topTrailing) {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                                .padding(8)
+                        }
                 }
-
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 32)
-                    StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 32)
-                    StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 32)
-                }
-
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
-                    StatBadge(value: "\(viewModel.avgSessionLength)h", label: "Avg Session", valueSize: 28)
-                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, .spacingLg)
 
-            if !viewModel.medals.isEmpty {
-                VStack(spacing: .spacingSm) {
-                    HStack {
-                        Text("Medals")
-                            .font(.headline)
-                            .foregroundStyle(Color.tertiaryColor)
-                        Spacer()
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 32)
+                StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 32)
+                StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 32)
+            }
+
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
+                StatBadge(value: viewModel.avgFocusedSessionLabel, label: "Avg Session", valueSize: 28)
+                StatBadge(value: "\(viewModel.earlyLeaveCount)", label: "Left Early", valueSize: 28)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var medalsSection: some View {
+        NavigationLink {
+            MedalsGalleryView()
+        } label: {
+            VStack(spacing: .spacingSm) {
+                HStack {
+                    Text("Medals")
+                        .font(.headline)
+                        .foregroundStyle(Color.tertiaryColor)
+                    Spacer()
+                    HStack(spacing: 4) {
                         Text("\(viewModel.medals.count)")
                             .font(.caption)
                             .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+                    }
+                }
+                .padding(.horizontal, .spacingLg)
+
+                if viewModel.medals.isEmpty {
+                    HStack {
+                        Text("Tap to view all medals")
+                            .font(.caption)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                        Spacer()
                     }
                     .padding(.horizontal, .spacingLg)
-
+                    .padding(.vertical, .spacingSm)
+                } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: .spacingMd) {
                             ForEach(viewModel.medals, id: \.medal.id) { userMedal in
@@ -129,25 +171,28 @@ struct ProfileView: View {
                     }
                 }
             }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-            // Recent Sessions
-            VStack(spacing: .spacingSm) {
-                HStack {
-                    Text("Recent Sessions")
-                        .font(.headline)
-                        .foregroundStyle(Color.tertiaryColor)
-                    Spacer()
-                    Text("\(viewModel.totalSessions) total")
-                        .font(.caption)
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.4))
-                }
-                .padding(.horizontal, .spacingLg)
-
-                ScrollView {
-                    SessionHistoryView()
-                }
-                .frame(maxHeight: 220)
+    private var recentSessionsSection: some View {
+        VStack(spacing: .spacingSm) {
+            HStack {
+                Text("Recent Sessions")
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+                Spacer()
+                Text("\(viewModel.totalSessions) total")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.4))
             }
+            .padding(.horizontal, .spacingLg)
+
+            ScrollView {
+                SessionHistoryView()
+            }
+            .frame(maxHeight: 220)
         }
     }
 

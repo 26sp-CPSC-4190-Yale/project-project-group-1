@@ -3,7 +3,8 @@ import UnpluggedShared
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
-    @State private var createRoomDetent: PresentationDetent = .medium
+    @State private var pendingActiveSession: SessionResponse?
+    @State private var pendingActiveSessionIsHost = false
     @Environment(DependencyContainer.self) private var deps
 
     var body: some View {
@@ -15,7 +16,6 @@ struct HomeView: View {
                 VStack(spacing: .spacingLg) {
                     Spacer()
 
-                    // Central action area
                     VStack(spacing: .spacingXl) {
                         homeAction(title: "Create Room", systemImage: "plus") {
                             viewModel.showCreateRoom = true
@@ -35,41 +35,26 @@ struct HomeView: View {
             .navigationTitle("UNPLUGGED")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .sheet(isPresented: $viewModel.showJoinRoom) {
+            .fullScreenCover(isPresented: $viewModel.showJoinRoom, onDismiss: activatePendingSessionIfNeeded) {
                 JoinRoomView(
                     sessions: deps.sessions,
                     touchTips: deps.touchTips
                 ) { session in
+                    pendingActiveSession = session
+                    pendingActiveSessionIsHost = false
                     viewModel.showJoinRoom = false
-                    viewModel.isHost = false
-                    viewModel.activeSession = session
                 }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.ultraThinMaterial)
             }
-            .sheet(isPresented: $viewModel.showCreateRoom, onDismiss: {
-                createRoomDetent = .medium
-            }) {
+            .fullScreenCover(isPresented: $viewModel.showCreateRoom, onDismiss: activatePendingSessionIfNeeded) {
                 CreateRoomView(
                     sessions: deps.sessions,
                     touchTips: deps.touchTips,
-                    userID: UUID(), // Pass a dummy ID or refactor CreateRoomView to not require it
-                    detent: $createRoomDetent
+                    userID: UUID()
                 ) { session in
+                    pendingActiveSession = session
+                    pendingActiveSessionIsHost = true
                     viewModel.showCreateRoom = false
-                    viewModel.isHost = true
-                    // Stagger the fullScreenCover presentation so UIKit finishes the
-                    // sheet dismiss animation before it tries to push the new container.
-                    // Presenting both in the same frame causes "containerToPush is nil"
-                    // and compounds the main-thread stall from lobby setup.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        viewModel.activeSession = session
-                    }
                 }
-                .presentationDetents([.medium, .large], selection: $createRoomDetent)
-                .presentationDragIndicator(.visible)
-                .presentationBackground(.ultraThinMaterial)
             }
             .fullScreenCover(item: $viewModel.activeSession) { session in
                 ActiveRoomView(session: session, isHost: viewModel.isHost) {
@@ -113,6 +98,13 @@ struct HomeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func activatePendingSessionIfNeeded() {
+        guard let session = pendingActiveSession else { return }
+        pendingActiveSession = nil
+        viewModel.isHost = pendingActiveSessionIsHost
+        viewModel.activeSession = session
     }
 }
 

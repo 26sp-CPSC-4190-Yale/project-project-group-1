@@ -11,6 +11,8 @@ import Vapor
 
 extension FriendResponse: @retroactive Content {}
 extension NudgeResponse: @retroactive Content {}
+extension FriendProfileResponse: @retroactive Content {}
+extension LeaderboardEntryResponse: @retroactive Content {}
 
 struct FriendController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
@@ -19,9 +21,11 @@ struct FriendController: RouteCollection {
         friends.post(use: add)
         friends.delete(":friendID", use: remove)
         friends.get(use: list) // list accepted friends
+        friends.get("leaderboard", use: leaderboard)
         friends.post(":friendID", "nudge", use: nudge)
         friends.post(":friendID", "accept", use: acceptFromUser)
         friends.post(":friendID", "reject", use: rejectFromUser)
+        friends.get(":friendID", "profile", use: profile)
 
         let requests = friends.grouped("requests")
         requests.get("incoming", use: listIncoming)
@@ -194,8 +198,7 @@ struct FriendController: RouteCollection {
 
         var results: [FriendResponse] = []
         for friendship in incoming {
-            guard let friendshipID = friendship.id,
-                  let user = userMap[friendship.user1ID] else { continue }
+            guard let user = userMap[friendship.user1ID] else { continue }
             results.append(try await Self.buildFriendResponse(
                 user: user,
                 status: "pending",
@@ -338,20 +341,31 @@ struct FriendController: RouteCollection {
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
 
-    // Reject request by requester user ID
+    /// Reject an incoming request OR cancel an outgoing request.
+    /// The endpoint takes the OTHER user's ID; the direction of the pending
+    /// friendship row is figured out server-side so the same client action works
+    /// for both cases.
     @Sendable
     func rejectFromUser(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
-        guard let idString = req.parameters.get("friendID"), let requesterID = UUID(uuidString: idString) else {
+        guard let idString = req.parameters.get("friendID"), let otherID = UUID(uuidString: idString) else {
             throw Abort(.badRequest)
         }
 
         try await FriendshipModel.query(on: req.db)
-            .filter(\.$user1ID == requesterID)
-            .filter(\.$user2ID == userID)
             .filter(\.$status == "pending")
+            .group(.or) { group in
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == otherID)
+                    g.filter(\.$user2ID == userID)
+                }
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == userID)
+                    g.filter(\.$user2ID == otherID)
+                }
+            }
             .delete()
 
         return .noContent
@@ -393,6 +407,82 @@ struct FriendController: RouteCollection {
         )
 
         return NudgeResponse(status: "nudge sent")
+    }
+
+    /// Expanded profile for a friend: summary + stats + medals.
+    /// Requires an accepted friendship (or self) so you can't scrape arbitrary user data.
+    @Sendable
+    func profile(req: Request) async throws -> FriendProfileResponse {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        guard let idString = req.parameters.get("friendID"),
+              let friendID = UUID(uuidString: idString) else {
+            throw Abort(.badRequest)
+        }
+
+        if friendID != userID {
+            if try await BlockService.isBlocked(between: userID, and: friendID, on: req.db) {
+                throw Abort(.notFound)
+            }
+            let friendship = try await FriendshipModel.query(on: req.db)
+                .filter(\.$status == "accepted")
+                .group(.or) { group in
+                    group
+                        .group(.and) { $0.filter(\.$user1ID == userID).filter(\.$user2ID == friendID) }
+                        .group(.and) { $0.filter(\.$user1ID == friendID).filter(\.$user2ID == userID) }
+                }
+                .first()
+            guard friendship != nil else {
+                throw Abort(.forbidden, reason: "Not friends with this user.")
+            }
+        }
+
+        guard let user = try await UserModel.find(friendID, on: req.db) else {
+            throw Abort(.notFound)
+        }
+
+        async let friendResponse = Self.buildFriendResponse(
+            user: user,
+            status: friendID == userID ? nil : "accepted",
+            db: req.db
+        )
+        async let stats = StatsService.getStats(for: friendID, on: req.db)
+        async let medals = MedalService.getUserMedals(userID: friendID, on: req.db)
+
+        let (f, s, m) = try await (friendResponse, stats, medals)
+        return FriendProfileResponse(friend: f, stats: s, medals: m)
+    }
+
+    /// Leaderboard across the caller's accepted friends + the caller themselves,
+    /// ranked by focused minutes (descending). Ties share a rank.
+    @Sendable
+    func leaderboard(req: Request) async throws -> [LeaderboardEntryResponse] {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        let friendships = try await FriendshipModel.query(on: req.db)
+            .filter(\.$status == "accepted")
+            .group(.or) { group in
+                group.filter(\.$user1ID == userID)
+                group.filter(\.$user2ID == userID)
+            }
+            .all()
+        let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+
+        var participantIDs: Set<UUID> = [userID]
+        for f in friendships {
+            let other = f.user1ID == userID ? f.user2ID : f.user1ID
+            if !hiddenIDs.contains(other) {
+                participantIDs.insert(other)
+            }
+        }
+
+        return try await StatsService.buildLeaderboard(
+            userIDs: Array(participantIDs),
+            currentUserID: userID,
+            on: req.db
+        )
     }
 
     // MARK: - Helpers

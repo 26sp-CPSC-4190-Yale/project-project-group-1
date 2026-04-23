@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// set and read on the main actor — UIApplicationDelegate callbacks run there.
     @MainActor static var sharedContainer: DependencyContainer?
 
+    // Backing os.Logger for APNs diagnostics. Goes through AppLogger.push on
+    // hot paths (failures) so the kill switch silences this too. The raw
+    // Logger is kept here only as a fallback — prefer AppLogger.push.
     private static let log = Logger(subsystem: "com.unplugged.app", category: "push")
 
     /// UserDefaults keys for the device-token retry path. If a registration upload
@@ -68,7 +71,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Silent APNs is a fallback; main lock path is the WebSocket. Log for
         // diagnostics but don't surface to the user — they can't act on it.
-        Self.log.warning("APNs registration failed: \(String(describing: error), privacy: .public)")
+        AppLogger.push.warning("APNs registration failed", error: error)
     }
 
     func application(_ application: UIApplication,
@@ -78,6 +81,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // means we shouldn't wake the session orchestrator.
         guard let type = userInfo["type"] as? String,
               Self.knownPayloadTypes.contains(type) else {
+            AppLogger.push.warning(
+                "silent push dropped: unknown or missing type",
+                context: ["type": (userInfo["type"] as? String) ?? "<missing>"]
+            )
             completionHandler(.noData)
             return
         }
@@ -119,7 +126,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             defaults.removeObject(forKey: Keys.pendingToken)
         } catch {
             // Leave pendingToken in place so the next didBecomeActive retries.
-            log.warning("Device token upload failed; will retry on next foreground: \(String(describing: error), privacy: .public)")
+            AppLogger.push.warning("device token upload failed; will retry on next foreground", error: error)
         }
     }
 }

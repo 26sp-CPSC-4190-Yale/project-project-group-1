@@ -19,9 +19,6 @@ actor ScreenTimeAllowlistRepository {
     }
 
     func load() -> ScreenTimeAllowlistSnapshot {
-        let span = ResponsivenessDiagnostics.begin("allowlist_decode")
-        defer { span.end() }
-
         guard let archived = defaults?.data(forKey: key) else {
             return ScreenTimeAllowlistSnapshot(
                 allowlist: ScreenTimeEmergencyAllowlist(),
@@ -29,23 +26,29 @@ actor ScreenTimeAllowlistRepository {
             )
         }
 
-        if let allowlist = try? decoder.decode(
-            ScreenTimeEmergencyAllowlist.self,
-            from: archived
-        ) {
-            return ScreenTimeAllowlistSnapshot(
-                allowlist: allowlist,
-                hasStoredValue: true
-            )
+        do {
+            let allowlist = try decoder.decode(ScreenTimeEmergencyAllowlist.self, from: archived)
+            return ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
+        } catch {
+            // Fall through to legacy decode. Only worth logging if BOTH fail
+            // — the current-schema decode failure is expected for data saved
+            // before this shape existed.
         }
 
-        if let legacySelection = try? decoder.decode(
-            FamilyActivitySelection.self,
-            from: archived
-        ) {
+        do {
+            let legacySelection = try decoder.decode(FamilyActivitySelection.self, from: archived)
+            AppLogger.screenTime.info("allowlist decoded via legacy FamilyActivitySelection shape", context: ["bytes": archived.count])
             return ScreenTimeAllowlistSnapshot(
                 allowlist: ScreenTimeEmergencyAllowlist(selection: legacySelection),
                 hasStoredValue: true
+            )
+        } catch {
+            // Both shapes failed. The user has stored data we can't read —
+            // they'll see an empty allowlist and need to pick again.
+            AppLogger.screenTime.error(
+                "allowlist decode failed for both current and legacy schemas — resetting",
+                error: error,
+                context: ["bytes": archived.count]
             )
         }
 
@@ -56,11 +59,13 @@ actor ScreenTimeAllowlistRepository {
     }
 
     func save(_ allowlist: ScreenTimeEmergencyAllowlist) throws {
-        let span = ResponsivenessDiagnostics.begin("allowlist_encode")
-        defer { span.end() }
-
-        let data = try encoder.encode(allowlist)
-        defaults?.set(data, forKey: key)
+        do {
+            let data = try encoder.encode(allowlist)
+            defaults?.set(data, forKey: key)
+        } catch {
+            AppLogger.screenTime.error("allowlist encode failed — emergency apps not persisted", error: error)
+            throw error
+        }
     }
 }
 #endif

@@ -34,10 +34,33 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     private let store = ManagedSettingsStore(named: .init(ScreenTimeService.storeName))
     private let center = DeviceActivityCenter()
     private let activityName = DeviceActivityName(ScreenTimeService.monitorName)
+
+    enum ScreenTimeServiceError: LocalizedError {
+        case unavailable
+        case notAuthorized
+
+        var errorDescription: String? {
+            switch self {
+            case .unavailable:
+                return "Screen Time is unavailable on this device."
+            case .notAuthorized:
+                return "Screen Time permission is not approved."
+            }
+        }
+    }
     #endif
 
     init() {
         let defaults = UserDefaults(suiteName: Self.appGroup)
+        if defaults == nil {
+            // App Group not provisioned — the shield extension cannot share
+            // the allowlist with the main app. This only fails when the
+            // entitlements plist and dev portal are misconfigured.
+            AppLogger.screenTime.critical(
+                "App Group UserDefaults unavailable — allowlist will not be shared with shield extension",
+                context: ["suite": Self.appGroup]
+            )
+        }
         self.groupDefaults = defaults
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         self.allowlistRepository = ScreenTimeAllowlistRepository(
@@ -70,8 +93,19 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func requestAuthorization() async throws {
         #if canImport(FamilyControls)
-        guard isAvailable else { return }
-        try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        guard isAvailable else {
+            AppLogger.screenTime.info("requestAuthorization no-op: isAvailable=false")
+            return
+        }
+        AppLogger.breadcrumb(.screenTime, "request_authorization_begin")
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        } catch {
+            AppLogger.screenTime.error("AuthorizationCenter.requestAuthorization threw", error: error)
+            throw error
+        }
+        await waitForAuthorizationStatusPropagation()
+        AppLogger.breadcrumb(.screenTime, "request_authorization_end", context: ["authorized": isAuthorized])
         #else
         return
         #endif
@@ -87,7 +121,12 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func lockApps(endsAt: Date) async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
-        guard isAvailable, isAuthorized else { return }
+        guard isAvailable else {
+            AppLogger.screenTime.warning("lockApps failed — ScreenTime unavailable on device")
+            throw ScreenTimeServiceError.unavailable
+        }
+        AppLogger.breadcrumb(.screenTime, "lock_begin", context: ["endsAt": ISO8601DateFormatter().string(from: endsAt)])
+        try await ensureAuthorized()
 
         let allowlist = (await allowlistRepository.load()).allowlist
         let emergencySelection = allowlist.selection
@@ -115,7 +154,20 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         )
 
         center.stopMonitoring([activityName])
-        try center.startMonitoring(activityName, during: schedule)
+        do {
+            try center.startMonitoring(activityName, during: schedule)
+        } catch {
+            // DeviceActivity monitoring failure means the shield won't
+            // auto-clear at endsAt even if lockApps otherwise succeeded.
+            // That strands the user past the session — log loudly.
+            AppLogger.screenTime.critical(
+                "DeviceActivityCenter.startMonitoring failed — shield will not auto-clear",
+                error: error,
+                context: ["endsAt": ISO8601DateFormatter().string(from: endsAt)]
+            )
+            throw error
+        }
+        AppLogger.breadcrumb(.screenTime, "lock_end")
         #endif
     }
 
@@ -139,6 +191,30 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func saveEmergencyAllowlist(_ allowlist: ScreenTimeEmergencyAllowlist) async throws {
         try await allowlistRepository.save(allowlist)
+    }
+
+    private func ensureAuthorized() async throws {
+        if isAuthorized { return }
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        } catch {
+            AppLogger.screenTime.error("ensureAuthorized: requestAuthorization threw", error: error)
+            throw error
+        }
+        await waitForAuthorizationStatusPropagation()
+        guard isAuthorized else {
+            AppLogger.screenTime.warning("ensureAuthorized: propagation timed out, still not authorized")
+            throw ScreenTimeServiceError.notAuthorized
+        }
+    }
+
+    private func waitForAuthorizationStatusPropagation() async {
+        if isAuthorized { return }
+
+        for _ in 0..<5 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if isAuthorized { return }
+        }
     }
     #endif
 }
