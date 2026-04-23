@@ -97,7 +97,9 @@ struct JoinRoomView: View {
         }
         .errorAlert($viewModel.error)
         .onAppear {
+            let t0 = Date()
             viewModel.startListening(touchTips: touchTips, sessions: sessions)
+            NSLog("[PerfDiag] JoinRoomView.onAppear total: %.1f ms", Date().timeIntervalSince(t0) * 1000)
         }
         .onDisappear {
             manualJoinTask?.cancel()

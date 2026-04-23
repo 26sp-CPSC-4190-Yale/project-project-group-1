@@ -185,7 +185,7 @@ enum EmergencySystemApplication: String, CaseIterable, Identifiable {
 }
 
 #if canImport(FamilyControls)
-struct ScreenTimeEmergencyAllowlist: Codable, Equatable {
+nonisolated struct ScreenTimeEmergencyAllowlist: Codable, Equatable, Sendable {
     var selection: FamilyActivitySelection
     var allowedSystemApplicationBundleIdentifiers: Set<String>
 

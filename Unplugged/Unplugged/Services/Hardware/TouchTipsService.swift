@@ -74,7 +74,9 @@ actor TouchTipsService {
     /// Joiner: return a stream that yields the host's roomID when phones are close.
     /// Re-entrant: a second call finishes the previous stream and starts over.
     func startListening() -> AsyncStream<UUID> {
+        let t0 = Date()
         stopInternal(keepContinuation: false)
+        let afterStop = Date()
         role = .joiner
         didYield = false
 
@@ -84,9 +86,11 @@ actor TouchTipsService {
 
         let peerID = MCPeerID(displayName: "unplugged-\(UUID().uuidString.prefix(6))")
         localPeerID = peerID
+        let beforeMC = Date()
         let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
         session.delegate = bridge
         mcSession = session
+        let afterMCSession = Date()
 
         let browser = MCNearbyServiceBrowser(
             peer: peerID,
@@ -95,6 +99,13 @@ actor TouchTipsService {
         browser.delegate = bridge
         self.browser = browser
         browser.startBrowsingForPeers()
+        let afterBrowse = Date()
+
+        NSLog("[PerfDiag] TouchTips.startListening stopInternal: %.1f ms | MCSession init: %.1f ms | Browser init + start: %.1f ms | total: %.1f ms",
+              afterStop.timeIntervalSince(t0) * 1000,
+              afterMCSession.timeIntervalSince(beforeMC) * 1000,
+              afterBrowse.timeIntervalSince(afterMCSession) * 1000,
+              afterBrowse.timeIntervalSince(t0) * 1000)
 
         return stream
     }
@@ -187,6 +198,9 @@ actor TouchTipsService {
     /// comes back above the threshold (or is missing). We require N in a row — a single
     /// spike below 10cm during a hand wave isn't proof the phones are together.
     private var consecutiveCloseCount: Int = 0
+
+    private var lastLockedProximityEmitAt: Date?
+    private static let lockedProximityMinInterval: TimeInterval = 0.3
 
     // MARK: - Wire delegate callbacks
 
@@ -397,8 +411,15 @@ actor TouchTipsService {
     }
 
     private func emitLockedProximity(distanceMeters: Double?) {
+        let now = Date()
+        if distanceMeters != nil,
+           let last = lastLockedProximityEmitAt,
+           now.timeIntervalSince(last) < Self.lockedProximityMinInterval {
+            return
+        }
+        lastLockedProximityEmitAt = now
         lockedProximityContinuation?.yield(
-            LockedProximityReading(distanceMeters: distanceMeters, observedAt: Date())
+            LockedProximityReading(distanceMeters: distanceMeters, observedAt: now)
         )
     }
 
@@ -637,53 +658,53 @@ private final class ProximityBridge:
     NISessionDelegate,
     @unchecked Sendable
 {
-    var onFoundPeer: ((MCPeerID, [String: String]?) -> Void)?
-    var onInvitation: ((MCPeerID, @escaping (Bool, MCSession?) -> Void) -> Void)?
-    var onSessionState: ((MCPeerID, MCSessionState) -> Void)?
-    var onDataReceived: ((MCPeerID, Data) -> Void)?
-    var onNIUpdate: (([NINearbyObject]) -> Void)?
-    var onNIRemoved: (([NINearbyObject]) -> Void)?
-    var onNIInvalidated: ((Error) -> Void)?
+    nonisolated(unsafe) var onFoundPeer: ((MCPeerID, [String: String]?) -> Void)?
+    nonisolated(unsafe) var onInvitation: ((MCPeerID, @escaping (Bool, MCSession?) -> Void) -> Void)?
+    nonisolated(unsafe) var onSessionState: ((MCPeerID, MCSessionState) -> Void)?
+    nonisolated(unsafe) var onDataReceived: ((MCPeerID, Data) -> Void)?
+    nonisolated(unsafe) var onNIUpdate: (([NINearbyObject]) -> Void)?
+    nonisolated(unsafe) var onNIRemoved: (([NINearbyObject]) -> Void)?
+    nonisolated(unsafe) var onNIInvalidated: ((Error) -> Void)?
 
     // MCNearbyServiceBrowserDelegate
-    func browser(_ browser: MCNearbyServiceBrowser,
-                 foundPeer peerID: MCPeerID,
-                 withDiscoveryInfo info: [String: String]?) {
+    nonisolated func browser(_ browser: MCNearbyServiceBrowser,
+                             foundPeer peerID: MCPeerID,
+                             withDiscoveryInfo info: [String: String]?) {
         onFoundPeer?(peerID, info)
     }
-    func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
-    func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {}
+    nonisolated func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {}
+    nonisolated func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {}
 
     // MCNearbyServiceAdvertiserDelegate
-    func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
-                    didReceiveInvitationFromPeer peerID: MCPeerID,
-                    withContext context: Data?,
-                    invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+    nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
+                                didReceiveInvitationFromPeer peerID: MCPeerID,
+                                withContext context: Data?,
+                                invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         onInvitation?(peerID, invitationHandler)
     }
-    func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {}
+    nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {}
 
     // MCSessionDelegate
-    func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
+    nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         onSessionState?(peerID, state)
     }
-    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+    nonisolated func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
         onDataReceived?(peerID, data)
     }
-    func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
-    func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
-    func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
+    nonisolated func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
+    nonisolated func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
+    nonisolated func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
 
     // NISessionDelegate
-    func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
+    nonisolated func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         onNIUpdate?(nearbyObjects)
     }
-    func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
+    nonisolated func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
         onNIRemoved?(nearbyObjects)
     }
-    func sessionWasSuspended(_ session: NISession) {}
-    func sessionSuspensionEnded(_ session: NISession) {}
-    func session(_ session: NISession, didInvalidateWith error: Error) {
+    nonisolated func sessionWasSuspended(_ session: NISession) {}
+    nonisolated func sessionSuspensionEnded(_ session: NISession) {}
+    nonisolated func session(_ session: NISession, didInvalidateWith error: Error) {
         onNIInvalidated?(error)
     }
 }

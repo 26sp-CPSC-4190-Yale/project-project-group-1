@@ -2,24 +2,24 @@ import Foundation
 import os
 
 enum ResponsivenessDiagnostics {
-    static let subsystem = "com.unplugged.app"
+    nonisolated static let subsystem = "com.unplugged.app"
 
-    private static let signpostLog = OSLog(
+    nonisolated private static let signpostLog = OSLog(
         subsystem: subsystem,
         category: .pointsOfInterest
     )
 
-    static func begin(_ name: StaticString) -> SignpostInterval {
+    nonisolated static func begin(_ name: StaticString) -> SignpostInterval {
         let id = OSSignpostID(log: signpostLog)
         os_signpost(.begin, log: signpostLog, name: name, signpostID: id)
         return SignpostInterval(name: name, id: id)
     }
 
-    static func event(_ name: StaticString) {
+    nonisolated static func event(_ name: StaticString) {
         os_signpost(.event, log: signpostLog, name: name)
     }
 
-    struct SignpostInterval {
+    struct SignpostInterval: Sendable {
         private let name: StaticString
         private let id: OSSignpostID
 
@@ -28,7 +28,7 @@ enum ResponsivenessDiagnostics {
             self.id = id
         }
 
-        func end() {
+        nonisolated func end() {
             os_signpost(.end, log: ResponsivenessDiagnostics.signpostLog, name: name, signpostID: id)
         }
     }

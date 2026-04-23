@@ -228,7 +228,7 @@ final class SessionOrchestrator {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.reconcileSession(sessionID: sessionID)
-                let delay = await self.sessionSyncDelayNanos()
+                let delay = self.sessionSyncDelayNanos()
                 try? await Task.sleep(nanoseconds: delay)
             }
         }
@@ -389,7 +389,7 @@ final class SessionOrchestrator {
         lockedProximityUpdatesTask = Task { [weak self] in
             for await reading in stream {
                 guard let self else { return }
-                await self.recordLockedProximity(reading)
+                self.recordLockedProximity(reading)
             }
         }
 
@@ -456,19 +456,19 @@ final class SessionOrchestrator {
             var remaining = LockedSessionProximityPolicy.gracePeriodSeconds
             while remaining > 0, !Task.isCancelled {
                 guard let self else { return }
-                if await self.isWithinLockedProximityThreshold() {
-                    await self.clearProximityWarning()
+                if self.isWithinLockedProximityThreshold() {
+                    self.clearProximityWarning()
                     return
                 }
 
                 try? await Task.sleep(nanoseconds: LockedSessionProximityPolicy.graceCheckIntervalNanoseconds)
                 remaining -= 1
-                await self.setProximityWarningSeconds(remaining)
+                self.setProximityWarningSeconds(remaining)
             }
 
             guard !Task.isCancelled, let self else { return }
-            if await self.isWithinLockedProximityThreshold() {
-                await self.clearProximityWarning()
+            if self.isWithinLockedProximityThreshold() {
+                self.clearProximityWarning()
             } else {
                 await self.reportProximityExit(sessionID: sessionID)
             }

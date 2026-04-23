@@ -88,6 +88,8 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     func lockApps(endsAt: Date) async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable, isAuthorized else { return }
+        let span = ResponsivenessDiagnostics.begin("screentime_lock")
+        defer { span.end() }
 
         let allowlist = (await allowlistRepository.load()).allowlist
         let emergencySelection = allowlist.selection
@@ -99,11 +101,17 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         // different order afterward. Shield settings block access without mutating
         // the user's Home Screen layout.
         store.application.blockedApplications = nil
+        await Task.yield()
         store.shield.applications = nil
+        await Task.yield()
         store.shield.webDomains = nil
+        await Task.yield()
         store.shield.applicationCategories = .all(except: allowedAppTokens)
+        await Task.yield()
         store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
+        await Task.yield()
         store.webContent.blockedByFilter = .all(except: allowedWebDomains)
+        await Task.yield()
 
         let calendar = Calendar.current
         let start = calendar.dateComponents([.hour, .minute, .second], from: Date())
@@ -115,6 +123,7 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         )
 
         center.stopMonitoring([activityName])
+        await Task.yield()
         try center.startMonitoring(activityName, during: schedule)
         #endif
     }
@@ -122,12 +131,21 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     func unlockApps() async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable else { return }
+        let span = ResponsivenessDiagnostics.begin("screentime_unlock")
+        defer { span.end() }
+
         store.application.blockedApplications = nil
+        await Task.yield()
         store.shield.applications = nil
+        await Task.yield()
         store.shield.applicationCategories = nil
+        await Task.yield()
         store.shield.webDomains = nil
+        await Task.yield()
         store.shield.webDomainCategories = nil
+        await Task.yield()
         store.webContent.blockedByFilter = nil
+        await Task.yield()
         center.stopMonitoring([activityName])
         #endif
     }
