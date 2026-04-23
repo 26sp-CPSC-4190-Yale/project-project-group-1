@@ -12,6 +12,7 @@ actor ScreenTimeAllowlistRepository {
     private let key: String
     private let encoder = PropertyListEncoder()
     private let decoder = PropertyListDecoder()
+    private var cached: ScreenTimeAllowlistSnapshot?
 
     init(defaults: UserDefaults?, key: String) {
         self.defaults = defaults
@@ -19,9 +20,17 @@ actor ScreenTimeAllowlistRepository {
     }
 
     func load() -> ScreenTimeAllowlistSnapshot {
+        if let cached { return cached }
+
         let span = ResponsivenessDiagnostics.begin("allowlist_decode")
         defer { span.end() }
 
+        let snapshot = decodeFromDefaults()
+        cached = snapshot
+        return snapshot
+    }
+
+    private func decodeFromDefaults() -> ScreenTimeAllowlistSnapshot {
         guard let archived = defaults?.data(forKey: key) else {
             return ScreenTimeAllowlistSnapshot(
                 allowlist: ScreenTimeEmergencyAllowlist(),
@@ -61,6 +70,7 @@ actor ScreenTimeAllowlistRepository {
 
         let data = try encoder.encode(allowlist)
         defaults?.set(data, forKey: key)
+        cached = ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
     }
 }
 #endif
