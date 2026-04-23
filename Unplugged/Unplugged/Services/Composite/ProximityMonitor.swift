@@ -6,6 +6,10 @@ enum LockedSessionProximityPolicy {
     static let checkIntervalNanoseconds: UInt64 = 30_000_000_000
     static let gracePeriodSeconds: Int = 10
     static let graceCheckIntervalNanoseconds: UInt64 = 1_000_000_000
+    /// MC/NI reconnect churn can briefly drop distance without meaning the peer
+    /// is actually gone. Give the radio stack a short window to recover before
+    /// publishing a nil reading and forcing the orchestrator into recovery.
+    static let transientSignalLossGraceInterval: TimeInterval = 3
     /// NearbyInteraction does not guarantee a new distance sample every second,
     /// especially while the devices are stationary or the radio is reacquiring.
     /// Keep this comfortably longer than the leave countdown so a single valid

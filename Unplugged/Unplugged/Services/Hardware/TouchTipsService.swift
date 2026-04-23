@@ -141,6 +141,7 @@ actor TouchTipsService {
     private var niSessions: [MCPeerID: NISession] = [:]
     private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
     private var didYield = false
+    private var pendingLockedNoDistanceTask: Task<Void, Never>?
 
     // require N consecutive sub-threshold samples, a single sub-10cm spike from a hand wave is not proof the phones are together
     private var consecutiveCloseCount: Int = 0
@@ -473,11 +474,14 @@ actor TouchTipsService {
 
     private func emitLockedProximity(distanceMeters: Double?, reason: String? = nil) {
         let now = Date()
-        // throttle non-nil readings only, nil carries state transitions that must always propagate
-        if distanceMeters != nil,
-           let last = lastLockedProximityEmitAt,
-           now.timeIntervalSince(last) < Self.lockedProximityMinInterval {
-            return
+        if distanceMeters != nil {
+            pendingLockedNoDistanceTask?.cancel()
+            pendingLockedNoDistanceTask = nil
+            // throttle non-nil readings only; nil carries state transitions that must always propagate
+            if let last = lastLockedProximityEmitAt,
+               now.timeIntervalSince(last) < Self.lockedProximityMinInterval {
+                return
+            }
         }
         if distanceMeters == nil {
             log("locked monitor emitted no-distance reading, reason: \(reason ?? "unknown")")
@@ -494,10 +498,33 @@ actor TouchTipsService {
 
     private func publishLockedSignalLoss(reason: String) {
         guard case .lockedGuest = role else { return }
-        guard Self.shouldEmitLockedNoDistance(for: reason) else {
+        guard let disposition = Self.lockedNoDistanceDisposition(for: reason) else {
             log("locked monitor observed transient signal gap, preserving last distance, reason: \(reason)")
             return
         }
+        if case .delayed(let delay) = disposition {
+            scheduleLockedNoDistance(reason: reason, delay: delay)
+            return
+        }
+        pendingLockedNoDistanceTask?.cancel()
+        pendingLockedNoDistanceTask = nil
+        emitLockedProximity(distanceMeters: nil, reason: reason)
+    }
+
+    private func scheduleLockedNoDistance(reason: String, delay: TimeInterval) {
+        pendingLockedNoDistanceTask?.cancel()
+        let service = self
+        pendingLockedNoDistanceTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await service.flushPendingLockedNoDistance(reason: reason)
+        }
+        log("locked monitor delaying no-distance emission for \(String(format: "%.1fs", delay)), reason: \(reason)")
+    }
+
+    private func flushPendingLockedNoDistance(reason: String) {
+        pendingLockedNoDistanceTask = nil
+        guard case .lockedGuest = role else { return }
         emitLockedProximity(distanceMeters: nil, reason: reason)
     }
 
@@ -521,6 +548,8 @@ actor TouchTipsService {
     // MARK: - Teardown
 
     private func stopInternal(keepContinuation: Bool) {
+        pendingLockedNoDistanceTask?.cancel()
+        pendingLockedNoDistanceTask = nil
         advertiser?.stopAdvertisingPeer()
         advertiser?.delegate = nil
         advertiser = nil
@@ -556,13 +585,31 @@ actor TouchTipsService {
 }
 
 extension TouchTipsService {
-    nonisolated static func shouldEmitLockedNoDistance(for reason: String) -> Bool {
+    enum LockedNoDistanceDisposition: Equatable {
+        case immediate
+        case delayed(TimeInterval)
+    }
+
+    nonisolated static func lockedNoDistanceDisposition(for reason: String) -> LockedNoDistanceDisposition? {
         switch reason {
         case "monitor_started", "mc_connecting", "ni_update_without_distance":
-            return false
+            return nil
+        case "mc_notConnected",
+             "mc_lost_peer",
+             "ni_peer_removed",
+             "ni_invalidated",
+             "ni_suspended",
+             "handshake_send_failed",
+             "ni_token_missing",
+             "browser_failed":
+            return .delayed(LockedSessionProximityPolicy.transientSignalLossGraceInterval)
         default:
-            return true
+            return .immediate
         }
+    }
+
+    nonisolated static func shouldEmitLockedNoDistance(for reason: String) -> Bool {
+        lockedNoDistanceDisposition(for: reason) != nil
     }
 }
 

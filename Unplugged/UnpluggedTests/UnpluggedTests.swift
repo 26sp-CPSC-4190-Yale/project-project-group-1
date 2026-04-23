@@ -4,13 +4,25 @@ import Testing
 
 struct UnpluggedTests {
 
-    @Test func lockedProximityTransitionReasonsPreserveLastDistance() async throws {
+    @Test func lockedProximityTransitionReasonsDebounceTransportLoss() async throws {
         #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "monitor_started"))
         #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "mc_connecting"))
         #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "ni_update_without_distance"))
 
         #expect(TouchTipsService.shouldEmitLockedNoDistance(for: "mc_notConnected"))
         #expect(TouchTipsService.shouldEmitLockedNoDistance(for: "ni_invalidated"))
+        #expect(
+            TouchTipsService.lockedNoDistanceDisposition(for: "mc_notConnected")
+                == .delayed(LockedSessionProximityPolicy.transientSignalLossGraceInterval)
+        )
+        #expect(
+            TouchTipsService.lockedNoDistanceDisposition(for: "ni_invalidated")
+                == .delayed(LockedSessionProximityPolicy.transientSignalLossGraceInterval)
+        )
+        #expect(
+            TouchTipsService.lockedNoDistanceDisposition(for: "uwb_unsupported")
+                == .immediate
+        )
     }
 
     @Test func lockedProximityStaleWindowOutlastsLeaveCountdown() async throws {
