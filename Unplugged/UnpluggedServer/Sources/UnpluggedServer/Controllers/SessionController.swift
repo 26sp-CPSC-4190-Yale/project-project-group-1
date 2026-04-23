@@ -51,7 +51,6 @@ struct SessionController: RouteCollection {
         let code = try await Self.generateRoomCode(on: req.db)
         let room = RoomModel(
             roomOwner: userID,
-            isActive: true,
             code: code,
             title: body.title,
             durationSeconds: body.durationSeconds,
@@ -192,7 +191,7 @@ struct SessionController: RouteCollection {
         let userID = try payload.userID
         let room = try await requireRoom(req: req)
 
-        guard room.isActive, room.endedAt == nil else {
+        guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Room is no longer active")
         }
         // Once a room has been locked, you cannot join mid-session.
@@ -251,7 +250,6 @@ struct SessionController: RouteCollection {
         let now = Date()
         let endsAt = now.addingTimeInterval(TimeInterval(duration))
         room.lockedAt = now
-        room.endsAt = endsAt
         try await room.save(on: req.db)
 
         let roomID = try room.requireID()
@@ -298,7 +296,6 @@ struct SessionController: RouteCollection {
         // be atomic — if any step fails, the session stays open so we can retry.
         try await req.db.transaction { db in
             room.endedAt = now
-            room.isActive = false
             try await room.save(on: db)
 
             let members = try await MemberModel.query(on: db)
@@ -567,7 +564,6 @@ struct SessionController: RouteCollection {
             if InputValidation.isValidSessionCode(normalizedCode) {
                 if let room = try await RoomModel.query(on: req.db)
                     .filter(\.$code == normalizedCode)
-                    .filter(\.$isActive == true)
                     .filter(\.$endedAt == nil)
                     .first() {
                     return room
