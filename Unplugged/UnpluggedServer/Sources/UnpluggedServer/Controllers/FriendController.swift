@@ -80,6 +80,12 @@ struct FriendController: RouteCollection {
             if existing.status == "pending" && existing.user1ID == targetID && existing.user2ID == userID {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
+                try await Self.deleteStrayPendingRows(
+                    between: userID,
+                    and: targetID,
+                    keeping: existing.id,
+                    on: req.db
+                )
                 return try await Self.buildFriendResponse(user: target, status: "accepted", db: req.db)
             }
             // if there's already a pending from this user, inform conflict
@@ -178,13 +184,26 @@ struct FriendController: RouteCollection {
         let userID = try payload.userID
 
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+        let acceptedPeerIDs = try await Self.acceptedPeerIDs(for: userID, on: req.db)
 
         let incoming = try await FriendshipModel.query(on: req.db)
             .filter(\.$user2ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let requesterIDs = incoming.map { $0.user1ID }.filter { !hiddenIDs.contains($0) }
+        // Self-heal: a pending row from someone we're already accepted friends
+        // with is leftover state from a prior race or older bug. Delete it so
+        // the UI stops surfacing Accept/× for an existing friend.
+        let stale = incoming.filter { acceptedPeerIDs.contains($0.user1ID) }
+        if !stale.isEmpty {
+            let staleIDs = stale.compactMap { $0.id }
+            try await FriendshipModel.query(on: req.db)
+                .filter(\.$id ~~ staleIDs)
+                .delete()
+        }
+
+        let live = incoming.filter { !acceptedPeerIDs.contains($0.user1ID) }
+        let requesterIDs = live.map { $0.user1ID }.filter { !hiddenIDs.contains($0) }
         guard !requesterIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)
@@ -197,7 +216,7 @@ struct FriendController: RouteCollection {
         })
 
         var results: [FriendResponse] = []
-        for friendship in incoming {
+        for friendship in live {
             guard let user = userMap[friendship.user1ID] else { continue }
             results.append(try await Self.buildFriendResponse(
                 user: user,
@@ -216,13 +235,25 @@ struct FriendController: RouteCollection {
         let userID = try payload.userID
 
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
+        let acceptedPeerIDs = try await Self.acceptedPeerIDs(for: userID, on: req.db)
 
         let outgoing = try await FriendshipModel.query(on: req.db)
             .filter(\.$user1ID == userID)
             .filter(\.$status == "pending")
             .all()
 
-        let targetIDs = outgoing.map { $0.user2ID }.filter { !hiddenIDs.contains($0) }
+        // Self-heal: mirror listIncoming — drop stale pending rows for users
+        // that already appear as accepted friends.
+        let stale = outgoing.filter { acceptedPeerIDs.contains($0.user2ID) }
+        if !stale.isEmpty {
+            let staleIDs = stale.compactMap { $0.id }
+            try await FriendshipModel.query(on: req.db)
+                .filter(\.$id ~~ staleIDs)
+                .delete()
+        }
+
+        let live = outgoing.filter { !acceptedPeerIDs.contains($0.user2ID) }
+        let targetIDs = live.map { $0.user2ID }.filter { !hiddenIDs.contains($0) }
         guard !targetIDs.isEmpty else { return [] }
 
         let users = try await UserModel.query(on: req.db)
@@ -260,6 +291,13 @@ struct FriendController: RouteCollection {
 
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
+
+        try await Self.deleteStrayPendingRows(
+            between: userID,
+            and: friendship.user1ID,
+            keeping: friendship.id,
+            on: req.db
+        )
 
         let otherUser = try await UserModel.find(friendship.user1ID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
@@ -325,6 +363,13 @@ struct FriendController: RouteCollection {
 
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
+
+        try await Self.deleteStrayPendingRows(
+            between: userID,
+            and: requesterID,
+            keeping: friendship.id,
+            on: req.db
+        )
 
         let otherUser = try await UserModel.find(requesterID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
@@ -486,6 +531,53 @@ struct FriendController: RouteCollection {
     }
 
     // MARK: - Helpers
+
+    /// Delete any pending friendship rows between the two users except the one
+    /// that was just accepted. Prior to this, a race between two users adding
+    /// each other could leave a duplicate pending row behind after one was
+    /// flipped to "accepted" — the other would resurface as an Accept/× or
+    /// Cancel button on the friends page even though the pair were friends.
+    static func deleteStrayPendingRows(
+        between a: UUID,
+        and b: UUID,
+        keeping keptID: UUID?,
+        on db: Database
+    ) async throws {
+        let query = FriendshipModel.query(on: db)
+            .filter(\.$status == "pending")
+            .group(.or) { group in
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == a)
+                    g.filter(\.$user2ID == b)
+                }
+                group.group(.and) { g in
+                    g.filter(\.$user1ID == b)
+                    g.filter(\.$user2ID == a)
+                }
+            }
+        if let keptID {
+            try await query.filter(\.$id != keptID).delete()
+        } else {
+            try await query.delete()
+        }
+    }
+
+    /// User IDs that `userID` is already accepted friends with. Used by
+    /// listIncoming/listOutgoing to detect (and clean up) stale pending rows.
+    static func acceptedPeerIDs(for userID: UUID, on db: Database) async throws -> Set<UUID> {
+        let accepted = try await FriendshipModel.query(on: db)
+            .filter(\.$status == "accepted")
+            .group(.or) { group in
+                group.filter(\.$user1ID == userID)
+                group.filter(\.$user2ID == userID)
+            }
+            .all()
+        var set = Set<UUID>()
+        for row in accepted {
+            set.insert(row.user1ID == userID ? row.user2ID : row.user1ID)
+        }
+        return set
+    }
 
     /// Build a FriendResponse with computed presence and hoursUnplugged for the given user.
     /// - Parameter overrideID: if non-nil, used as the response ID (useful when

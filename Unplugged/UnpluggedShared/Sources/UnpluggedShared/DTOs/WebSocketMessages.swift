@@ -7,6 +7,37 @@
 
 import Foundation
 
+/// Envelope wrapping a server-to-client WebSocket message with a monotonically
+/// increasing per-room sequence number. Clients track the highest `seq` they've
+/// seen for a given session and drop any duplicate or out-of-order message with
+/// `seq <= lastSeen`. `seq` is optional on decode so older cached payloads still
+/// parse, but the server always emits it.
+public struct WSServerEnvelope: Codable, Sendable {
+    public let seq: UInt64?
+    public let message: WSServerMessage
+
+    public init(seq: UInt64?, message: WSServerMessage) {
+        self.seq = seq
+        self.message = message
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case seq
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(seq, forKey: .seq)
+        try message.encode(to: encoder)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.seq = try container.decodeIfPresent(UInt64.self, forKey: .seq)
+        self.message = try WSServerMessage(from: decoder)
+    }
+}
+
 public enum WSServerMessage: Codable, Sendable {
     case participantJoined(ParticipantResponse)
     case participantLeft(userID: UUID)

@@ -93,10 +93,10 @@ class ProfileViewModel {
             try await user.deleteAccount(password: password)
             isShowingDeleteAccountSheet = false
             auth.signOut()
-        } catch let err as NSError where err.code == 401 {
+        } catch let err as APIError where err.status == 401 {
             AppLogger.profile.warning("deleteAccount 401 — incorrect password")
             deleteAccountError = "Incorrect password."
-        } catch let err as NSError where err.code == 400 {
+        } catch let err as APIError where err.status == 400 {
             AppLogger.profile.warning("deleteAccount 400 — password required")
             deleteAccountError = "Password required."
         } catch {

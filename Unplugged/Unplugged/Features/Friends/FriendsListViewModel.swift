@@ -32,11 +32,21 @@ class FriendsListViewModel {
     var reportTarget: FriendResponse?
 
     var visibleIncomingRequests: [FriendResponse] {
-        incomingRequests.filter { !resolvedIncomingIDs.contains($0.id) }
+        // Anyone already present in `friends` is — by definition — no longer a
+        // pending request. A stale pending row from a prior race can cause the
+        // server to keep returning them here; filter defensively so the user
+        // doesn't see Accept/× for someone who's already their friend.
+        let friendIDs = Set(friends.map(\.id))
+        return incomingRequests.filter {
+            !resolvedIncomingIDs.contains($0.id) && !friendIDs.contains($0.id)
+        }
     }
 
     var visibleOutgoingRequests: [FriendResponse] {
-        outgoingRequests.filter { !resolvedOutgoingIDs.contains($0.id) }
+        let friendIDs = Set(friends.map(\.id))
+        return outgoingRequests.filter {
+            !resolvedOutgoingIDs.contains($0.id) && !friendIDs.contains($0.id)
+        }
     }
 
     var filteredFriends: [FriendResponse] {

@@ -126,7 +126,17 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
             throw ScreenTimeServiceError.unavailable
         }
         AppLogger.breadcrumb(.screenTime, "lock_begin", context: ["endsAt": ISO8601DateFormatter().string(from: endsAt)])
-        try await ensureAuthorized()
+        // Re-check authorization on every lock attempt. `isAuthorized` queries
+        // `AuthorizationCenter.shared.authorizationStatus` live, so a user who
+        // revoked Screen Time in Settings mid-session will now fail fast instead
+        // of silently no-op'ing `store.shield.*`. Surface `AppError` so the UI
+        // can route the user back to Settings rather than showing a generic
+        // "couldn't lock" alert with no actionable next step.
+        do {
+            try await ensureAuthorized()
+        } catch {
+            throw AppError.screenTimePermissionRevoked
+        }
 
         let allowlist = (await allowlistRepository.load()).allowlist
         let emergencySelection = allowlist.selection
@@ -145,9 +155,17 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         // unlock flow (session-ended WS / silent push / poll) clears the
         // shield at the real endsAt well before the monitor fires.
         let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
+        // Use full date+time components. The previous version used only
+        // [.hour, .minute, .second] which wraps past midnight: a session
+        // starting at 23:30 and ending at 00:30 produced an intervalEnd
+        // strictly less than intervalStart, which DeviceActivityCenter
+        // rejects with intervalTooShort — the shield would engage but
+        // never auto-clear, leaving a killed app stuck in lock until the
+        // user reinstalls.
         let calendar = Calendar.current
-        let start = calendar.dateComponents([.hour, .minute, .second], from: now)
-        let end = calendar.dateComponents([.hour, .minute, .second], from: scheduledEndsAt)
+        let components: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+        let start = calendar.dateComponents(components, from: now)
+        let end = calendar.dateComponents(components, from: scheduledEndsAt)
         let schedule = DeviceActivitySchedule(
             intervalStart: start,
             intervalEnd: end,

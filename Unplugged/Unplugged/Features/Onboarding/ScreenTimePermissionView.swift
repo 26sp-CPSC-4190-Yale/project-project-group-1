@@ -97,17 +97,29 @@ struct ScreenTimePermissionView: View {
 
 #if canImport(FamilyControls)
 private struct EmergencyTileLabelStyle: LabelStyle {
+    var tint: Color
     var iconSize: CGFloat = 22
     var spacing: CGFloat = 8
 
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: spacing) {
-            configuration.icon
-                .font(.system(size: iconSize))
+            // FamilyControls `Label(token)` renders the real app icon and
+            // ignores `.foregroundStyle`, so non-Apple app icons come through
+            // in their native colors. Filling a rect with `tint` and masking
+            // by the icon's alpha forces every icon (SF symbol or token) to
+            // match the tile palette.
+            Rectangle()
+                .fill(tint)
                 .frame(width: iconSize, height: iconSize)
+                .mask(
+                    configuration.icon
+                        .font(.system(size: iconSize))
+                        .frame(width: iconSize, height: iconSize)
+                )
             configuration.title
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                .foregroundStyle(tint)
         }
     }
 }
@@ -165,9 +177,8 @@ private struct EmergencySelectionSummary: View {
 
     private func summaryChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .labelStyle(EmergencyTileLabelStyle(iconSize: 18, spacing: 6))
+            .labelStyle(EmergencyTileLabelStyle(tint: Color.tertiaryColor, iconSize: 18, spacing: 6))
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.tertiaryColor)
             .padding(.horizontal, 10)
             .frame(height: 34)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,9 +291,8 @@ private struct EmergencySelectionSheet: View {
             showingFamilyPicker = true
         } label: {
             Label("Add More", systemImage: "plus.circle.fill")
-                .labelStyle(EmergencyTileLabelStyle())
+                .labelStyle(EmergencyTileLabelStyle(tint: Color.tertiaryColor))
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.tertiaryColor)
                 .padding(.horizontal, 12)
                 .frame(height: 44)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,15 +310,16 @@ private struct EmergencySelectionSheet: View {
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Content
     ) -> some View {
-        Button(action: action) {
+        let tint = isSelected ? Color.primaryColor : Color.tertiaryColor
+        return Button(action: action) {
             HStack(spacing: 8) {
                 label()
-                    .labelStyle(EmergencyTileLabelStyle())
+                    .labelStyle(EmergencyTileLabelStyle(tint: tint))
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(tint)
             }
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(isSelected ? Color.primaryColor : Color.tertiaryColor)
             .padding(.horizontal, 12)
             .frame(height: 44)
             .frame(maxWidth: .infinity)

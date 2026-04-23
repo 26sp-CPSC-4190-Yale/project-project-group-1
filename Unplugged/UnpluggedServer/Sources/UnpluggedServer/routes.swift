@@ -68,6 +68,27 @@ private func handleIncomingText(req: Request, ws: WebSocket, text: String) async
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
           let userID = try? payload.userID else { return }
 
+    // P1-4: re-verify membership on every inbound message. The connect-time
+    // check only proved membership at connect; if the user called /leave (or
+    // was kicked), their socket may still be alive for a moment. Drop any
+    // messages we receive after they stopped being a member and close the
+    // socket to stop further chatter.
+    let isMember: Bool
+    do {
+        isMember = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .filter(\.$userID == userID)
+            .first() != nil
+    } catch {
+        req.logger.warning("WS inbound membership check failed: \(error)")
+        return
+    }
+    guard isMember else {
+        req.logger.info("WS inbound rejected — user \(userID) not a member of room \(roomID)")
+        await req.application.sessionHub.kick(roomID: roomID, userID: userID)
+        return
+    }
+
     guard let data = text.data(using: .utf8) else { return }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601

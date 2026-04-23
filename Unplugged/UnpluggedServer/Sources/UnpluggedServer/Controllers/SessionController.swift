@@ -89,7 +89,12 @@ struct SessionController: RouteCollection {
             .filter(\.$endedAt == nil)
             .all()
 
-        return try await rooms.asyncMap { try await buildSessionResponse(room: $0, db: req.db) }
+        // Batch-load all members and users once, in-memory join per room.
+        // Previously this was `rooms.asyncMap { buildSessionResponse(...) }`
+        // which ran 2 queries per room — with a user who belongs to many
+        // rooms that's an O(N) DB round-trip per page, and each member
+        // lookup inside `buildSessionResponse` spawned another N queries.
+        return try await Self.buildSessionResponses(rooms: rooms, db: req.db)
     }
 
     @Sendable
@@ -141,12 +146,24 @@ struct SessionController: RouteCollection {
             leaveMap[jb.sessionID] = (jb.detectedAt, jb.reason)
         }
 
+        // Batch-fetch participant counts for all rooms in a single query
+        // instead of one COUNT per room. Previously this was O(rooms) DB
+        // round-trips per page; a user with a big history + limit=100 could
+        // fire 100+ queries just to render the list.
+        var participantCountMap: [UUID: Int] = [:]
+        if !returnedRoomIDs.isEmpty {
+            let allMembers = try await MemberModel.query(on: req.db)
+                .filter(\.$roomID ~~ returnedRoomIDs)
+                .all()
+            for member in allMembers {
+                participantCountMap[member.roomID, default: 0] += 1
+            }
+        }
+
         var results: [SessionHistoryResponse] = []
         for room in rooms {
             let roomID = try room.requireID()
-            let participantCount = try await MemberModel.query(on: req.db)
-                .filter(\.$roomID == roomID)
-                .count()
+            let participantCount = participantCountMap[roomID] ?? 0
             let leave = leaveMap[roomID]
             let focused = StatsService.focusedSeconds(room: room, earliestLeaveAt: leave?.at)
             let planned = max(0, room.durationSeconds ?? 0)
@@ -391,6 +408,12 @@ struct SessionController: RouteCollection {
 
         await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
 
+        // P1-4: once the user is no longer a member, evict their socket. The
+        // connect-time membership check passed when they joined; keeping the
+        // socket open would let them receive subsequent broadcasts from a
+        // room they voluntarily left.
+        await req.sessionHub.kick(roomID: roomID, userID: userID)
+
         // Backgrounded members aren't reached by the WebSocket, so fall back to
         // a visible APNs push so the rest of the room finds out when someone
         // bails. Framed as "Oh no!" rather than an error, since voluntarily
@@ -593,6 +616,11 @@ struct SessionController: RouteCollection {
             message: .participantLeftDueToProximity(userID: userID, username: username)
         )
 
+        // Same eviction as /leave — proximity-exit is another path out of the
+        // room, so the client should stop receiving broadcasts it no longer
+        // has a right to.
+        await req.sessionHub.kick(roomID: roomID, userID: userID)
+
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .all()
@@ -654,57 +682,96 @@ struct SessionController: RouteCollection {
     }
 
     private func buildSessionResponse(room: RoomModel, db: Database) async throws -> SessionResponse {
-        let roomID = try room.requireID()
-        let members = try await MemberModel.query(on: db)
-            .filter(\.$roomID == roomID)
-            .all()
+        // Single-room convenience wrapper around the batch builder. Used by
+        // create / get / update / join where we only have one room in hand.
+        let responses = try await Self.buildSessionResponses(rooms: [room], db: db)
+        if let first = responses.first { return first }
+        // Empty batch can only happen if requireID fails on the single room —
+        // surface as a 500 rather than returning a malformed session.
+        throw Abort(.internalServerError, reason: "Failed to build session response")
+    }
 
-        let userIDs = members.map { $0.userID }
-        let users = try await UserModel.query(on: db)
-            .filter(\.$id ~~ userIDs)
-            .all()
+    /// Batch-load members + users for many rooms in two total queries and
+    /// assemble SessionResponses in-memory. Use this anywhere the caller has
+    /// a list of rooms — avoids the O(N) round-trip pattern of calling
+    /// `buildSessionResponse(room:db:)` in a loop.
+    fileprivate static func buildSessionResponses(
+        rooms: [RoomModel],
+        db: Database
+    ) async throws -> [SessionResponse] {
+        guard !rooms.isEmpty else { return [] }
+
+        let roomIDs = rooms.compactMap { try? $0.requireID() }
+        let allMembers: [MemberModel]
+        if roomIDs.isEmpty {
+            allMembers = []
+        } else {
+            allMembers = try await MemberModel.query(on: db)
+                .filter(\.$roomID ~~ roomIDs)
+                .all()
+        }
+
+        let userIDs = Array(Set(allMembers.map { $0.userID }))
+        let users: [UserModel]
+        if userIDs.isEmpty {
+            users = []
+        } else {
+            users = try await UserModel.query(on: db)
+                .filter(\.$id ~~ userIDs)
+                .all()
+        }
         let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
             guard let id = u.id else { return nil }
             return (id, u)
         })
 
-        let participants: [ParticipantResponse] = members.compactMap { member in
-            guard let memberID = member.id,
-                  let user = userMap[member.userID] else { return nil }
-            return ParticipantResponse(
-                id: memberID,
-                userID: member.userID,
-                username: user.username,
-                status: member.participantStatus,
-                joinedAt: nil,
-                isHost: member.userID == room.roomOwner
+        // Bucket members by room so each room's participant list is a local lookup.
+        var membersByRoom: [UUID: [MemberModel]] = [:]
+        for member in allMembers {
+            membersByRoom[member.roomID, default: []].append(member)
+        }
+
+        return rooms.compactMap { room in
+            guard let roomID = try? room.requireID() else { return nil }
+            let roomMembers = membersByRoom[roomID] ?? []
+            let participants: [ParticipantResponse] = roomMembers.compactMap { member in
+                guard let memberID = member.id,
+                      let user = userMap[member.userID] else { return nil }
+                return ParticipantResponse(
+                    id: memberID,
+                    userID: member.userID,
+                    username: user.username,
+                    status: member.participantStatus,
+                    joinedAt: nil,
+                    isHost: member.userID == room.roomOwner
+                )
+            }
+
+            let state: RoomState
+            if room.endedAt != nil {
+                state = .ended
+            } else if room.lockedAt != nil {
+                state = .locked
+            } else {
+                state = .idle
+            }
+
+            let session = Session(
+                id: roomID,
+                code: room.code ?? Self.legacyRoomCode(for: roomID),
+                hostID: room.roomOwner,
+                state: state,
+                title: room.title,
+                durationSeconds: room.durationSeconds,
+                startedAt: room.startTime,
+                lockedAt: room.lockedAt,
+                endsAt: room.endsAt,
+                endedAt: room.endedAt,
+                latitude: room.latitude,
+                longitude: room.longitude
             )
+            return SessionResponse(session: session, participants: participants)
         }
-
-        let state: RoomState
-        if room.endedAt != nil {
-            state = .ended
-        } else if room.lockedAt != nil {
-            state = .locked
-        } else {
-            state = .idle
-        }
-
-        let session = Session(
-            id: roomID,
-            code: room.code ?? Self.legacyRoomCode(for: roomID),
-            hostID: room.roomOwner,
-            state: state,
-            title: room.title,
-            durationSeconds: room.durationSeconds,
-            startedAt: room.startTime,
-            lockedAt: room.lockedAt,
-            endsAt: room.endsAt,
-            endedAt: room.endedAt,
-            latitude: room.latitude,
-            longitude: room.longitude
-        )
-        return SessionResponse(session: session, participants: participants)
     }
 
     private static func legacyRoomCode(for roomID: UUID) -> String {

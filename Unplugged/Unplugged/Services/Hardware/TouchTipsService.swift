@@ -154,46 +154,19 @@ actor TouchTipsService {
     // MARK: - Init (wire up delegate bridge)
 
     init() {
-        self.bridge = ProximityBridge()
-        Task { await self.wireBridge() }
-    }
-
-    // MARK: - Internal state
-
-    private enum Role {
-        case none
-        case host(roomID: UUID)
-        case joiner
-        case lockedGuest(roomID: UUID)
-    }
-
-    private var role: Role = .none
-    private var continuation: AsyncStream<UUID>.Continuation?
-    private var lockedProximityContinuation: AsyncStream<LockedProximityReading>.Continuation?
-
-    private let bridge: ProximityBridge
-    private var advertiser: MCNearbyServiceAdvertiser?
-    private var browser: MCNearbyServiceBrowser?
-    private var mcSession: MCSession?
-    private var localPeerID: MCPeerID?
-
-    /// roomID pulled from discoveryInfo on the joiner side, keyed by the peer we invited.
-    /// Used as a fallback if the handshake message arrives before we've parsed the payload,
-    /// or if the host never sends a roomID for some reason.
-    private var discoveredRoomID: [MCPeerID: UUID] = [:]
-
-    private var niSessions: [MCPeerID: NISession] = [:]
-    private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
-    private var didYield = false
-
-    /// Count of consecutive sub-threshold distance samples. Reset whenever a reading
-    /// comes back above the threshold (or is missing). We require N in a row — a single
-    /// spike below 10cm during a hand wave isn't proof the phones are together.
-    private var consecutiveCloseCount: Int = 0
-
-    // MARK: - Wire delegate callbacks
-
-    private func wireBridge() {
+        let bridge = ProximityBridge()
+        self.bridge = bridge
+        // P1-9: wire the delegate bridge synchronously in init. The previous
+        // `Task { await self.wireBridge() }` pattern left a window where early
+        // MC/NI callbacks would fire with nil closures on the bridge and be
+        // silently dropped. All the closures do here is spawn a `Task` to hand
+        // the event off to the actor, which is safe from any sync context.
+        //
+        // The closures capture `[weak self]` so the bridge does not extend the
+        // actor's lifetime; if the actor dies, in-flight events become no-ops.
+        // Every mutation of `peerDiscoveryTokens`, `niSessions`, etc. happens
+        // inside actor-isolated methods after the Task suspension, so there is
+        // no cross-queue access to the shared dictionaries.
         bridge.onFoundPeer = { [weak self] peer, info in
             Task { await self?.handleFoundPeer(peer: peer, info: info) }
         }
@@ -233,6 +206,39 @@ actor TouchTipsService {
             Task { await self?.handleNISuspensionEnded() }
         }
     }
+
+    // MARK: - Internal state
+
+    private enum Role {
+        case none
+        case host(roomID: UUID)
+        case joiner
+        case lockedGuest(roomID: UUID)
+    }
+
+    private var role: Role = .none
+    private var continuation: AsyncStream<UUID>.Continuation?
+    private var lockedProximityContinuation: AsyncStream<LockedProximityReading>.Continuation?
+
+    private let bridge: ProximityBridge
+    private var advertiser: MCNearbyServiceAdvertiser?
+    private var browser: MCNearbyServiceBrowser?
+    private var mcSession: MCSession?
+    private var localPeerID: MCPeerID?
+
+    /// roomID pulled from discoveryInfo on the joiner side, keyed by the peer we invited.
+    /// Used as a fallback if the handshake message arrives before we've parsed the payload,
+    /// or if the host never sends a roomID for some reason.
+    private var discoveredRoomID: [MCPeerID: UUID] = [:]
+
+    private var niSessions: [MCPeerID: NISession] = [:]
+    private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
+    private var didYield = false
+
+    /// Count of consecutive sub-threshold distance samples. Reset whenever a reading
+    /// comes back above the threshold (or is missing). We require N in a row — a single
+    /// spike below 10cm during a hand wave isn't proof the phones are together.
+    private var consecutiveCloseCount: Int = 0
 
     // MARK: - MC event handlers
 

@@ -12,6 +12,20 @@ import Foundation
 import Vapor
 import VaporAPNS
 
+/// APNs response reasons that mean the stored device token is permanently
+/// useless — Apple has told us the token has been revoked (app uninstalled,
+/// device restored, etc). When we see these we must clear the token from
+/// the user row so we don't keep spamming APNs with a dead address.
+///
+/// `ErrorReason` is Hashable, so we use Set containment against the public
+/// static factory values. The underlying `Reason` enum is internal to
+/// APNSCore, so this is the stable public surface.
+private let invalidAPNSTokenReasons: Set<APNSError.ErrorReason> = [
+    .badDeviceToken,
+    .unregistered,
+    .deviceTokenNotForTopic
+]
+
 struct NotificationService {
     // iOS app uses these to route incoming pushes
     enum NotificationType {
@@ -41,7 +55,11 @@ struct NotificationService {
               let token = user.deviceToken
         else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        // Must match the iOS app's `PRODUCT_BUNDLE_IDENTIFIER` in the Xcode
+        // project. APNs drops any push whose topic doesn't match the bundle ID
+        // on the registered device token (`DeviceTokenNotForTopic`), so a typo
+        // here silently breaks every background push.
+        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged"
 
         struct NotificationPayload: Codable & Sendable {
             let type: String
@@ -65,6 +83,7 @@ struct NotificationService {
             )
         } catch {
             application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
+            await Self.clearTokenIfInvalid(error: error, userID: userID, on: db, application: application)
         }
     }
 
@@ -84,7 +103,11 @@ struct NotificationService {
               let token = user.deviceToken
         else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        // Must match the iOS app's `PRODUCT_BUNDLE_IDENTIFIER` in the Xcode
+        // project. APNs drops any push whose topic doesn't match the bundle ID
+        // on the registered device token (`DeviceTokenNotForTopic`), so a typo
+        // here silently breaks every background push.
+        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged"
 
         struct SilentPayload: Codable & Sendable {
             let type: String
@@ -107,6 +130,35 @@ struct NotificationService {
             )
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
+            await Self.clearTokenIfInvalid(error: error, userID: userID, on: db, application: application)
+        }
+    }
+
+    /// Inspect an APNs send error and, if Apple has told us the device token is
+    /// permanently invalid, clear it from the user row. Any subsequent push
+    /// attempts then short-circuit at the `user.deviceToken == nil` guard
+    /// instead of repeatedly hitting APNs with a dead address.
+    private static func clearTokenIfInvalid(
+        error: Error,
+        userID: UUID,
+        on db: Database,
+        application: Application
+    ) async {
+        guard let apnsError = error as? APNSError,
+              let reason = apnsError.reason,
+              invalidAPNSTokenReasons.contains(reason)
+        else { return }
+
+        do {
+            guard let user = try await UserModel.find(userID, on: db) else { return }
+            guard user.deviceToken != nil else { return }
+            user.deviceToken = nil
+            try await user.save(on: db)
+            application.logger.info(
+                "cleared invalid APNs device token for user \(userID) after \(reason.reason)"
+            )
+        } catch {
+            application.logger.warning("failed to clear invalid APNs token for user \(userID): \(error)")
         }
     }
 }

@@ -12,5 +12,8 @@ public enum AppError: String, Codable, Sendable, Error {
     case serverError
     case sessionFull
     case sessionNotActive
+    case rateLimited
+    case network
+    case screenTimePermissionRevoked
 }
 

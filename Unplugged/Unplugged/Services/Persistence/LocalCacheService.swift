@@ -9,12 +9,21 @@ import Foundation
 import Security
 import UnpluggedShared
 
-class LocalCacheService {
+/// Thread-safe cache for auth token and cached user. Mutable state is guarded by
+/// `stateLock`; the keychain I/O runs on `keychainQueue` so callers never block
+/// on `SecItemCopyMatching`. The class is reachable from any actor (APIClient is
+/// a struct, orchestrator is MainActor, keychain callbacks come off a dispatch
+/// queue), so it is `@unchecked Sendable` with the lock doing the heavy lifting.
+final class LocalCacheService: @unchecked Sendable {
     private let tokenKey = "unplugged.auth.token"
     private let userKey = "unplugged.cached.user"
     private let statsKey = "unplugged.cached.stats"
     private let historyKey = "unplugged.cached.history"
     private let keychainQueue = DispatchQueue(label: "unplugged.keychain", qos: .userInitiated)
+
+    /// Protects `cachedToken`, `didLoadToken`, and `cachedUser`. Held only for in-memory
+    /// mutations — keychain / UserDefaults I/O happens outside the lock.
+    private let stateLock = NSLock()
     private var cachedToken: String?
     private var didLoadToken = false
     private var cachedUser: User?
@@ -31,8 +40,11 @@ class LocalCacheService {
     }()
 
     func saveToken(_ token: String) {
+        stateLock.lock()
         cachedToken = token
         didLoadToken = true
+        stateLock.unlock()
+
         let key = tokenKey
         keychainQueue.async {
             let data = Data(token.utf8)
@@ -55,43 +67,59 @@ class LocalCacheService {
         }
     }
 
-    func readToken() -> String? {
-        if didLoadToken { return cachedToken }
-        let token = Self.keychainReadToken(key: tokenKey)
-        cachedToken = token
-        didLoadToken = true
-        return token
-    }
-
     /// Async variant: performs the keychain read on a background queue so the caller
     /// never blocks on `SecItemCopyMatching`. `SecItemCopyMatching` can take hundreds
     /// of milliseconds on a cold keychain — calling it from the MainActor freezes the
     /// first frame, which then cascades into every subsequent interaction feeling slow.
     func readTokenAsync() async -> String? {
-        if didLoadToken { return cachedToken }
+        stateLock.lock()
+        if didLoadToken {
+            let t = cachedToken
+            stateLock.unlock()
+            return t
+        }
+        stateLock.unlock()
+
         let key = tokenKey
         let token: String? = await withCheckedContinuation { cont in
             keychainQueue.async {
                 cont.resume(returning: Self.keychainReadToken(key: key))
             }
         }
-        cachedToken = token
-        didLoadToken = true
-        return token
+
+        stateLock.lock()
+        // Another writer may have raced us (saveToken / clearAuth). If they already
+        // populated state, honor that instead of clobbering with the possibly-stale
+        // keychain value we just fetched.
+        if !didLoadToken {
+            cachedToken = token
+            didLoadToken = true
+        }
+        let result = cachedToken
+        stateLock.unlock()
+        return result
     }
 
     /// Kick off an asynchronous keychain prewarm. Safe to call at app launch from the
     /// MainActor — the actual `SecItemCopyMatching` runs on `keychainQueue`.
     func prewarmToken() {
-        guard !didLoadToken else { return }
+        stateLock.lock()
+        if didLoadToken {
+            stateLock.unlock()
+            return
+        }
+        stateLock.unlock()
+
         let key = tokenKey
         keychainQueue.async { [weak self] in
+            guard let self else { return }
             let token = Self.keychainReadToken(key: key)
-            DispatchQueue.main.async {
-                guard let self, !self.didLoadToken else { return }
+            self.stateLock.lock()
+            if !self.didLoadToken {
                 self.cachedToken = token
                 self.didLoadToken = true
             }
+            self.stateLock.unlock()
         }
     }
 
@@ -120,13 +148,20 @@ class LocalCacheService {
 
     /// Fast in-memory snapshot for request construction. This intentionally does not
     /// fall back to Keychain; API paths must not block the UI on SecItemCopyMatching.
+    /// Returns nil if the prewarm has not yet completed — callers on cold paths should
+    /// await `readTokenAsync()` instead.
     func readCachedToken() -> String? {
-        cachedToken
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return cachedToken
     }
 
     func deleteToken() {
+        stateLock.lock()
         cachedToken = nil
         didLoadToken = true
+        stateLock.unlock()
+
         let key = tokenKey
         keychainQueue.async {
             let query: [String: Any] = [
@@ -140,15 +175,17 @@ class LocalCacheService {
         }
     }
 
-    var isLoggedIn: Bool { readToken() != nil }
-
-    /// Async version of `isLoggedIn` that avoids blocking the MainActor on the keychain.
+    /// Async login state check. The sync variant was removed because it triggered
+    /// `SecItemCopyMatching` on the MainActor, which can stall for hundreds of ms
+    /// on a cold keychain. Callers must `await` this and gate UI transitions off it.
     func isLoggedInAsync() async -> Bool {
         await readTokenAsync() != nil
     }
 
     func saveUser(_ user: User) {
+        stateLock.lock()
         cachedUser = user
+        stateLock.unlock()
         do {
             let encoded = try jsonEncoder.encode(user)
             UserDefaults.standard.set(encoded, forKey: userKey)
@@ -158,12 +195,24 @@ class LocalCacheService {
     }
 
     func readUser() -> User? {
-        if let cachedUser { return cachedUser }
+        stateLock.lock()
+        if let cached = cachedUser {
+            stateLock.unlock()
+            return cached
+        }
+        stateLock.unlock()
+
         guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
         do {
             let user = try jsonDecoder.decode(User.self, from: data)
-            cachedUser = user
-            return user
+            stateLock.lock()
+            // A concurrent saveUser may have raced us. Prefer the newer value.
+            if cachedUser == nil {
+                cachedUser = user
+            }
+            let result = cachedUser
+            stateLock.unlock()
+            return result
         } catch {
             // Schema drift: old User shape saved, new app version trying to
             // decode it. Log and clear so next sign-in writes a fresh copy.
@@ -174,7 +223,9 @@ class LocalCacheService {
     }
 
     func clearUser() {
+        stateLock.lock()
         cachedUser = nil
+        stateLock.unlock()
         UserDefaults.standard.removeObject(forKey: userKey)
     }
 
@@ -184,8 +235,12 @@ class LocalCacheService {
     }
 
     func clearAuth() {
+        stateLock.lock()
         cachedToken = nil
         didLoadToken = true
+        cachedUser = nil
+        stateLock.unlock()
+
         let key = tokenKey
         keychainQueue.async {
             let query: [String: Any] = [
@@ -197,7 +252,7 @@ class LocalCacheService {
                 AppLogger.cache.warning("SecItemDelete during clearAuth failed", context: ["status": status])
             }
         }
-        clearUser()
+        UserDefaults.standard.removeObject(forKey: userKey)
         UserDefaults.standard.removeObject(forKey: statsKey)
         UserDefaults.standard.removeObject(forKey: historyKey)
     }

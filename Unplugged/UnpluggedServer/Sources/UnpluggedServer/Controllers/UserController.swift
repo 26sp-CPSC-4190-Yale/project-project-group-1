@@ -270,12 +270,25 @@ struct UserController: RouteCollection {
 
         let body = try req.content.decode(DeviceTokenRequest.self)
 
+        // iOS APNs device tokens are 32-byte values, sent as 64 lowercase hex
+        // chars. Reject anything that doesn't match so we never store garbage
+        // that APNs will silently 400/410 on every push.
+        let trimmed = body.deviceToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard Self.isValidAPNsToken(trimmed) else {
+            throw Abort(.badRequest, reason: "Invalid APNs device token format.")
+        }
+
         guard let user = try await UserModel.find(userID, on: req.db) else {
             throw Abort(.notFound)
         }
 
-        user.deviceToken = body.deviceToken
+        user.deviceToken = trimmed
         try await user.save(on: req.db)
         return .noContent
+    }
+
+    private static func isValidAPNsToken(_ token: String) -> Bool {
+        guard token.count == 64 else { return false }
+        return token.allSatisfy { $0.isHexDigit }
     }
 }

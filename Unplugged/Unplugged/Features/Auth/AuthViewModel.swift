@@ -22,6 +22,19 @@ class AuthViewModel {
     private var userService: UserAPIService?
     private var cache: LocalCacheService?
     private var sessionOrchestrator: SessionOrchestrator?
+    // The observer is only touched from MainActor in `installAuthInvalidatedObserver`,
+    // but `deinit` on a MainActor class is nonisolated, so the property itself
+    // is marked `nonisolated(unsafe)` — we only write it once, during configure().
+    // The closure captures `[weak self]` so the observer surviving the vm's dealloc
+    // is harmless (the callback no-ops on a nil self and NotificationCenter drops it
+    // the next time it tries to message the long-dead observer).
+    private nonisolated(unsafe) var authInvalidatedObserver: NSObjectProtocol?
+
+    deinit {
+        if let observer = authInvalidatedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func configure(authService: AuthAPIService,
                    userService: UserAPIService,
@@ -32,6 +45,27 @@ class AuthViewModel {
         self.cache = cache
         self.sessionOrchestrator = sessionOrchestrator
         self.isConfigured = true
+        installAuthInvalidatedObserver()
+    }
+
+    /// Listen for `unpluggedAuthDidInvalidate`, fired by APIClient when any request
+    /// returns 401. This is the fallback re-auth path until a real refresh-token
+    /// endpoint exists: drop the user back to the sign-in screen immediately so
+    /// they aren't stuck retrying with a dead token.
+    private func installAuthInvalidatedObserver() {
+        guard authInvalidatedObserver == nil else { return }
+        authInvalidatedObserver = NotificationCenter.default.addObserver(
+            forName: .unpluggedAuthDidInvalidate,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.isAuthenticated else { return }
+                AppLogger.auth.warning("auth invalidated by server — signing out")
+                self.signOut()
+            }
+        }
     }
 
     func restoreSession() async {
@@ -177,20 +211,40 @@ class AuthViewModel {
     }
 
     private func message(for error: Error) -> String {
-        // APIClient wraps non-2xx responses as NSError(domain: "Vapor", ...)
-        // with the server's `reason` string in localizedDescription. Surface
-        // that directly so rate-limit responses, "Username already taken",
-        // etc. aren't buried under a generic fallback message.
-        let nsError = error as NSError
-        if nsError.domain == "Vapor" {
-            let description = nsError.localizedDescription
-            if !description.isEmpty { return description }
+        // APIClient now throws `APIError`, which conforms to LocalizedError and
+        // carries the server's `reason` string. Surface that directly where
+        // available (e.g. "Username already taken"); fall back to a kind-based
+        // default for errors with no reason (network / server 500).
+        if let apiError = error as? APIError {
+            if let reason = apiError.reason, !reason.isEmpty {
+                switch apiError.kind {
+                case .unauthorized where apiError.status == 401 && apiError.reason == "Unauthorized":
+                    return "Invalid username or password."
+                default:
+                    return reason
+                }
+            }
+            switch apiError.kind {
+            case .unauthorized:                 return "Invalid username or password."
+            case .validationFailed:             return "Username already taken or invalid input."
+            case .rateLimited:                  return "Too many attempts. Please wait and try again."
+            case .network:                      return "Connection problem. Check your internet and try again."
+            case .serverError:                  return "Server error. Please try again."
+            case .notFound, .sessionFull,
+                 .sessionNotActive,
+                 .screenTimePermissionRevoked:
+                return apiError.kind.rawValue
+            }
         }
         switch error {
         case AppError.unauthorized:      return "Invalid username or password."
         case AppError.validationFailed:  return "Username already taken or invalid input."
         case AppError.serverError:       return "Server error. Please try again."
-        default:                         return "Something went wrong. Check your connection."
+        case AppError.rateLimited:       return "Too many attempts. Please wait and try again."
+        case AppError.network:           return "Connection problem. Check your internet and try again."
+        default:
+            let description = error.localizedDescription
+            return description.isEmpty ? "Something went wrong. Check your connection." : description
         }
     }
 }

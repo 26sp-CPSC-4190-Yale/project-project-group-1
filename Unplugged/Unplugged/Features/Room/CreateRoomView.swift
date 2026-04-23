@@ -4,7 +4,6 @@ import UnpluggedShared
 struct CreateRoomView: View {
     let sessions: SessionAPIService
     let touchTips: TouchTipsService
-    let userID: UUID
     var onCreateRoom: (SessionResponse) -> Void
 
     @Environment(\.dismiss) private var dismiss
