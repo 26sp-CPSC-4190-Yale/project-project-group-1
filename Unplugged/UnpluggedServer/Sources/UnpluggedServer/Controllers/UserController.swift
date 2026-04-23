@@ -1,10 +1,3 @@
-//
-//  UserController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import UnpluggedShared
 import Vapor
@@ -86,17 +79,7 @@ struct UserController: RouteCollection {
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
     }
 
-    /// Soft-delete the authenticated account.
-    ///
-    /// App Store Guideline 5.1.1(v) requires in-app account deletion. We mark the user as
-    /// deleted rather than hard-deleting immediately so (a) other participants' session
-    /// history isn't corrupted mid-read, (b) accidental deletions can be restored during a
-    /// grace window, (c) a background job can cascade cleanup asynchronously.
-    ///
-    /// For password-based accounts the client must re-authenticate by submitting the
-    /// password in the request body; for OAuth accounts the JWT itself is the re-auth
-    /// (the user just signed in with their provider to reach this screen, and the token
-    /// was issued minutes ago).
+    // soft-delete per App Store Guideline 5.1.1(v), password accounts re-auth via body, OAuth relies on the recent JWT
     @Sendable
     func deleteMe(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
@@ -107,12 +90,9 @@ struct UserController: RouteCollection {
         }
 
         if user.isDeleted {
-            // Idempotent — already deleted, treat as success.
             return .noContent
         }
 
-        // If this is a password account, require the password. OAuth-only accounts
-        // (no usable password hash) skip this check because the JWT *is* the proof of identity.
         if user.appleSubject == nil && user.googleSubject == nil {
             let body = try? req.content.decode(DeleteAccountRequest.self)
             guard let password = body?.password else {
@@ -124,7 +104,6 @@ struct UserController: RouteCollection {
         }
 
         user.deletedAt = Date()
-        // Clear device token immediately so no further pushes are delivered.
         user.deviceToken = nil
         try await user.save(on: req.db)
 
@@ -134,8 +113,7 @@ struct UserController: RouteCollection {
 
     // MARK: - Block / Report
 
-    /// Block another user. Idempotent. Also tears down any existing friendship so
-    /// neither side sees the other in friend lists or notifications afterward.
+    // idempotent, also tears down any existing friendship in either direction
     @Sendable
     func blockUser(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
@@ -158,8 +136,6 @@ struct UserController: RouteCollection {
         let block = UserBlockModel(blockerID: blockerID, blockedID: blockedID)
         try await block.save(on: req.db)
 
-        // Remove any friendship in either direction so blocked users don't keep seeing each
-        // other as friends / receive nudges.
         try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
@@ -222,9 +198,7 @@ struct UserController: RouteCollection {
         }
     }
 
-    /// Submit a report against another user. App Store Guideline 1.2 requires a reporting
-    /// mechanism for user-generated content; we persist the report for moderator review
-    /// rather than taking automated action.
+    // required by App Store Guideline 1.2, reports are persisted for manual moderator review only
     @Sendable
     func reportUser(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)

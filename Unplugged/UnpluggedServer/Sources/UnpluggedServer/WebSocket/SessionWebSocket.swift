@@ -1,17 +1,9 @@
-//
-//  SessionWebSocket.swift
-//  UnpluggedServer.WebSocket
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 import Vapor
 
-/// Tracks live WebSocket connections per room and broadcasts server events.
 actor SessionHub {
-    /// roomID -> (userID -> WebSocket)
+    // roomID to userID to WebSocket
     private var connections: [UUID: [UUID: WebSocket]] = [:]
 
     func join(roomID: UUID, userID: UUID, ws: WebSocket) {

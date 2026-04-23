@@ -1,12 +1,6 @@
-//
-//  AuthView.swift
-//  Unplugged.Features.Auth
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import AuthenticationServices
+import GoogleSignIn
 
 struct AuthView: View {
     @Bindable var viewModel: AuthViewModel
@@ -40,6 +34,7 @@ struct AuthView: View {
                     Spacer()
 
                     VStack(spacing: 12) {
+                        // do not wrap in clipShape, Apple's AppleIDButton leaks a CGPath through AKDrawAppleIDButtonWithCornerRadius on every re-rasterize
                         SignInWithAppleButton(.signIn) { request in
                             request.requestedScopes = [.fullName, .email]
                         } onCompletion: { result in
@@ -47,13 +42,30 @@ struct AuthView: View {
                         }
                         .signInWithAppleButtonStyle(.white)
                         .frame(height: 50)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        // Google Sign-In: server + view-model plumbing is in place
-                        // (AuthController.signInWithGoogle + AuthViewModel.signInWithGoogle),
-                        // but the client SDK integration isn't wired up yet. Hiding the
-                        // button until it is — shipping a dead "coming soon" button is a
-                        // known App Store rejection pattern (Guideline 5.1.1(v)).
+                        Button {
+                            Task {
+                                guard let rootVC = UIApplication.shared.connectedScenes
+                                    .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
+                                    .first else { return }
+                                if let result = try? await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC),
+                                   let idToken = result.user.idToken?.tokenString {
+                                    await viewModel.signInWithGoogle(idToken: idToken)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: .spacingSm) {
+                                Image(systemName: "g.circle.fill")
+                                Text("Sign in with Google").fontWeight(.medium)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.white)
+                            .foregroundStyle(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
 
                         Button {
                             showUsernameLogin = true

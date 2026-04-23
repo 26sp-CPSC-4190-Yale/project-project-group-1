@@ -1,10 +1,3 @@
-//
-//  ProfileViewModel.swift
-//  Unplugged.Features.Profile
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Observation
 import UnpluggedShared
@@ -19,12 +12,10 @@ class ProfileViewModel {
     var error: String?
     var isShowingEmergencyAppsSheet = false
 
-    // Account deletion
     var isShowingDeleteAccountSheet = false
     var isDeletingAccount = false
     var deleteAccountError: String?
 
-    // Computed display-friendly values — empty until stats load.
     var hoursUnplugged: Int { stats?.hoursUnplugged ?? 0 }
     var rank: String {
         guard let r = stats?.rank, r > 0 else { return "–" }
@@ -34,17 +25,30 @@ class ProfileViewModel {
     var longestStreak: Int { stats?.longestStreak ?? 0 }
     var friendsCount: Int { stats?.friendsCount ?? 0 }
     var currentStreak: Int { stats?.currentStreak ?? 0 }
-    var avgSessionLength: String {
-        guard let mins = stats?.avgSessionLengthMinutes, mins > 0 else { return "0" }
-        let hours = mins / 60
-        return String(format: "%.1f", hours)
+    var earlyLeaveCount: Int { stats?.earlyLeaveCount ?? 0 }
+
+    var avgFocusedSessionLabel: String {
+        guard let mins = stats?.avgSessionLengthMinutes, mins > 0 else { return "0m" }
+        if mins >= 60 {
+            return String(format: "%.1fh", mins / 60.0)
+        }
+        return "\(Int(mins.rounded()))m"
     }
+
+    var avgPlannedSessionLabel: String {
+        guard let mins = stats?.avgPlannedMinutes, mins > 0 else { return "0m" }
+        if mins >= 60 {
+            return String(format: "%.1fh", mins / 60.0)
+        }
+        return "\(Int(mins.rounded()))m"
+    }
+
+    var avgSessionLength: String { avgFocusedSessionLabel }
 
     func load(stats service: StatsAPIService, medals medalsService: MedalsAPIService, cache: LocalCacheService) async {
         if let cachedUser = cache.readUser() {
             userName = cachedUser.username
         }
-        // Start with any cached stats to avoid a blank render.
         if stats == nil, let cached = cache.readStats() {
             stats = cached
         }
@@ -58,13 +62,12 @@ class ProfileViewModel {
             cache.saveStats(s)
             medals = m
         } catch {
+            AppLogger.profile.error("profile stats/medals fetch failed", error: error)
             self.error = "Could not load stats"
         }
         isLoading = false
     }
 
-    /// Soft-deletes the account via the server, then signs out on success.
-    /// On failure, surfaces the error in-sheet and leaves the user signed in.
     func deleteAccount(password: String?, user: UserAPIService, auth: AuthViewModel) async {
         isDeletingAccount = true
         deleteAccountError = nil
@@ -73,10 +76,13 @@ class ProfileViewModel {
             isShowingDeleteAccountSheet = false
             auth.signOut()
         } catch let err as NSError where err.code == 401 {
+            AppLogger.profile.warning("deleteAccount 401 — incorrect password")
             deleteAccountError = "Incorrect password."
         } catch let err as NSError where err.code == 400 {
+            AppLogger.profile.warning("deleteAccount 400 — password required")
             deleteAccountError = "Password required."
         } catch {
+            AppLogger.profile.error("deleteAccount failed", error: error)
             deleteAccountError = "Couldn't delete account. Try again."
         }
         isDeletingAccount = false

@@ -1,10 +1,3 @@
-//
-//  GroupController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import UnpluggedShared
 import Vapor
@@ -36,7 +29,6 @@ struct GroupController: RouteCollection {
         let group = GroupModel(name: trimmed, ownerID: userID)
         try await group.save(on: req.db)
 
-        // Owner is always a member
         let member = GroupMemberModel(groupID: try group.requireID(), userID: userID)
         try await member.save(on: req.db)
 
@@ -72,7 +64,6 @@ struct GroupController: RouteCollection {
         let group = try await requireGroup(req: req)
         let groupID = try group.requireID()
 
-        // Must be a member
         let membership = try await GroupMemberModel.query(on: req.db)
             .filter(\.$groupID == groupID)
             .filter(\.$userID == userID)
@@ -137,12 +128,10 @@ struct GroupController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        // Owner can remove anyone; otherwise users can only remove themselves
         guard group.ownerID == userID || targetID == userID else {
             throw Abort(.forbidden)
         }
 
-        // Cannot remove the owner
         if targetID == group.ownerID {
             throw Abort(.badRequest, reason: "Cannot remove the group owner.")
         }

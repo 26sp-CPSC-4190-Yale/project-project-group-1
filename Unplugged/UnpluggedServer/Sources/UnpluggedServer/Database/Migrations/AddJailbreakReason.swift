@@ -1,8 +1,3 @@
-//
-//  AddJailbreakReason.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddJailbreakReason: AsyncMigration {

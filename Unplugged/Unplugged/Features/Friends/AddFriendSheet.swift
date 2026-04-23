@@ -1,10 +1,3 @@
-//
-//  AddFriendSheet.swift
-//  Unplugged.Features.Friends
-//
-//  Created by Sebastian Gonzalez on 4/10/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -19,40 +12,76 @@ class AddFriendViewModel {
     var excludedUserIDs: Set<UUID> = []
 
     private var searchTask: Task<Void, Never>?
+    private var searchGeneration = 0
+
+    func cancelSearch() {
+        searchGeneration += 1
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
+    }
 
     func search(usersService: UserAPIService) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            searchTask?.cancel()
-            searchTask = nil
+            cancelSearch()
             users = []
             error = nil
-            isSearching = false
             return
         }
 
+        searchGeneration += 1
+        let generation = searchGeneration
+        let excludedUserIDs = excludedUserIDs
         searchTask?.cancel()
         isSearching = true
+        error = nil
+        AppLogger.ui.debug(
+            "friend search queued",
+            context: [
+                "query": query,
+                "generation": generation
+            ]
+        )
 
-        // A plain Task inherits the @MainActor context from the caller. We
-        // don't need Task.detached + MainActor.run ping-pong: Task.sleep is
-        // cooperatively yielding, and the network call awaits on a background
-        // URLSession queue. Typing-fast on older hardware (iOS 17.6) was
-        // paying the cost of spinning up a detached task per keystroke and
-        // re-hopping to the main actor for every state update.
+        // plain Task inherits @MainActor, Task.detached + MainActor.run caused per-keystroke hitches on iOS 17.6
         searchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self, !Task.isCancelled else { return }
             do {
+                AppLogger.ui.debug(
+                    "friend search begin",
+                    context: [
+                        "query": query,
+                        "generation": generation
+                    ]
+                )
                 let results = try await usersService.searchUsers(query: query)
-                guard !Task.isCancelled else { return }
-                self.users = results.filter { !self.excludedUserIDs.contains($0.id) }
+                guard !Task.isCancelled, generation == self.searchGeneration else { return }
+                self.users = results.filter { !excludedUserIDs.contains($0.id) }
                 self.error = nil
+                self.isSearching = false
+                AppLogger.ui.info(
+                    "friend search success",
+                    context: [
+                        "query": query,
+                        "generation": generation,
+                        "results": self.users.count
+                    ]
+                )
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, generation == self.searchGeneration else { return }
                 self.error = "Could not search users"
+                self.isSearching = false
+                AppLogger.ui.error(
+                    "friend search failed",
+                    error: error,
+                    context: [
+                        "query": query,
+                        "generation": generation
+                    ]
+                )
             }
-            self.isSearching = false
         }
     }
 }
@@ -63,7 +92,7 @@ struct AddFriendSheet: View {
     @State private var viewModel = AddFriendViewModel()
 
     var existingFriendIDs: Set<UUID> = []
-    var onAddFriend: (String) async -> Void
+    var onAddFriend: (String) async -> Bool
 
     var body: some View {
         NavigationStack {
@@ -72,7 +101,6 @@ struct AddFriendSheet: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Search Bar
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.tertiaryColor.opacity(0.5))
@@ -81,7 +109,7 @@ struct AddFriendSheet: View {
                             .foregroundColor(.tertiaryColor)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
-                            .onChange(of: viewModel.searchText) { _, _ in
+                            .onChange(of: viewModel.searchText) { _ in
                                 viewModel.search(usersService: deps.user)
                             }
                         if viewModel.isSearching {
@@ -139,9 +167,11 @@ struct AddFriendSheet: View {
                                     Button(action: {
                                         viewModel.addingUserID = user.id
                                         Task {
-                                            await onAddFriend(user.username)
-                                            // Parent's addFriend() dismisses the sheet via showAddFriend = false.
-                                            // Do NOT call dismiss() here to avoid double-dismiss crash.
+                                            // parent dismisses via showAddFriend = false, calling dismiss() here double-dismisses and crashes
+                                            let didAdd = await onAddFriend(user.username)
+                                            if !didAdd {
+                                                viewModel.addingUserID = nil
+                                            }
                                         }
                                     }) {
                                         Group {
@@ -184,6 +214,10 @@ struct AddFriendSheet: View {
             }
             .onAppear {
                 viewModel.excludedUserIDs = existingFriendIDs
+            }
+            .onDisappear {
+                viewModel.cancelSearch()
+                viewModel.addingUserID = nil
             }
         }
     }

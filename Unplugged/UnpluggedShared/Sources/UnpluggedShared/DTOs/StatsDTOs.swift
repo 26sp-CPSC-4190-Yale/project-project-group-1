@@ -1,10 +1,3 @@
-//
-//  StatsDTOs.swift
-//  UnpluggedShared.DTOs
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 public struct UserStatsResponse: Codable, Sendable {
@@ -16,6 +9,9 @@ public struct UserStatsResponse: Codable, Sendable {
     public let avgSessionLengthMinutes: Double
     public let friendsCount: Int
     public let totalMinutes: Int
+    public let plannedMinutes: Int
+    public let avgPlannedMinutes: Double
+    public let earlyLeaveCount: Int
     public let points: Int
 
     public init(
@@ -27,7 +23,10 @@ public struct UserStatsResponse: Codable, Sendable {
         avgSessionLengthMinutes: Double,
         friendsCount: Int,
         totalMinutes: Int,
-        points: Int
+        plannedMinutes: Int = 0,
+        avgPlannedMinutes: Double = 0,
+        earlyLeaveCount: Int = 0,
+        points: Int = 0
     ) {
         self.hoursUnplugged = hoursUnplugged
         self.rank = rank
@@ -37,6 +36,34 @@ public struct UserStatsResponse: Codable, Sendable {
         self.avgSessionLengthMinutes = avgSessionLengthMinutes
         self.friendsCount = friendsCount
         self.totalMinutes = totalMinutes
+        self.plannedMinutes = plannedMinutes
+        self.avgPlannedMinutes = avgPlannedMinutes
+        self.earlyLeaveCount = earlyLeaveCount
         self.points = points
+    }
+}
+
+public struct LeaderboardEntryResponse: Codable, Sendable, Identifiable, Hashable {
+    public let id: UUID
+    public let username: String
+    public let hoursUnplugged: Int
+    public let minutesFocused: Int
+    public let rank: Int
+    public let isCurrentUser: Bool
+
+    public init(
+        id: UUID,
+        username: String,
+        hoursUnplugged: Int,
+        minutesFocused: Int,
+        rank: Int,
+        isCurrentUser: Bool
+    ) {
+        self.id = id
+        self.username = username
+        self.hoursUnplugged = hoursUnplugged
+        self.minutesFocused = minutesFocused
+        self.rank = rank
+        self.isCurrentUser = isCurrentUser
     }
 }

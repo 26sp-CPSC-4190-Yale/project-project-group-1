@@ -7,6 +7,7 @@ import UnpluggedShared
 final class ActiveRoomViewModel {
     let isHost: Bool
     var showEndConfirmation = false
+    var showCloseConfirmation = false
     var showLeaveConfirmation = false
     var showRecap = false
     var isStartingLobby = false
@@ -32,18 +33,20 @@ final class ActiveRoomViewModel {
         isStartingLobby = true
         defer { isStartingLobby = false }
 
-        await Task.yield()
         await orchestrator.enterLobby(session: session)
 
         guard isHost else { return }
-        // Fire TouchTips activation off the main actor. MC/NI framework calls
-        // (MCSession init, startAdvertisingPeer) are heavyweight and stall the
-        // main thread 200-300ms when awaited inline. Running in a detached Task
-        // lets the lobby UI render immediately.
+        // MCSession init and startAdvertisingPeer stall the main actor for hundreds of ms, run off-actor
         Task.detached { [sessionID] in
-            let span = ResponsivenessDiagnostics.begin("touchtips_activate")
-            defer { span.end() }
-            try? await touchTips.activate(roomID: sessionID)
+            do {
+                try await touchTips.activate(roomID: sessionID)
+            } catch {
+                AppLogger.room.error(
+                    "touchTips.activate failed — host lobby cannot auto-pair",
+                    error: error,
+                    context: ["session": sessionID.uuidString]
+                )
+            }
         }
     }
 

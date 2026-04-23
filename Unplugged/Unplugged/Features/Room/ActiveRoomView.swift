@@ -13,6 +13,9 @@ struct ActiveRoomView: View {
     @State private var viewModel: ActiveRoomViewModel
     @State private var reportTarget: ParticipantResponse?
     @State private var moderationError: String?
+    private var roomTitle: String {
+        initialSession.session.title ?? "Room"
+    }
 
     init(session: SessionResponse, isHost: Bool, onClose: @escaping () -> Void) {
         self.initialSession = session
@@ -49,35 +52,25 @@ struct ActiveRoomView: View {
                     proximityWarningOverlay(secondsRemaining: seconds)
                 }
             }
-            .navigationTitle(initialSession.session.title ?? "Room")
+            .navigationTitle(roomTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                if !isHost && phase != .ended {
+                ToolbarItem(placement: .principal) {
+                    Text(roomTitle)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+
+                if shouldShowCloseButton(phase: phase, isHost: isHost) {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button {
-                            if phase == .locked {
-                                viewModel.showLeaveConfirmation = true
-                            } else {
-                                onClose()
-                                dismiss()
-                            }
-                        } label: {
-                            Image(systemName: "xmark")
-                                .foregroundStyle(Color.tertiaryColor)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        closeButton(phase: phase, isHost: isHost)
                     }
                 }
             }
         }
         .task(id: initialSession.session.id) {
-            // Host keeps the room advertisable during the lobby phase so late
-            // joiners can still pair via proximity while watching the member
-            // list fill up. Advertising stops when the host locks (below) or
-            // the view is dismissed.
             await viewModel.startLobbyIfNeeded(
                 session: initialSession,
                 orchestrator: orchestrator,
@@ -90,7 +83,7 @@ struct ActiveRoomView: View {
             }
         }
         .onChange(of: orchestrator.participants.count) { oldCount, newCount in
-            guard isHost, newCount > oldCount else { return }
+            guard newCount > oldCount else { return }
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
         .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
@@ -100,7 +93,7 @@ struct ActiveRoomView: View {
             dismiss()
         }
         .onDisappear {
-            if isHost {
+            if isHost && deps.sessionOrchestrator.phase != .locked {
                 Task { await deps.touchTips.stop() }
             }
         }
@@ -127,16 +120,30 @@ struct ActiveRoomView: View {
         } message: {
             Text("This will end the session for all participants.")
         }
+        .confirmationDialog("Close Room?", isPresented: $viewModel.showCloseConfirmation, titleVisibility: .visible) {
+            Button("Close Room", role: .destructive) {
+                Task {
+                    await viewModel.end(orchestrator: orchestrator)
+                    await orchestrator.teardown()
+                    onClose()
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will end the room for anyone who has joined.")
+        }
         .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
             Button("Leave Room", role: .destructive) {
-                onClose()
-                dismiss()
+                Task {
+                    await orchestrator.participantLeave()
+                    onClose()
+                    dismiss()
+                }
             }
             Button("Stay", role: .cancel) {}
         } message: {
-            // Screen Time shield is enforced by the OS until the countdown ends,
-            // so leaving the view doesn't unlock the phone — just exits the room UI.
-            Text("Your phone stays locked until the session ends. You'll lose the countdown and member list.")
+            Text("Leaving unlocks your apps right away. The session will keep running for everyone else.")
         }
         .sheet(item: $reportTarget) { target in
             ReportUserSheet(username: target.username) { reason, details in
@@ -161,6 +168,40 @@ struct ActiveRoomView: View {
         } message: {
             Text(moderationError ?? "")
         }
+    }
+
+    private func shouldShowCloseButton(
+        phase: SessionOrchestrator.LifecyclePhase,
+        isHost: Bool
+    ) -> Bool {
+        guard phase != .ended else { return false }
+        if isHost {
+            return phase == .idle || phase == .lobby
+        }
+        return true
+    }
+
+    private func closeButton(
+        phase: SessionOrchestrator.LifecyclePhase,
+        isHost: Bool
+    ) -> some View {
+        Button {
+            if isHost {
+                viewModel.showCloseConfirmation = true
+            } else if phase == .locked {
+                viewModel.showLeaveConfirmation = true
+            } else {
+                onClose()
+                dismiss()
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .foregroundStyle(Color.tertiaryColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close")
     }
 
     private func proximityWarningOverlay(secondsRemaining: Int) -> some View {
@@ -212,20 +253,16 @@ struct ActiveRoomView: View {
             }
         case .ended:
             VStack(spacing: .spacingMd) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 72))
-                    .foregroundStyle(.green)
-                Text("Session Complete")
+                    .foregroundStyle(Color.tertiaryColor)
+                Text("Session Ended")
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
             }
         }
     }
 
-    // Unified lobby shown to both host and guest. The only visual difference
-    // is the copy under the icon and the advertising pulse on the host side
-    // — the room code is shown to everyone so joiners can confirm they're in
-    // the right room and hosts can share it out-of-band.
     private var lobbyContent: some View {
         VStack(spacing: .spacingLg) {
             Image(systemName: "iphone.radiowaves.left.and.right")

@@ -1,8 +1,3 @@
-//
-//  ScreenTimeEmergencyAllowlist.swift
-//  Unplugged.Services.Hardware
-//
-
 import Foundation
 #if canImport(FamilyControls)
 import FamilyControls

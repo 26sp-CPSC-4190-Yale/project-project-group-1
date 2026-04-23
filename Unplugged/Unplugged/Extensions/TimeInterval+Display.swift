@@ -1,14 +1,6 @@
-//
-//  TimeInterval+Display.swift
-//  Unplugged.Extensions
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 extension TimeInterval {
-    /// "H:MM:SS" when the value is at least one hour, "M:SS" otherwise.
     var hms: String {
         let total = max(0, Int(self))
         let hours = total / 3600
@@ -20,7 +12,6 @@ extension TimeInterval {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    /// "MM:SS" fixed-width regardless of duration.
     var mmss: String {
         let total = max(0, Int(self))
         let minutes = total / 60
@@ -28,7 +19,6 @@ extension TimeInterval {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
-    /// Compact human-readable form: "2h 15m", "45m", "12s".
     var humanReadable: String {
         let total = max(0, Int(self))
         let hours = total / 3600

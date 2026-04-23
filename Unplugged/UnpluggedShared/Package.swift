@@ -1,10 +1,3 @@
-//
-//  Package.swift
-//  UnpluggedShared
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-// File used to Define UnpluggedShared as Package
 // swift-tools-version: 6.0
 
 import PackageDescription

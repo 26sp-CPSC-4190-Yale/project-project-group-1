@@ -1,10 +1,3 @@
-//
-//  FriendAPIService.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -41,5 +34,13 @@ struct FriendAPIService {
 
     func listOutgoing() async throws -> [FriendResponse] {
         try await client.send(.outgoingFriendRequests)
+    }
+
+    func getProfile(id: UUID) async throws -> FriendProfileResponse {
+        try await client.send(.getFriendProfile(id: id))
+    }
+
+    func getLeaderboard() async throws -> [LeaderboardEntryResponse] {
+        try await client.send(.getLeaderboard)
     }
 }

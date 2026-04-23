@@ -1,10 +1,3 @@
-//
-//  ScreenTimePermissionView.swift
-//  Unplugged.Features.Onboarding
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 #if canImport(FamilyControls)
 import FamilyControls
@@ -96,6 +89,39 @@ struct ScreenTimePermissionView: View {
 }
 
 #if canImport(FamilyControls)
+private struct EmergencyTileLabelStyle: LabelStyle {
+    var iconSize: CGFloat = 22
+    var spacing: CGFloat = 8
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: spacing) {
+            configuration.icon
+                .font(.system(size: iconSize))
+                .frame(width: iconSize, height: iconSize)
+            configuration.title
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+}
+
+private extension View {
+    func emergencyActivityLabelStyle(
+        foreground: Color,
+        colorScheme: ColorScheme,
+        iconSize: CGFloat = 22,
+        spacing: CGFloat = 8,
+        font: Font = .subheadline.weight(.medium)
+    ) -> some View {
+        return self
+            .labelStyle(EmergencyTileLabelStyle(iconSize: iconSize, spacing: spacing))
+            .font(font)
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .environment(\.colorScheme, colorScheme)
+    }
+}
+
 private struct EmergencySelectionSummary: View {
     @Bindable var viewModel: ScreenTimePermissionViewModel
 
@@ -112,23 +138,25 @@ private struct EmergencySelectionSummary: View {
             if viewModel.hasSavedEmergencySelection {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                     ForEach(viewModel.savedSystemApplications) { application in
-                        systemApplicationChip(application)
+                        summaryChip {
+                            Label(application.title, systemImage: application.symbolName)
+                        }
                     }
 
                     ForEach(Array(viewModel.savedSelection.applicationTokens), id: \.self) { token in
-                        familyActivityChip {
+                        summaryChip {
                             Label(token)
                         }
                     }
 
                     ForEach(Array(viewModel.savedSelection.categoryTokens), id: \.self) { token in
-                        familyActivityChip {
+                        summaryChip {
                             Label(token)
                         }
                     }
 
                     ForEach(Array(viewModel.savedSelection.webDomainTokens), id: \.self) { token in
-                        familyActivityChip {
+                        summaryChip {
                             Label(token)
                         }
                     }
@@ -145,29 +173,15 @@ private struct EmergencySelectionSummary: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func systemApplicationChip(_ application: EmergencySystemApplication) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: application.symbolName)
-                .frame(width: 18)
-            Text(application.title)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(Color.tertiaryColor)
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.tertiaryColor.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func familyActivityChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.tertiaryColor)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
+    private func summaryChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        return content()
+            .emergencyActivityLabelStyle(
+                foreground: Color.tertiaryColor,
+                colorScheme: .dark,
+                iconSize: 18,
+                spacing: 6,
+                font: .caption.weight(.semibold)
+            )
             .padding(.horizontal, 10)
             .frame(height: 34)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -180,46 +194,63 @@ private struct EmergencySelectionSheet: View {
     @Bindable var viewModel: ScreenTimePermissionViewModel
     var onCancel: () -> Void
     var onSave: () -> Void
-    @State private var mode: Mode = .appleApps
+    @State private var showingFamilyPicker = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 10)
     ]
 
-    private enum Mode: String, CaseIterable, Identifiable {
-        case appleApps = "Apple Apps"
-        case otherApps = "Other Apps"
-
-        var id: String { rawValue }
-    }
-
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("", selection: $mode) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, .spacingLg)
-                .padding(.top, .spacingMd)
+            ScrollView {
+                VStack(alignment: .leading, spacing: .spacingMd) {
+                    Text("Pick what stays available during a session. Tap a tile to toggle it.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.7))
 
-                Group {
-                    switch mode {
-                    case .appleApps:
-                        ScrollView {
-                            appleAppsContent
-                                .padding(.spacingLg)
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        addMoreTile
+
+                        ForEach(EmergencySystemApplication.allCases) { application in
+                            emergencyTile(
+                                isSelected: viewModel.isSystemApplicationAllowed(application),
+                                action: { viewModel.toggleSystemApplication(application) }
+                            ) {
+                                Label(application.title, systemImage: application.symbolName)
+                            }
                         }
-                    case .otherApps:
-                        FamilyActivityPicker(selection: $viewModel.selection)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, .spacingMd)
+
+                        ForEach(Array(viewModel.selection.applicationTokens), id: \.self) { token in
+                            emergencyTile(
+                                isSelected: true,
+                                action: { viewModel.selection.applicationTokens.remove(token) }
+                            ) {
+                                Label(token)
+                            }
+                        }
+
+                        ForEach(Array(viewModel.selection.categoryTokens), id: \.self) { token in
+                            emergencyTile(
+                                isSelected: true,
+                                action: { viewModel.selection.categoryTokens.remove(token) }
+                            ) {
+                                Label(token)
+                            }
+                        }
+
+                        ForEach(Array(viewModel.selection.webDomainTokens), id: \.self) { token in
+                            emergencyTile(
+                                isSelected: true,
+                                action: { viewModel.selection.webDomainTokens.remove(token) }
+                            ) {
+                                Label(token)
+                            }
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.spacingLg)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.primaryColor.ignoresSafeArea())
             .navigationTitle("Emergency Apps")
             .navigationBarTitleDisplayMode(.inline)
@@ -242,72 +273,72 @@ private struct EmergencySelectionSheet: View {
                 }
             }
             .interactiveDismissDisabled()
-        }
-    }
-
-    private var appleAppsContent: some View {
-        VStack(alignment: .leading, spacing: .spacingLg) {
-            VStack(alignment: .leading, spacing: .spacingMd) {
-                Text("Apple Apps")
-                    .font(.headline)
-                    .foregroundStyle(Color.tertiaryColor)
-
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(EmergencySystemApplication.allCases) { application in
-                        systemApplicationButton(application)
-                    }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .sheet(isPresented: $showingFamilyPicker) {
+                NavigationStack {
+                    FamilyActivityPicker(selection: $viewModel.selection)
+                        .navigationTitle("Other Apps & Websites")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingFamilyPicker = false }
+                                    .fontWeight(.semibold)
+                            }
+                        }
                 }
-            }
-
-            VStack(alignment: .leading, spacing: .spacingMd) {
-                Text("Other Apps and Websites")
-                    .font(.headline)
-                    .foregroundStyle(Color.tertiaryColor)
-
-                Button {
-                    mode = .otherApps
-                } label: {
-                    HStack {
-                        Image(systemName: "square.grid.2x2")
-                        Text("Open App Picker")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.primaryColor)
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.tertiaryColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
+                .preferredColorScheme(.dark)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .tint(Color.primaryColor)
             }
         }
     }
 
-    private func systemApplicationButton(_ application: EmergencySystemApplication) -> some View {
-        let isAllowed = viewModel.isSystemApplicationAllowed(application)
-
+    private var addMoreTile: some View {
         return Button {
-            viewModel.toggleSystemApplication(application)
+            showingFamilyPicker = true
         } label: {
+            Label("Add More", systemImage: "plus.circle.fill")
+                .emergencyActivityLabelStyle(
+                    foreground: Color.tertiaryColor,
+                    colorScheme: .dark,
+                    font: .subheadline.weight(.semibold)
+                )
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.tertiaryColor.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func emergencyTile<Content: View>(
+        isSelected: Bool,
+        action: @escaping () -> Void,
+        @ViewBuilder label: () -> Content
+    ) -> some View {
+        let foreground = isSelected ? Color.primaryColor : Color.tertiaryColor
+        let contentColorScheme: ColorScheme = isSelected ? .light : .dark
+
+        return Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: application.symbolName)
-                    .frame(width: 22)
-                Text(application.title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                label()
+                    .emergencyActivityLabelStyle(
+                        foreground: foreground,
+                        colorScheme: contentColorScheme
+                    )
                 Spacer(minLength: 0)
-                Image(systemName: isAllowed ? "checkmark.circle.fill" : "circle")
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             }
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(isAllowed ? Color.primaryColor : Color.tertiaryColor)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 12)
             .frame(height: 44)
             .frame(maxWidth: .infinity)
-            .background(isAllowed ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.08))
+            .background(isSelected ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }

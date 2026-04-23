@@ -1,10 +1,3 @@
-//
-//  ProfileView.swift
-//  Unplugged.Features.Profile
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -52,7 +45,6 @@ struct ProfileView: View {
                         .padding(.horizontal, .spacingLg)
                         .padding(.top, .spacingSm)
 
-                        // Profile header
                         VStack(spacing: .spacingSm) {
                             ParticipantAvatar(name: viewModel.userName, size: 64)
                             Text(viewModel.userName)
@@ -61,11 +53,9 @@ struct ProfileView: View {
                         }
                         .padding(.top, .spacingMd)
 
-                        // Tab picker
                         ProfileTabPicker(selection: $selectedTab)
                             .padding(.horizontal, .spacingLg)
 
-                        // Content
                         switch selectedTab {
                         case .history:
                             dashboardContent
@@ -84,41 +74,83 @@ struct ProfileView: View {
 
     // MARK: - Dashboard
 
+    @ViewBuilder
     private var dashboardContent: some View {
         VStack(spacing: .spacingMd) {
-            // Stats grid
-            VStack(spacing: .spacingMd) {
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused")
+            statsGrid
+                .padding(.horizontal, .spacingLg)
+
+            medalsSection
+
+            recentSessionsSection
+        }
+    }
+
+    private var statsGrid: some View {
+        VStack(spacing: .spacingMd) {
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused")
+
+                NavigationLink {
+                    LeaderboardView()
+                } label: {
                     StatBadge(value: viewModel.rank, label: "Among Friends")
+                        .overlay(alignment: .topTrailing) {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                                .padding(8)
+                        }
                 }
-
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 32)
-                    StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 32)
-                    StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 32)
-                }
-
-                HStack(spacing: .spacingMd) {
-                    StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
-                    StatBadge(value: "\(viewModel.avgSessionLength)h", label: "Avg Session", valueSize: 28)
-                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, .spacingLg)
 
-            if !viewModel.medals.isEmpty {
-                VStack(spacing: .spacingSm) {
-                    HStack {
-                        Text("Medals")
-                            .font(.headline)
-                            .foregroundStyle(Color.tertiaryColor)
-                        Spacer()
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 32)
+                StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 32)
+                StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 32)
+            }
+
+            HStack(spacing: .spacingMd) {
+                StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
+                StatBadge(value: viewModel.avgFocusedSessionLabel, label: "Avg Session", valueSize: 28)
+                StatBadge(value: "\(viewModel.earlyLeaveCount)", label: "Left Early", valueSize: 28)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var medalsSection: some View {
+        NavigationLink {
+            MedalsGalleryView()
+        } label: {
+            VStack(spacing: .spacingSm) {
+                HStack {
+                    Text("Medals")
+                        .font(.headline)
+                        .foregroundStyle(Color.tertiaryColor)
+                    Spacer()
+                    HStack(spacing: 4) {
                         Text("\(viewModel.medals.count)")
                             .font(.caption)
                             .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+                    }
+                }
+                .padding(.horizontal, .spacingLg)
+
+                if viewModel.medals.isEmpty {
+                    HStack {
+                        Text("Tap to view all medals")
+                            .font(.caption)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                        Spacer()
                     }
                     .padding(.horizontal, .spacingLg)
-
+                    .padding(.vertical, .spacingSm)
+                } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: .spacingMd) {
                             ForEach(viewModel.medals, id: \.medal.id) { userMedal in
@@ -129,31 +161,35 @@ struct ProfileView: View {
                     }
                 }
             }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-            // Recent Sessions
-            VStack(spacing: .spacingSm) {
-                HStack {
-                    Text("Recent Sessions")
-                        .font(.headline)
-                        .foregroundStyle(Color.tertiaryColor)
-                    Spacer()
-                    Text("\(viewModel.totalSessions) total")
-                        .font(.caption)
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.4))
-                }
-                .padding(.horizontal, .spacingLg)
-
-                ScrollView {
-                    SessionHistoryView()
-                }
-                .frame(maxHeight: 220)
+    private var recentSessionsSection: some View {
+        VStack(spacing: .spacingSm) {
+            HStack {
+                Text("Recent Sessions")
+                    .font(.headline)
+                    .foregroundStyle(Color.tertiaryColor)
+                Spacer()
+                Text("\(viewModel.totalSessions) total")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.4))
             }
+            .padding(.horizontal, .spacingLg)
+
+            ScrollView {
+                SessionHistoryView()
+            }
+            .frame(maxHeight: 220)
         }
     }
 
     // MARK: - Settings
 
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @State private var isShowingAboutSheet = false
 
     private var settingsContent: some View {
         VStack(spacing: .spacingSm) {
@@ -183,11 +219,12 @@ struct ProfileView: View {
                     .foregroundStyle(Color.tertiaryColor.opacity(0.3))
             }
 
-            settingsRow(icon: "info.circle.fill", title: "About") {
-                Text("v1.0")
-                    .font(.caption)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+            Button {
+                isShowingAboutSheet = true
+            } label: {
+                settingsLabel(icon: "info.circle.fill", title: "About", trailing: "v1.0")
             }
+            .buttonStyle(.plain)
 
             Button(role: .destructive) {
                 authViewModel.signOut()
@@ -235,6 +272,9 @@ struct ProfileView: View {
         .sheet(isPresented: $viewModel.isShowingEmergencyAppsSheet) {
             EmergencyAppsSettingsSheet(screenTime: deps.screenTime)
         }
+        .sheet(isPresented: $isShowingAboutSheet) {
+            AboutSheet()
+        }
     }
 
     private func settingsLabel(icon: String, title: String, trailing: String) -> some View {
@@ -272,6 +312,62 @@ struct ProfileView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct AboutSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: .spacingMd) {
+                        Text("About Unplugged")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(Color.tertiaryColor)
+
+                        Text("Version 1.0")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+
+                        Text("Unplugged helps you reclaim your focus with friends. Start a session, put your phone down together, and build the muscle of being present. Real connection, one unplugged hour at a time.")
+                            .font(.body)
+                            .foregroundStyle(Color.tertiaryColor)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Every session you complete counts — toward your streak, your medals, and the people on the other side of the table. We built Unplugged because the best moments in our lives never happened through a screen.")
+                            .font(.body)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: .spacingSm) {
+                            Link("Terms of Service", destination: LegalFooter.termsURL)
+                            Text("·")
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                            Link("Privacy Policy", destination: LegalFooter.privacyURL)
+                        }
+                        .font(.footnote)
+                        .tint(Color.tertiaryColor.opacity(0.9))
+                        .padding(.top, .spacingSm)
+                    }
+                    .padding(.horizontal, .spacingLg)
+                    .padding(.vertical, .spacingLg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .navigationTitle("About")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
     }
 }
 

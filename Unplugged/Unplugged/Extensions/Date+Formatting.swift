@@ -1,10 +1,3 @@
-//
-//  Date+Formatting.swift
-//  Unplugged.Extensions
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 extension Date {

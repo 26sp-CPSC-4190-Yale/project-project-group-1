@@ -1,10 +1,3 @@
-//
-//  UserModel.swift
-//  UnpluggedServer.Database.Models
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import Vapor
 
@@ -26,7 +19,7 @@ final class UserModel: Model, @unchecked Sendable {
     @Siblings(through: UserMedalPivot.self, from: \.$user, to: \.$medal)
     var medals: [MedalModel]
 
-    @OptionalField(key: "device_token") // for push notifs
+    @OptionalField(key: "device_token")
     var deviceToken: String?
 
     @OptionalField(key: "last_seen_at")
@@ -41,10 +34,7 @@ final class UserModel: Model, @unchecked Sendable {
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
 
-    /// Set when the user initiates account deletion. During the grace window the account is
-    /// considered terminated from the app's perspective: auth tokens are rejected and the
-    /// username is hidden from other users. A separate background job hard-deletes rows
-    /// after the retention period elapses.
+    // set to soft-delete, tokens get rejected and username is hidden, a background job hard-deletes after retention
     @OptionalField(key: "deleted_at")
     var deletedAt: Date?
 

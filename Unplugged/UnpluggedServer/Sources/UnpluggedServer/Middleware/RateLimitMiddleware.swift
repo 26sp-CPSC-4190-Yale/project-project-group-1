@@ -1,15 +1,4 @@
-//
-//  RateLimitMiddleware.swift
-//  UnpluggedServer.Middleware
-//
-//  Per-route, in-memory token-bucket-style rate limiter.
-//
-//  Known limitations documented in §13: counts live in the process, so a multi-replica
-//  deployment gives each replica its own counters. For a single-node MVP this is
-//  acceptable; moving to Redis is a follow-up. What this *does* prevent right now is
-//  casual credential stuffing and automated signup abuse from a single attacker IP.
-//
-
+// §13 known limitation, counts live per-process, multi-replica deployment gives each replica its own counters, Redis is the follow-up
 import Vapor
 
 actor RateLimiter {
@@ -27,12 +16,11 @@ actor RateLimiter {
     }
 }
 
-/// Generic IP-based rate limiter. Use `.auth(...)` helpers to apply to auth routes.
 struct RateLimitMiddleware: AsyncMiddleware {
     let limiter: RateLimiter
     let limit: Int
     let window: TimeInterval
-    /// Differentiator so two different route groups don't share a bucket.
+    // keys are prefixed with scope so different route groups do not share a bucket
     let scope: String
 
     func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
@@ -45,36 +33,27 @@ struct RateLimitMiddleware: AsyncMiddleware {
     }
 }
 
-/// Shared limiter instance so different middlewares can cooperate if we later want
-/// per-username throttling on login. Holding it at app level keeps the actor reachable
-/// from controllers that want to check usernames directly.
 enum RateLimit {
     static let shared = RateLimiter()
 
-    /// 10 login attempts per minute per IP. Credential stuffing typically tries
-    /// hundreds of combinations; 10/min makes the attack rate-limited to slow that
-    /// bulk iteration without punishing a user who mistypes a few times.
+    // 10 per minute slows credential stuffing's hundreds-of-tries rate without punishing a mistyped password
     static var login: RateLimitMiddleware {
         .init(limiter: shared, limit: 10, window: 60, scope: "auth-login")
     }
 
-    /// 5 registrations per hour per IP. Real users register once; anything more is
-    /// likely account-farming or scripted signup abuse.
+    // 5 per hour, real users register once, higher rates are account farming or scripted signup abuse
     static var register: RateLimitMiddleware {
         .init(limiter: shared, limit: 5, window: 60 * 60, scope: "auth-register")
     }
 
-    /// OAuth has its own provider-side abuse protection but we still cap by IP to
-    /// prevent someone from hammering our JWT verify path.
+    // provider-side abuse protection exists but we still cap to protect our JWT verify path from hammering
     static var oauth: RateLimitMiddleware {
         .init(limiter: shared, limit: 20, window: 60, scope: "auth-oauth")
     }
 }
 
 extension RateLimiter {
-    /// Separate helper: check a username-scoped login bucket. Called from the login
-    /// handler so we also rate-limit individual accounts (credential stuffing that
-    /// rotates IPs but targets one user).
+    // username-scoped bucket catches credential stuffing that rotates IPs but targets one account
     func allowUsername(_ username: String) -> Bool {
         allow(
             key: "login-user:\(username.lowercased())",

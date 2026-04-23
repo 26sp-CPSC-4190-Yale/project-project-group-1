@@ -1,10 +1,3 @@
-//
-//  ScreenTimeService.swift
-//  Unplugged.Services.Hardware
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
@@ -13,14 +6,7 @@ import ManagedSettings
 import DeviceActivity
 #endif
 
-/// Wraps FamilyControls + ManagedSettings + DeviceActivity so the rest of the app can
-/// engage the "unplugged" shield without caring whether the entitlement is present.
-///
-/// On a paid Apple Developer account with the Family Controls entitlement approved this
-/// issues a real `ManagedSettingsStore.shield` and schedules a DeviceActivity monitor
-/// so the shield clears at `endsAt` even if the app is killed. Without the entitlement
-/// (free account, Simulator, missing permission) every call no-ops and the service
-/// advertises `isAvailable == false` so the UI can degrade gracefully.
+// all calls no-op and isAvailable is false when the FamilyControls entitlement is missing, on simulator, or permission is denied
 final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     static let appGroup = "group.com.unplugged.app.shared"
     static let allowlistKey = "emergencyAllowlist"
@@ -34,10 +20,30 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     private let store = ManagedSettingsStore(named: .init(ScreenTimeService.storeName))
     private let center = DeviceActivityCenter()
     private let activityName = DeviceActivityName(ScreenTimeService.monitorName)
+
+    enum ScreenTimeServiceError: LocalizedError {
+        case unavailable
+        case notAuthorized
+
+        var errorDescription: String? {
+            switch self {
+            case .unavailable:
+                return "Screen Time is unavailable on this device."
+            case .notAuthorized:
+                return "Screen Time permission is not approved."
+            }
+        }
+    }
     #endif
 
     init() {
         let defaults = UserDefaults(suiteName: Self.appGroup)
+        if defaults == nil {
+            AppLogger.screenTime.critical(
+                "App Group UserDefaults unavailable — allowlist will not be shared with shield extension",
+                context: ["suite": Self.appGroup]
+            )
+        }
         self.groupDefaults = defaults
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         self.allowlistRepository = ScreenTimeAllowlistRepository(
@@ -70,8 +76,19 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func requestAuthorization() async throws {
         #if canImport(FamilyControls)
-        guard isAvailable else { return }
-        try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        guard isAvailable else {
+            AppLogger.screenTime.info("requestAuthorization no-op: isAvailable=false")
+            return
+        }
+        AppLogger.breadcrumb(.screenTime, "request_authorization_begin")
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        } catch {
+            AppLogger.screenTime.error("AuthorizationCenter.requestAuthorization threw", error: error)
+            throw error
+        }
+        await waitForAuthorizationStatusPropagation()
+        AppLogger.breadcrumb(.screenTime, "request_authorization_end", context: ["authorized": isAuthorized])
         #else
         return
         #endif
@@ -87,20 +104,57 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func lockApps(endsAt: Date) async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
-        guard isAvailable, isAuthorized else { return }
-        let span = ResponsivenessDiagnostics.begin("screentime_lock")
-        defer { span.end() }
+        guard isAvailable else {
+            AppLogger.screenTime.warning("lockApps failed — ScreenTime unavailable on device")
+            throw ScreenTimeServiceError.unavailable
+        }
+        AppLogger.breadcrumb(.screenTime, "lock_begin", context: ["endsAt": ISO8601DateFormatter().string(from: endsAt)])
+        try await ensureAuthorized()
 
         let allowlist = (await allowlistRepository.load()).allowlist
         let emergencySelection = allowlist.selection
         let allowedAppTokens = emergencySelection.applicationTokens
         let allowedWebDomains = emergencySelection.webDomains
+        let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
-        // Do not use ApplicationSettings.blockedApplications for session locking.
-        // That API hides apps from the Home Screen and iOS can restore them in a
-        // different order afterward. Shield settings block access without mutating
-        // the user's Home Screen layout.
-        store.application.blockedApplications = nil
+        let now = Date()
+        // DeviceActivitySchedule requires >= 15 min window, pad short sessions to 16, the normal unlock flow clears the shield at the real endsAt well before the monitor fires
+        let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
+        let calendar = Calendar.current
+        let start = calendar.dateComponents([.hour, .minute, .second], from: now)
+        let end = calendar.dateComponents([.hour, .minute, .second], from: scheduledEndsAt)
+        let schedule = DeviceActivitySchedule(
+            intervalStart: start,
+            intervalEnd: end,
+            repeats: false
+        )
+
+        center.stopMonitoring([activityName])
+        var monitoringFailed = false
+        do {
+            try center.startMonitoring(activityName, during: schedule)
+        } catch {
+            // do not throw, in-process enforcement still works and the user should not get a "couldn't engage shield" alert
+            monitoringFailed = true
+            AppLogger.screenTime.critical(
+                "DeviceActivityCenter.startMonitoring failed — shield will not auto-clear",
+                error: error,
+                context: [
+                    "endsAt": ISO8601DateFormatter().string(from: endsAt),
+                    "scheduledEndsAt": ISO8601DateFormatter().string(from: scheduledEndsAt)
+                ]
+            )
+        }
+
+        // ActivityCategoryPolicy does not cover Apple's built-in apps, blockedApplications is the only API that can stop them, home-screen reorder is the tradeoff
+        let blockedSystemApplications: Set<Application> = Set(
+            EmergencySystemApplication.allCases
+                .filter { !allowedSystemBundleIDs.contains($0.bundleIdentifier) }
+                .map { Application(bundleIdentifier: $0.bundleIdentifier) }
+        )
+
+        // yield between FamilyControls writes to keep the main thread responsive during the IPC burst
+        store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
         await Task.yield()
         store.shield.applications = nil
         await Task.yield()
@@ -111,28 +165,18 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
         await Task.yield()
         store.webContent.blockedByFilter = .all(except: allowedWebDomains)
-        await Task.yield()
 
-        let calendar = Calendar.current
-        let start = calendar.dateComponents([.hour, .minute, .second], from: Date())
-        let end = calendar.dateComponents([.hour, .minute, .second], from: endsAt)
-        let schedule = DeviceActivitySchedule(
-            intervalStart: start,
-            intervalEnd: end,
-            repeats: false
+        AppLogger.breadcrumb(
+            .screenTime,
+            "lock_end",
+            context: ["monitoringFailed": monitoringFailed]
         )
-
-        center.stopMonitoring([activityName])
-        await Task.yield()
-        try center.startMonitoring(activityName, during: schedule)
         #endif
     }
 
     func unlockApps() async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable else { return }
-        let span = ResponsivenessDiagnostics.begin("screentime_unlock")
-        defer { span.end() }
 
         store.application.blockedApplications = nil
         await Task.yield()
@@ -157,6 +201,30 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
     func saveEmergencyAllowlist(_ allowlist: ScreenTimeEmergencyAllowlist) async throws {
         try await allowlistRepository.save(allowlist)
+    }
+
+    private func ensureAuthorized() async throws {
+        if isAuthorized { return }
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        } catch {
+            AppLogger.screenTime.error("ensureAuthorized: requestAuthorization threw", error: error)
+            throw error
+        }
+        await waitForAuthorizationStatusPropagation()
+        guard isAuthorized else {
+            AppLogger.screenTime.warning("ensureAuthorized: propagation timed out, still not authorized")
+            throw ScreenTimeServiceError.notAuthorized
+        }
+    }
+
+    private func waitForAuthorizationStatusPropagation() async {
+        if isAuthorized { return }
+
+        for _ in 0..<5 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if isAuthorized { return }
+        }
     }
     #endif
 }

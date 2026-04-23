@@ -1,10 +1,3 @@
-//
-//  FriendshipModel.swift
-//  UnpluggedServer.Database.Models
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import Vapor
 
@@ -21,7 +14,7 @@ final class FriendshipModel: Model, @unchecked Sendable {
     var user2ID: UUID
 
     @Field(key: "status")
-    var status: String  // "pending" or "accepted"
+    var status: String
 
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?

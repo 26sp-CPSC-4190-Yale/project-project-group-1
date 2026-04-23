@@ -4,12 +4,14 @@ import Vapor
 
 extension MedalResponse: @retroactive Content {}
 extension UserMedalResponse: @retroactive Content {}
+extension MedalCatalogEntry: @retroactive Content {}
 
 struct MedalsController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let medals = routes.grouped("medals")
         medals.post(use: createMedal)
         medals.get(use: getAllMedals)
+        medals.get("catalog", use: getCatalog)
 
         let users = routes.grouped("users")
         users.get("me", "medals", use: getMyMedals)
@@ -17,7 +19,7 @@ struct MedalsController: RouteCollection {
         users.get(":userID", "medals", use: getUserMedals)
     }
 
-    // Empty ADMIN_USER_IDS => nobody passes => all admin endpoints 403.
+    // empty or unset ADMIN_USER_IDS means no one passes, so admin endpoints 403 by default
     private func requireAdmin(_ req: Request) throws {
         let payload = try req.auth.require(UserPayload.self)
         let callerID = try payload.userID
@@ -68,5 +70,11 @@ struct MedalsController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
         return try await MedalService.getUserMedals(userID: userID, on: req.db)
+    }
+
+    func getCatalog(req: Request) async throws -> [MedalCatalogEntry] {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        return try await MedalService.getCatalog(userID: userID, on: req.db)
     }
 }

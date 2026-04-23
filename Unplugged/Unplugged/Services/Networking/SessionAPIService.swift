@@ -1,10 +1,3 @@
-//
-//  SessionAPIService.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import CoreLocation
 import Foundation
 import UnpluggedShared
@@ -52,6 +45,10 @@ struct SessionAPIService {
 
     func endSession(id: UUID) async throws -> SessionResponse {
         try await client.send(.endSession(id: id))
+    }
+
+    func leaveSession(id: UUID) async throws {
+        try await client.sendVoid(.leaveSession(id: id))
     }
 
     func reportJailbreak(id: UUID, reason: String, detectedAt: Date = Date()) async throws {

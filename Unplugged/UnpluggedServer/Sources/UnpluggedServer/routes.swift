@@ -1,28 +1,17 @@
-//
-//  routes.swift
-//  UnpluggedServer
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import UnpluggedShared
 import Vapor
 
 func routes(_ app: Application) throws {
-    // Liveness: always 200, no dependencies. Used by Kubernetes livenessProbe
-    // and load balancers to know the process is alive.
     app.get("healthz") { _ in HTTPStatus.ok }
 
-    // Readiness: verifies the process can actually serve traffic by executing
-    // a trivial DB round-trip. Used by readinessProbe so pods don't receive
-    // traffic before migrations complete or during DB flaps.
     app.get("readyz") { req async throws -> HTTPStatus in
         try await req.db.transaction { _ in }
         return .ok
     }
 
     try app.register(collection: AuthController())
+    try app.register(collection: LegalController())
 
     let protected = app.grouped(JWTAuthMiddleware())
     try protected.register(collection: UserController())
@@ -32,13 +21,9 @@ func routes(_ app: Application) throws {
     try protected.register(collection: StatsController())
     try protected.register(collection: GroupController())
 
-    // WebSocket route for real-time session sync.
-    // Auth is a Bearer token in the `Authorization` header on the HTTP upgrade request.
-    // URLSessionWebSocketTask DOES support custom headers when initialized with a URLRequest.
-    // We previously passed the token in the query string, which leaks into access logs /
-    // proxy logs / URL history — so that path has been removed.
+    // auth is a Bearer header, not a query param, the query path leaks tokens to access and proxy logs
     app.webSocket("sessions", ":sessionID", "ws") { req, ws in
-        // 1. MUST register handlers synchronously on the EventLoop to avoid NIOLoopBoundBox crash
+        // handlers must be registered synchronously on the EventLoop, otherwise NIOLoopBoundBox crashes
         ws.onText { ws, text in
             Task {
                 await handleIncomingText(req: req, ws: ws, text: text)
@@ -50,7 +35,6 @@ func routes(_ app: Application) throws {
             }
         }
 
-        // 2. Do the async join logic
         Task {
             await handleSessionWebSocket(req: req, ws: ws)
         }
@@ -62,7 +46,6 @@ private func handleIncomingText(req: Request, ws: WebSocket, text: String) async
     guard let idString = req.parameters.get("sessionID"),
           let roomID = UUID(uuidString: idString) else { return }
 
-    // Parse token to get userID
     guard let token = req.headers.bearerAuthorization?.token,
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
           let userID = try? payload.userID else { return }
@@ -104,8 +87,6 @@ private func handleClose(req: Request, ws: WebSocket) async {
 
 @Sendable
 private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
-    // 1. Verify token from Authorization header (set by the client's URLRequest
-    //    when initializing its URLSessionWebSocketTask).
     guard let token = req.headers.bearerAuthorization?.token else {
         try? await ws.send("unauthorized")
         try? await ws.close(code: .policyViolation)
@@ -129,14 +110,12 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
         return
     }
 
-    // 2. Parse session ID
     guard let idString = req.parameters.get("sessionID"),
           let roomID = UUID(uuidString: idString) else {
         try? await ws.close(code: .unacceptableData)
         return
     }
 
-    // 3. Membership check — must be a member of the room
     do {
         let membership = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
@@ -151,10 +130,8 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
         return
     }
 
-    // 4. Register connection with the hub
     await req.application.sessionHub.join(roomID: roomID, userID: userID, ws: ws)
 
-    // 5. Send initial state snapshot
     do {
         if let room = try await RoomModel.find(roomID, on: req.db) {
             let session = try await makeSessionResponse(room: room, db: req.db)
@@ -169,9 +146,6 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
     }
 }
 
-/// Rebuild a SessionResponse for WebSocket stateSync events. Mirrors
-/// SessionController.buildSessionResponse but lives here because that method
-/// is private to the controller.
 private func makeSessionResponse(room: RoomModel, db: Database) async throws -> SessionResponse {
     let roomID = try room.requireID()
     let members = try await MemberModel.query(on: db)

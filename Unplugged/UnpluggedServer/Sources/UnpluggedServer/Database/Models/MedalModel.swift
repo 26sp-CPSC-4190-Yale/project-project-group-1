@@ -14,7 +14,7 @@ final class MedalModel: Model, @unchecked Sendable {
     var description: String
 
     @Field(key: "icon")
-    var icon: String // e.g. an SF Symbol name or emoji
+    var icon: String
 
     @Siblings(through: UserMedalPivot.self, from: \.$medal, to: \.$user)
     var users: [UserModel]

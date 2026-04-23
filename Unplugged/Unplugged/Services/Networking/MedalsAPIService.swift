@@ -1,8 +1,3 @@
-//
-//  MedalsAPIService.swift
-//  Unplugged.Services.Networking
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -11,5 +6,9 @@ struct MedalsAPIService {
 
     func getMyMedals() async throws -> [UserMedalResponse] {
         try await client.send(.getMyMedals)
+    }
+
+    func getCatalog() async throws -> [MedalCatalogEntry] {
+        try await client.send(.getMedalCatalog)
     }
 }

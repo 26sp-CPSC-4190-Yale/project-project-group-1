@@ -29,19 +29,13 @@ class JoinRoomViewModel {
 
     func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
         guard !isListening else { return }
-        let syncStart = Date()
         isListening = true
         hasFoundRoom = false
         tapFeedback.prepare()
 
         listenTask?.cancel()
-        let syncMs = Date().timeIntervalSince(syncStart) * 1000
-        NSLog("[PerfDiag] JoinRoomViewModel.startListening sync portion: %.1f ms", syncMs)
         listenTask = Task { [weak self] in
-            let actorStart = Date()
             let stream = await touchTips.startListening()
-            let actorMs = Date().timeIntervalSince(actorStart) * 1000
-            NSLog("[PerfDiag] touchTips.startListening actor hop + init: %.1f ms", actorMs)
             for await roomID in stream {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
@@ -75,8 +69,6 @@ class JoinRoomViewModel {
         defer { isJoining = false }
 
         error = nil
-        let span = ResponsivenessDiagnostics.begin("join_room_proximity")
-        defer { span.end() }
 
         do {
             joinedSession = try await sessions.joinSession(id: id)
@@ -87,6 +79,7 @@ class JoinRoomViewModel {
                 joinedSession = nil
                 return
             }
+            AppLogger.room.error("joinSession(id) failed", error: error, context: ["id": id.uuidString])
             self.error = Self.joinErrorMessage(for: error)
         }
     }
@@ -105,8 +98,6 @@ class JoinRoomViewModel {
 
         await stopListeningNow(touchTips: touchTips)
         error = nil
-        let span = ResponsivenessDiagnostics.begin("join_room_code")
-        defer { span.end() }
 
         do {
             joinedSession = try await sessions.joinSession(code: code)
@@ -117,6 +108,7 @@ class JoinRoomViewModel {
                 joinedSession = nil
                 return
             }
+            AppLogger.room.error("joinSession(code) failed", error: error, context: ["code_len": code.count])
             self.error = Self.joinErrorMessage(for: error)
         }
     }

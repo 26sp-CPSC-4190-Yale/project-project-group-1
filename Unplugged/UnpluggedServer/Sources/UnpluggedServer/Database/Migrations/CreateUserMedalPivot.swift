@@ -7,7 +7,7 @@ struct CreateUserMedalPivot: AsyncMigration {
             .field("user_id", .uuid, .required, .references("users", "id", onDelete: .cascade))
             .field("medal_id", .uuid, .required, .references("medals", "id", onDelete: .cascade))
             .field("earned_at", .datetime)
-            .unique(on: "user_id", "medal_id") // prevents duplicate medals per user
+            .unique(on: "user_id", "medal_id")
             .create()
     }
 

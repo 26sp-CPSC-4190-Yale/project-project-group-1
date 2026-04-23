@@ -1,10 +1,3 @@
-//
-//  OnboardingViewModel.swift
-//  Unplugged.Features.Onboarding
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Observation
 import UserNotifications
@@ -32,8 +25,7 @@ final class OnboardingViewModel {
         case screenTimeDenied
         case emergencyApps
 
-        /// Steps shown as progress dots — denied pages are conditional branches,
-        /// not distinct progress milestones.
+        // denied pages are conditional branches, not progress milestones
         static var progressSteps: [Step] {
             [.welcome, .notifications, .proximity, .screenTime, .emergencyApps]
         }
@@ -57,30 +49,20 @@ final class OnboardingViewModel {
     var screenTimePermissionStatus: PermissionPromptStatus = .notStarted
 
     init() {
-        // §48: resume from the last step the user reached. If they force-quit
-        // during onboarding (phone ringing, App Switcher kill), picking back up
-        // where they left off is less jarring than restarting from the welcome
-        // screen. Permission-granted flags stay at their defaults — we
-        // re-check system state on-screen rather than trusting persisted bools.
+        // resume from last step, re-check system state rather than trusting persisted permission bools
         let raw = UserDefaults.standard.object(forKey: Self.stepKey) as? Int
         let didMigrateAgeGate = UserDefaults.standard.bool(forKey: Self.ageGateRemovalMigrationKey)
         let didMigrateDeniedSteps = UserDefaults.standard.bool(forKey: Self.deniedStepsMigrationKey)
 
         if let raw, !didMigrateAgeGate {
-            // First migration: remap the old 6-step enum (with ageGate) to the
-            // 5-step enum (without ageGate), then fall through to the denied-steps
-            // migration below.
+            // first migration, 6-step with ageGate to 5-step without
             let migrated = Self.migratedStepRemovingAgeGate(from: raw)
             self.currentStep = Self.migratedStepAddingDeniedPages(from: migrated)
             UserDefaults.standard.set(currentStep.rawValue, forKey: Self.stepKey)
             UserDefaults.standard.set(true, forKey: Self.ageGateRemovalMigrationKey)
             UserDefaults.standard.set(true, forKey: Self.deniedStepsMigrationKey)
         } else if let raw, !didMigrateDeniedSteps {
-            // Second migration: remap the old 5-step enum (post-ageGate) to the
-            // new 7-step enum that includes proximityDenied and screenTimeDenied.
-            // Old: 0=welcome, 1=notifications, 2=proximity, 3=screenTime, 4=emergencyApps
-            // New: 0=welcome, 1=notifications, 2=proximity, 3=proximityDenied,
-            //      4=screenTime, 5=screenTimeDenied, 6=emergencyApps
+            // second migration, add proximityDenied and screenTimeDenied pages to the 5-step enum
             self.currentStep = Self.migratedStepAddingDeniedPages(from: raw)
             UserDefaults.standard.set(currentStep.rawValue, forKey: Self.stepKey)
             UserDefaults.standard.set(true, forKey: Self.deniedStepsMigrationKey)
@@ -107,14 +89,12 @@ final class OnboardingViewModel {
     func advance() {
         switch currentStep {
         case .proximity:
-            // Route to the denied explanation page if permission was denied.
             if proximityPermissionStatus == .denied {
                 currentStep = .proximityDenied
             } else {
                 currentStep = .screenTime
             }
         case .proximityDenied:
-            // Skip straight to the next real permission step.
             currentStep = .screenTime
         case .screenTime:
             if screenTimePermissionStatus == .denied || screenTimePermissionStatus == .unavailable {
@@ -134,12 +114,10 @@ final class OnboardingViewModel {
     func back() {
         switch currentStep {
         case .proximityDenied:
-            // Go back to the proximity permission step, not the raw previous.
             currentStep = .proximity
         case .screenTimeDenied:
             currentStep = .screenTime
         case .screenTime:
-            // Skip over proximityDenied if it was never visited.
             currentStep = .proximity
         default:
             if let prev = Step(rawValue: currentStep.rawValue - 1) {
@@ -148,11 +126,7 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Prime the Local Network permission prompt before the first real pairing attempt.
-    /// Without this, the first real pairing attempt silently fails because the user has
-    /// never been prompted for Local Network access. NearbyInteraction (UWB) permission
-    /// is prompted lazily on first `NISession.run(...)`; we can't pre-prompt that one,
-    /// so the onboarding copy sets expectations.
+    // NI/UWB permission cannot be pre-prompted, it only fires on NISession.run, onboarding copy sets expectations
     func primeProximityPermissions(touchTips: TouchTipsService) async -> Bool {
         if proximityPermissionStatus == .requesting { return false }
         if proximityPrimed {
@@ -199,6 +173,7 @@ final class OnboardingViewModel {
             }
             return notificationsGranted
         } catch {
+            AppLogger.onboarding.error("UNUserNotificationCenter.requestAuthorization threw", error: error)
             notificationsGranted = false
             notificationPermissionStatus = .denied
             return false
@@ -208,7 +183,6 @@ final class OnboardingViewModel {
     func requestScreenTime(service: ScreenTimeService) async -> Bool {
         screenTimeAuthFailed = false
         guard service.isAvailable else {
-            // Free dev plan or simulator — degrade gracefully.
             screenTimeGranted = false
             screenTimePermissionStatus = .unavailable
             return false
@@ -223,13 +197,12 @@ final class OnboardingViewModel {
         screenTimePermissionStatus = .requesting
         do {
             try await service.requestAuthorization()
-            // requestAuthorization() returns without throwing when the user approves.
-            // AuthorizationCenter.shared.authorizationStatus can lag behind via KVO,
-            // so do not route to the warning page based on an immediate false read.
+            // status can lag via KVO after requestAuthorization returns, do not route to the warning page on an immediate false read
             screenTimeGranted = true
             screenTimePermissionStatus = .granted
             return true
         } catch {
+            AppLogger.onboarding.warning("screen time authorization request denied/failed", context: ["error": String(describing: error)])
             screenTimeGranted = false
             screenTimePermissionStatus = .denied
             screenTimeAuthFailed = true
@@ -244,27 +217,18 @@ final class OnboardingViewModel {
     }
 
     private nonisolated static func migratedStepRemovingAgeGate(from raw: Int) -> Int {
-        // Old 6-step enum: 0=welcome, 1=ageGate, 2=notifications, 3=proximity,
-        // 4=screenTime, 5=emergencyApps.
-        // Intermediate 5-step: 0=welcome, 1=notifications, 2=proximity,
-        // 3=screenTime, 4=emergencyApps.
         switch raw {
-        case 0:      return 0  // welcome
-        case 1, 2:   return 1  // notifications (ageGate collapsed into notifications)
-        case 3:      return 2  // proximity
-        case 4:      return 3  // screenTime
-        case 5:      return 4  // emergencyApps
-        default:     return 0  // welcome fallback
+        case 0:      return 0
+        case 1, 2:   return 1  // ageGate collapsed into notifications
+        case 3:      return 2
+        case 4:      return 3
+        case 5:      return 4
+        default:     return 0
         }
     }
 
     private nonisolated static func migratedStepAddingDeniedPages(from raw: Int) -> Step {
-        // Intermediate 5-step: 0=welcome, 1=notifications, 2=proximity,
-        // 3=screenTime, 4=emergencyApps.
-        // New 7-step: 0=welcome, 1=notifications, 2=proximity, 3=proximityDenied,
-        // 4=screenTime, 5=screenTimeDenied, 6=emergencyApps.
-        // Denied pages are never persisted as resume targets — remap to the
-        // parent permission step so the user re-prompts.
+        // denied pages are never resume targets, remap to the parent permission step so the user re-prompts
         switch raw {
         case 0:  return .welcome
         case 1:  return .notifications

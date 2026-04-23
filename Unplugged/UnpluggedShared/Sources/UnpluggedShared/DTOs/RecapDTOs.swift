@@ -1,10 +1,3 @@
-//
-//  RecapDTOs.swift
-//  UnpluggedShared.DTOs
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 public struct JailbreakEntry: Codable, Sendable, Identifiable {
@@ -30,6 +23,8 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
     public let startedAt: Date?
     public let endedAt: Date?
     public let durationSeconds: Int
+    public let actualFocusedSeconds: Int
+    public let endedEarly: Bool
     public let participants: [ParticipantResponse]
     public let jailbreaks: [JailbreakEntry]
     public let completionRate: Double
@@ -40,6 +35,8 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         startedAt: Date?,
         endedAt: Date?,
         durationSeconds: Int,
+        actualFocusedSeconds: Int,
+        endedEarly: Bool,
         participants: [ParticipantResponse],
         jailbreaks: [JailbreakEntry],
         completionRate: Double
@@ -49,6 +46,8 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.durationSeconds = durationSeconds
+        self.actualFocusedSeconds = actualFocusedSeconds
+        self.endedEarly = endedEarly
         self.participants = participants
         self.jailbreaks = jailbreaks
         self.completionRate = completionRate

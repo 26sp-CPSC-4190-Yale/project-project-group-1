@@ -1,10 +1,3 @@
-//
-//  SessionHistoryView.swift
-//  Unplugged.Features.History
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -24,30 +17,10 @@ struct SessionHistoryView: View {
                 emptyState
             } else {
                 ForEach(Array(viewModel.sessions.enumerated()), id: \.element.id) { index, session in
-                    HStack(spacing: .spacingMd) {
-                        Image(systemName: "star.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.tertiaryColor.opacity(0.4))
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(session.title ?? "Unplugged Session")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.tertiaryColor)
-                                .lineLimit(1)
-
-                            Text(dateLabel(for: session))
-                                .font(.captionFont)
-                                .foregroundColor(.tertiaryColor.opacity(0.4))
-                        }
-
-                        Spacer()
-
-                        Text(durationLabel(for: session))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.tertiaryColor.opacity(0.7))
+                    NavigationLink(value: session) {
+                        row(for: session)
                     }
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, .spacingMd)
+                    .buttonStyle(.plain)
 
                     if index < viewModel.sessions.count - 1 {
                         Divider()
@@ -57,9 +30,46 @@ struct SessionHistoryView: View {
                 }
             }
         }
+        .navigationDestination(for: SessionHistoryResponse.self) { session in
+            SessionDetailView(session: session)
+        }
         .task {
             await viewModel.load(sessions: deps.sessions, cache: deps.cache)
         }
+    }
+
+    private func row(for session: SessionHistoryResponse) -> some View {
+        HStack(spacing: .spacingMd) {
+            Image(systemName: iconName(for: session))
+                .font(.system(size: 24))
+                .foregroundColor(iconColor(for: session))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title ?? "Unplugged Session")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.tertiaryColor)
+                    .lineLimit(1)
+
+                Text(subtitle(for: session))
+                    .font(.captionFont)
+                    .foregroundColor(.tertiaryColor.opacity(0.4))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(durationLabel(for: session))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.tertiaryColor.opacity(0.7))
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundColor(.tertiaryColor.opacity(0.3))
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, .spacingMd)
+        .contentShape(Rectangle())
     }
 
     private var emptyState: some View {
@@ -70,6 +80,22 @@ struct SessionHistoryView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, .spacingLg)
+    }
+
+    private func iconName(for session: SessionHistoryResponse) -> String {
+        session.leftEarly ? "xmark.circle.fill" : "checkmark.seal.fill"
+    }
+
+    private func iconColor(for session: SessionHistoryResponse) -> Color {
+        session.leftEarly ? Color.destructiveColor.opacity(0.7) : Color.tertiaryColor.opacity(0.4)
+    }
+
+    private func subtitle(for session: SessionHistoryResponse) -> String {
+        let date = dateLabel(for: session)
+        if session.leftEarly {
+            return "\(date) · Left early"
+        }
+        return date
     }
 
     private func dateLabel(for session: SessionHistoryResponse) -> String {
@@ -83,14 +109,21 @@ struct SessionHistoryView: View {
     }
 
     private func durationLabel(for session: SessionHistoryResponse) -> String {
-        guard let seconds = session.durationSeconds, seconds > 0 else { return "—" }
-        return TimeInterval(seconds).humanReadable
+        if let actual = session.actualFocusedSeconds, actual > 0 {
+            return TimeInterval(actual).humanReadable
+        }
+        if let planned = session.durationSeconds, planned > 0 {
+            return TimeInterval(planned).humanReadable
+        }
+        return "—"
     }
 }
 
 #Preview {
-    SessionHistoryView()
-        .padding()
-        .background(Color.primaryColor)
-        .environment(DependencyContainer())
+    NavigationStack {
+        SessionHistoryView()
+            .padding()
+            .background(Color.primaryColor)
+            .environment(DependencyContainer())
+    }
 }

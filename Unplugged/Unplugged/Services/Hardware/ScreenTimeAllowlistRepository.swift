@@ -21,10 +21,6 @@ actor ScreenTimeAllowlistRepository {
 
     func load() -> ScreenTimeAllowlistSnapshot {
         if let cached { return cached }
-
-        let span = ResponsivenessDiagnostics.begin("allowlist_decode")
-        defer { span.end() }
-
         let snapshot = decodeFromDefaults()
         cached = snapshot
         return snapshot
@@ -38,23 +34,25 @@ actor ScreenTimeAllowlistRepository {
             )
         }
 
-        if let allowlist = try? decoder.decode(
-            ScreenTimeEmergencyAllowlist.self,
-            from: archived
-        ) {
-            return ScreenTimeAllowlistSnapshot(
-                allowlist: allowlist,
-                hasStoredValue: true
-            )
+        do {
+            let allowlist = try decoder.decode(ScreenTimeEmergencyAllowlist.self, from: archived)
+            return ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
+        } catch {
+            // current-shape miss is expected for pre-migration data, only log if legacy also fails
         }
 
-        if let legacySelection = try? decoder.decode(
-            FamilyActivitySelection.self,
-            from: archived
-        ) {
+        do {
+            let legacySelection = try decoder.decode(FamilyActivitySelection.self, from: archived)
+            AppLogger.screenTime.info("allowlist decoded via legacy FamilyActivitySelection shape", context: ["bytes": archived.count])
             return ScreenTimeAllowlistSnapshot(
                 allowlist: ScreenTimeEmergencyAllowlist(selection: legacySelection),
                 hasStoredValue: true
+            )
+        } catch {
+            AppLogger.screenTime.error(
+                "allowlist decode failed for both current and legacy schemas — resetting",
+                error: error,
+                context: ["bytes": archived.count]
             )
         }
 
@@ -65,12 +63,14 @@ actor ScreenTimeAllowlistRepository {
     }
 
     func save(_ allowlist: ScreenTimeEmergencyAllowlist) throws {
-        let span = ResponsivenessDiagnostics.begin("allowlist_encode")
-        defer { span.end() }
-
-        let data = try encoder.encode(allowlist)
-        defaults?.set(data, forKey: key)
-        cached = ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
+        do {
+            let data = try encoder.encode(allowlist)
+            defaults?.set(data, forKey: key)
+            cached = ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
+        } catch {
+            AppLogger.screenTime.error("allowlist encode failed — emergency apps not persisted", error: error)
+            throw error
+        }
     }
 }
 #endif

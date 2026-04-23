@@ -1,10 +1,3 @@
-//
-//  RecapView.swift
-//  Unplugged.Features.Recap
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -21,7 +14,7 @@ struct RecapView: View {
 
             ScrollView {
                 VStack(spacing: .spacingLg) {
-                    header
+                    header(for: viewModel.recap)
 
                     if let recap = viewModel.recap {
                         stats(for: recap)
@@ -46,15 +39,37 @@ struct RecapView: View {
         .task { await viewModel.load(sessionID: sessionID, service: deps.recap) }
     }
 
-    private var header: some View {
+    @ViewBuilder
+    private func header(for recap: SessionRecapResponse?) -> some View {
         VStack(spacing: .spacingSm) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
+            Image(systemName: (recap?.endedEarly ?? false)
+                  ? "clock.badge.exclamationmark.fill"
+                  : "checkmark.circle.fill")
+                .font(.system(size: 56))
                 .foregroundColor(.tertiaryColor)
-            Text("Session Complete")
-                .font(.titleFont)
-                .foregroundColor(.tertiaryColor)
-            if let title = viewModel.recap?.title {
+
+            if let recap {
+                Text(TimeInterval(recap.actualFocusedSeconds).humanReadable)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundColor(.tertiaryColor)
+                    .monospacedDigit()
+            }
+
+            Text("Time Locked In")
+                .font(.headlineFont)
+                .foregroundColor(.tertiaryColor.opacity(0.8))
+
+            if let recap, recap.endedEarly {
+                Text("Ended early — \(TimeInterval(recap.durationSeconds).humanReadable) planned")
+                    .font(.captionFont)
+                    .foregroundColor(.destructiveColor)
+                    .padding(.horizontal, .spacingMd)
+                    .padding(.vertical, 4)
+                    .background(Color.destructiveColor.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            if let title = recap?.title {
                 Text(title)
                     .font(.bodyFont)
                     .foregroundColor(.tertiaryColor.opacity(0.7))
@@ -67,7 +82,7 @@ struct RecapView: View {
         HStack(spacing: .spacingMd) {
             StatBadge(
                 value: TimeInterval(recap.durationSeconds).humanReadable,
-                label: "Duration",
+                label: "Planned",
                 valueSize: 22
             )
             StatBadge(
@@ -76,7 +91,7 @@ struct RecapView: View {
                 valueSize: 22
             )
             StatBadge(
-                value: "\(Int(recap.completionRate * 100))%",
+                value: "\(Int((recap.completionRate * 100).rounded()))%",
                 label: "Completion",
                 valueSize: 22
             )

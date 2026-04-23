@@ -1,8 +1,3 @@
-//
-//  AddPointsToUsers.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddPointsToUsers: AsyncMigration {

@@ -1,15 +1,6 @@
-//
-//  Theme.swift
-//  Unplugged.SharedUI.Styles
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-// Define colors, fonts, and spacing for the entire app
-
 import SwiftUI
 
 // MARK: - Colors
-// Usage: Color.primaryColor, Color.secondaryColor, Color.tertiaryColor
 extension Color {
     static let primaryColor = Color(red: 0, green: 53.0 / 255.0, blue: 107.0 / 255.0)
     static let secondaryColor = Color(red: 135.0 / 255.0, green: 193.0 / 255.0, blue: 168.0 / 255.0)
@@ -19,7 +10,6 @@ extension Color {
 }
 
 // MARK: - Fonts
-// Usage: Font.titleFont, Font.headlineFont
 extension Font {
     static let titleFont = Font.system(size: 34, weight: .bold, design: .rounded)
     static let headlineFont = Font.system(size: 20, weight: .semibold, design: .rounded)
@@ -28,7 +18,6 @@ extension Font {
 }
 
 // MARK: - Spacing & Radius
-// Usage: CGFloat.spacingMd, CGFloat.cornerRadius
 extension CGFloat {
     static let spacingSm: CGFloat = 8
     static let spacingMd: CGFloat = 16

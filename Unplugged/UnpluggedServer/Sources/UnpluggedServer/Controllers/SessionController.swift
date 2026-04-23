@@ -1,10 +1,3 @@
-//
-//  SessionController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import SQLKit
 import UnpluggedShared
@@ -31,6 +24,7 @@ struct SessionController: RouteCollection {
         sessions.post(":sessionID", "join", use: join)
         sessions.post(":sessionID", "start", use: start)
         sessions.post(":sessionID", "end", use: end)
+        sessions.post(":sessionID", "leave", use: leave)
         sessions.post(":sessionID", "proximity-exit", use: reportProximityExit)
         sessions.get(":sessionID", "recap", use: recap)
         sessions.post(":sessionID", "jailbreaks", use: reportJailbreak)
@@ -58,8 +52,7 @@ struct SessionController: RouteCollection {
             longitude: body.longitude
         )
 
-        // Room + owner-membership must be atomic — a room with no host row is
-        // a ghost that passes auth checks but can never be joined or ended.
+        // room plus owner-membership must be atomic, otherwise a ghost room passes auth checks but cannot be joined or ended
         try await req.db.transaction { db in
             try await room.save(on: db)
             let member = MemberModel()
@@ -96,10 +89,6 @@ struct SessionController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
-        // Cursor pagination: `before` is the endedAt of the last row from the
-        // previous page; clients request older rows by passing it back. Limit
-        // is clamped to [1, 100] with a default of 25 so unbounded queries
-        // can't blow up on users with long histories.
         let limit = min(max(req.query[Int.self, at: "limit"] ?? 25, 1), 100)
         let before = req.query[Date.self, at: "before"]
 
@@ -121,12 +110,35 @@ struct SessionController: RouteCollection {
             .limit(limit)
             .all()
 
+        let returnedRoomIDs = rooms.compactMap { try? $0.requireID() }
+        let jailbreaks: [JailbreakModel]
+        if returnedRoomIDs.isEmpty {
+            jailbreaks = []
+        } else {
+            jailbreaks = try await JailbreakModel.query(on: req.db)
+                .filter(\.$userID == userID)
+                .filter(\.$sessionID ~~ returnedRoomIDs)
+                .all()
+        }
+        var leaveMap: [UUID: (at: Date, reason: String?)] = [:]
+        for jb in jailbreaks {
+            if let existing = leaveMap[jb.sessionID], existing.at <= jb.detectedAt {
+                continue
+            }
+            leaveMap[jb.sessionID] = (jb.detectedAt, jb.reason)
+        }
+
         var results: [SessionHistoryResponse] = []
         for room in rooms {
             let roomID = try room.requireID()
             let participantCount = try await MemberModel.query(on: req.db)
                 .filter(\.$roomID == roomID)
                 .count()
+            let leave = leaveMap[roomID]
+            let focused = StatsService.focusedSeconds(room: room, earliestLeaveAt: leave?.at)
+            let planned = max(0, room.durationSeconds ?? 0)
+            let leftEarly = focused + StatsService.earlyLeaveToleranceSeconds < planned
+
             results.append(
                 SessionHistoryResponse(
                     id: roomID,
@@ -136,7 +148,11 @@ struct SessionController: RouteCollection {
                     durationSeconds: room.durationSeconds,
                     participantCount: participantCount,
                     latitude: room.latitude,
-                    longitude: room.longitude
+                    longitude: room.longitude,
+                    actualFocusedSeconds: focused,
+                    leftEarly: leftEarly,
+                    leftAt: leave?.at,
+                    leaveReason: leave?.reason
                 )
             )
         }
@@ -194,7 +210,6 @@ struct SessionController: RouteCollection {
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Room is no longer active")
         }
-        // Once a room has been locked, you cannot join mid-session.
         guard room.lockedAt == nil else {
             throw Abort(.forbidden, reason: "Room is locked; cannot join an in-progress session.")
         }
@@ -209,7 +224,6 @@ struct SessionController: RouteCollection {
             let member = MemberModel(userID: userID, roomID: roomID)
             try await member.save(on: req.db)
 
-            // Announce to everyone else in the lobby via WebSocket
             if let user = try await UserModel.find(userID, on: req.db) {
                 let response = ParticipantResponse(
                     id: try member.requireID(),
@@ -254,10 +268,8 @@ struct SessionController: RouteCollection {
 
         let roomID = try room.requireID()
 
-        // Broadcast to any live WebSocket listeners
         await req.sessionHub.broadcast(roomID: roomID, message: .sessionLocked(endsAt: endsAt))
 
-        // Silent APNS fallback for backgrounded clients
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .all()
@@ -347,6 +359,88 @@ struct SessionController: RouteCollection {
         return try await buildSessionResponse(room: room, db: req.db)
     }
 
+    @Sendable
+    func leave(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        let room = try await requireRoom(req: req)
+        let roomID = try room.requireID()
+
+        guard room.endedAt == nil else {
+            throw Abort(.gone, reason: "Session already ended.")
+        }
+        // hosts must end via /end, letting the host leave here silently drops the room without notifying members
+        guard room.roomOwner != userID else {
+            throw Abort(.forbidden, reason: "Hosts must end the session instead of leaving.")
+        }
+
+        guard let member = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .filter(\.$userID == userID)
+            .first() else {
+            throw Abort(.forbidden)
+        }
+
+        let now = Date()
+        let alreadyExited = member.config == MemberModel.voluntaryExitConfig
+            || member.config == MemberModel.proximityExitConfig
+
+        // Flag the member, stamp their exit, and credit time-served atomically.
+        // Skipped if already marked so a double-tap doesn't double-award points.
+        if !alreadyExited {
+            try await req.db.transaction { db in
+                member.config = MemberModel.voluntaryExitConfig
+                if member.leftAt == nil {
+                    member.leftAt = now
+                    member.leftEarly = true
+                }
+                try await member.save(on: db)
+
+                if let lockedAt = room.lockedAt {
+                    try await awardPoints(
+                        to: userID,
+                        from: lockedAt,
+                        to: now,
+                        on: db,
+                        logger: req.logger
+                    )
+                }
+            }
+        }
+
+        // recap and history read left-early from JailbreakModel rows, skip on duplicate so a double-tap does not double-count
+        let reason = "left_voluntarily"
+        let existingReport = try await JailbreakModel.query(on: req.db)
+            .filter(\.$sessionID == roomID)
+            .filter(\.$userID == userID)
+            .filter(\.$reason == reason)
+            .first()
+        if existingReport == nil {
+            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+            record.detectedAt = now
+            try await record.save(on: req.db)
+        }
+
+        await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
+
+        let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        for recipient in members where recipient.userID != userID && recipient.config != MemberModel.voluntaryExitConfig {
+            await NotificationService.send(
+                to: recipient.userID,
+                title: "Oh no!",
+                body: "\(username) left the session.",
+                type: NotificationService.NotificationType.sessionJailbreak,
+                on: req.db,
+                application: req.application
+            )
+        }
+
+        return .noContent
+    }
+
     // MARK: - Recap
 
     @Sendable
@@ -361,7 +455,6 @@ struct SessionController: RouteCollection {
 
         let roomID = try room.requireID()
 
-        // Only members can read recap
         let membership = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .filter(\.$userID == userID)
@@ -410,22 +503,26 @@ struct SessionController: RouteCollection {
             )
         }
 
-        let duration = room.durationSeconds ?? 0
-        let completionRate: Double
-        if participants.isEmpty {
-            completionRate = 0
-        } else {
-            let jbUsers = Set(jbRecords.map { $0.userID })
-            let finishers = participants.filter { !jbUsers.contains($0.userID) }.count
-            completionRate = Double(finishers) / Double(participants.count)
-        }
+        let planned = max(0, room.durationSeconds ?? 0)
+        // room-lifetime metric, not per-user, ignore jailbreak rows so host-ending-early is the only shortener
+        let actualFocusedSeconds = StatsService.focusedSeconds(
+            room: room,
+            earliestLeaveAt: nil
+        )
+        let endedEarly = planned > 0
+            && actualFocusedSeconds + StatsService.earlyLeaveToleranceSeconds < planned
+        let completionRate: Double = planned > 0
+            ? min(1.0, Double(actualFocusedSeconds) / Double(planned))
+            : 0
 
         return SessionRecapResponse(
             sessionID: roomID,
             title: room.title,
             startedAt: room.lockedAt ?? room.startTime,
             endedAt: room.endedAt,
-            durationSeconds: duration,
+            durationSeconds: planned,
+            actualFocusedSeconds: actualFocusedSeconds,
+            endedEarly: endedEarly,
             participants: participants,
             jailbreaks: jailbreaks,
             completionRate: completionRate
@@ -452,17 +549,23 @@ struct SessionController: RouteCollection {
             message: .jailbreakReported(userID: userID, reason: body.reason)
         )
 
-        if room.roomOwner != userID {
-            if let reporter = try await UserModel.find(userID, on: req.db) {
-                await NotificationService.send(
-                    to: room.roomOwner,
-                    title: "Shield broken",
-                    body: "\(reporter.username) left the shield during your session.",
-                    type: NotificationService.NotificationType.sessionJailbreak,
-                    on: req.db,
-                    application: req.application
-                )
-            }
+        // notify everyone still in the room, already-exited members are skipped so they are not pinged after detaching
+        let reporter = try await UserModel.find(userID, on: req.db)
+        let reporterName = reporter?.username ?? "A participant"
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        for recipient in members where recipient.userID != userID
+            && recipient.config != MemberModel.voluntaryExitConfig
+            && recipient.config != MemberModel.proximityExitConfig {
+            await NotificationService.send(
+                to: recipient.userID,
+                title: "Oh no!",
+                body: "\(reporterName) broke the shield during your session.",
+                type: NotificationService.NotificationType.sessionJailbreak,
+                on: req.db,
+                application: req.application
+            )
         }
 
         return .noContent
@@ -491,10 +594,11 @@ struct SessionController: RouteCollection {
 
         let now = Date()
         let alreadyExited = member.config == MemberModel.proximityExitConfig
+            || member.config == MemberModel.voluntaryExitConfig
 
         // Flag the member, stamp their exit, and credit time-served atomically.
-        // Skipped if the user has already been marked as proximity-exited so a
-        // retried request doesn't double-award points.
+        // Skipped if the user already exited (either path) so a retried request
+        // or a voluntary-then-proximity sequence doesn't double-award points.
         if !alreadyExited {
             try await req.db.transaction { db in
                 member.config = MemberModel.proximityExitConfig
@@ -538,8 +642,8 @@ struct SessionController: RouteCollection {
         for recipient in members where recipient.userID != userID && recipient.config != MemberModel.proximityExitConfig {
             await NotificationService.send(
                 to: recipient.userID,
-                title: "Session update",
-                body: "\(username) left the session because they were too far away.",
+                title: "Oh no!",
+                body: "\(username) drifted too far from the group and left the session.",
                 type: NotificationService.NotificationType.sessionProximityExit,
                 on: req.db,
                 application: req.application

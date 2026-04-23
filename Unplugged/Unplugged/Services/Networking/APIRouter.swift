@@ -1,10 +1,3 @@
-//
-//  APIRouter.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -17,14 +10,11 @@ enum HTTPMethod: String {
 }
 
 enum APIRouter {
-
-    // Auth
     case login(LoginRequest)
     case register(RegisterRequest)
     case signInWithApple(AppleSignInRequest)
     case signInWithGoogle(GoogleSignInRequest)
 
-    // User
     case getMe
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
@@ -35,13 +25,11 @@ enum APIRouter {
     case listBlocks
     case reportUser(id: UUID, body: ReportUserRequest)
 
-    // Stats
     case getStats
 
-    // Medals
     case getMyMedals
+    case getMedalCatalog
 
-    // Sessions
     case createSession(CreateSessionRequest)
     case listSessions
     case sessionHistory(limit: Int? = nil, before: Date? = nil)
@@ -50,11 +38,11 @@ enum APIRouter {
     case joinSessionCode(code: String)
     case startSession(id: UUID)
     case endSession(id: UUID)
+    case leaveSession(id: UUID)
     case reportProximityExit(id: UUID)
     case reportJailbreak(id: UUID, body: ReportJailbreakRequest)
     case getRecap(id: UUID)
 
-    // Friends
     case listFriends
     case addFriend(AddFriendRequest)
     case removeFriend(id: UUID)
@@ -63,8 +51,9 @@ enum APIRouter {
     case nudgeFriend(id: UUID)
     case incomingFriendRequests
     case outgoingFriendRequests
+    case getFriendProfile(id: UUID)
+    case getLeaderboard
 
-    // Groups
     case createGroup(CreateGroupRequest)
     case listGroups
     case getGroup(id: UUID)
@@ -87,6 +76,7 @@ enum APIRouter {
         case .reportUser(let id, _):    return "/users/\(id)/report"
         case .getStats:                 return "/users/me/stats"
         case .getMyMedals:              return "/users/me/medals"
+        case .getMedalCatalog:          return "/medals/catalog"
         case .createSession, .listSessions:
             return "/sessions"
         case .sessionHistory(let limit, let before):
@@ -108,6 +98,7 @@ enum APIRouter {
             return "/sessions/\(encoded)/join"
         case .startSession(let id):     return "/sessions/\(id)/start"
         case .endSession(let id):       return "/sessions/\(id)/end"
+        case .leaveSession(let id):     return "/sessions/\(id)/leave"
         case .reportProximityExit(let id): return "/sessions/\(id)/proximity-exit"
         case .reportJailbreak(let id, _): return "/sessions/\(id)/jailbreaks"
         case .getRecap(let id):         return "/sessions/\(id)/recap"
@@ -118,6 +109,8 @@ enum APIRouter {
         case .nudgeFriend(let id):      return "/friends/\(id)/nudge"
         case .incomingFriendRequests:   return "/friends/requests/incoming"
         case .outgoingFriendRequests:   return "/friends/requests/outgoing"
+        case .getFriendProfile(let id): return "/friends/\(id)/profile"
+        case .getLeaderboard:           return "/friends/leaderboard"
         case .createGroup, .listGroups: return "/groups"
         case .getGroup(let id), .deleteGroup(let id): return "/groups/\(id)"
         case .addGroupMember(let id, _): return "/groups/\(id)/members"
@@ -129,13 +122,14 @@ enum APIRouter {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
-             .reportProximityExit, .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
+             .leaveSession, .reportProximityExit, .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
              .createGroup, .addGroupMember, .blockUser, .reportUser:
             return .post
         case .registerDeviceToken:
             return .put
-        case .getMe, .getStats, .getMyMedals, .listSessions, .sessionHistory, .getSession, .getRecap,
+        case .getMe, .getStats, .getMyMedals, .getMedalCatalog, .listSessions, .sessionHistory, .getSession, .getRecap,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
+             .getFriendProfile, .getLeaderboard,
              .listGroups, .getGroup, .searchUsers, .listBlocks:
             return .get
         case .updateMe:

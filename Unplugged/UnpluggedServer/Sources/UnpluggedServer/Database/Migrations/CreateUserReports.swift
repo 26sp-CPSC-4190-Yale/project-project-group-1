@@ -1,8 +1,3 @@
-//
-//  CreateUserReports.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct CreateUserReports: AsyncMigration {

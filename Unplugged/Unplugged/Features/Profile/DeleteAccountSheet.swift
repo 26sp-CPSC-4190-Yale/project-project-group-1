@@ -1,17 +1,7 @@
-//
-//  DeleteAccountSheet.swift
-//  Unplugged.Features.Profile
-//
-
 import SwiftUI
 
-/// Two-step confirmation sheet for account deletion.
-///
-/// Requires the user to type "DELETE" exactly and — if they signed in with a password —
-/// enter that password. OAuth-only users can submit with an empty password; the server
-/// decides whether a password is required and returns 400 if it isn't provided and should have been.
+// empty password is valid for OAuth users, server returns 400 if password was required and missing
 struct DeleteAccountSheet: View {
-    /// Called when the user confirms. Runs the delete and signals completion.
     let onConfirm: (_ password: String) async -> Void
 
     @Environment(\.dismiss) private var dismiss

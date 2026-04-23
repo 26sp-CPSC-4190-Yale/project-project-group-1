@@ -1,10 +1,3 @@
-//
-//  SessionModel.swift (Rooms)
-//  UnpluggedServer.Database.Models
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import Vapor
 

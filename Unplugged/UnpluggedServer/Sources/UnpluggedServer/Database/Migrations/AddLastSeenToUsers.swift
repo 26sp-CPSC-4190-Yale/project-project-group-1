@@ -1,8 +1,3 @@
-//
-//  AddLastSeenToUsers.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddLastSeenToUsers: AsyncMigration {

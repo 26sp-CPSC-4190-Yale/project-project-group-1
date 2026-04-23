@@ -1,10 +1,3 @@
-//
-//  ButtonStyles.swift
-//  Unplugged.SharedUI.Styles
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 
 struct LiquidGlassButtonStyle: ButtonStyle {

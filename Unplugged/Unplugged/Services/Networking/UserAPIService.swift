@@ -1,10 +1,3 @@
-//
-//  UserAPIService.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -27,9 +20,7 @@ struct UserAPIService {
         try await client.sendVoid(.registerDeviceToken(token))
     }
 
-    /// Deletes the authenticated account. `password` is required for password-based accounts
-    /// and ignored for OAuth-only accounts (server checks account type and rejects with 400
-    /// if the password was required but missing).
+    // password required for password accounts, ignored for OAuth, missing password returns 400
     func deleteAccount(password: String?) async throws {
         try await client.sendVoid(.deleteMe(DeleteAccountRequest(password: password)))
     }

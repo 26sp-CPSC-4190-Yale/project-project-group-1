@@ -1,22 +1,7 @@
-//
-//  WebSocketClient.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
-/// Thin wrapper around `URLSessionWebSocketTask` that emits server-side session events
-/// as an `AsyncStream<WSServerMessage>`. The auth token is sent as a Bearer Authorization
-/// header on the HTTP upgrade request — query-string auth leaks into access logs and
-/// proxy caches, which is why we use the header path.
-///
-/// On unexpected disconnects the client attempts bounded reconnects with exponential
-/// backoff (1s, 2s, 4s, 8s, 16s, 30s) plus jitter, up to `maxReconnectAttempts`.
-/// Across reconnects the same `AsyncStream` continuation stays open, so subscribers
-/// don't need to re-wire; once all attempts are exhausted the stream finishes.
+// auth goes in the Bearer header, query-string auth leaks into access logs and proxy caches
 actor WebSocketClient {
     enum ConnectionState {
         case idle
@@ -55,9 +40,6 @@ actor WebSocketClient {
         return e
     }()
 
-    /// Async stream of decoded server messages. A fresh stream is handed out per connect call.
-    /// The stream survives transient disconnects — only an explicit `disconnect()` or an
-    /// exhausted reconnect budget terminates it.
     func connect(sessionID: UUID, token: String) -> AsyncStream<WSServerMessage> {
         teardownSocket()
         reconnectTask?.cancel()
@@ -76,9 +58,23 @@ actor WebSocketClient {
     }
 
     func send(_ message: WSClientMessage) async throws {
-        guard let task else { return }
-        let data = try encoder.encode(message)
-        try await task.send(.data(data))
+        guard let task else {
+            AppLogger.ws.warning("send called with no live task — dropping message")
+            return
+        }
+        let data: Data
+        do {
+            data = try encoder.encode(message)
+        } catch {
+            AppLogger.ws.error("outbound encode failed", error: error)
+            throw error
+        }
+        do {
+            try await task.send(.data(data))
+        } catch {
+            AppLogger.ws.error("task.send failed", error: error)
+            throw error
+        }
     }
 
     func disconnect() {
@@ -93,13 +89,21 @@ actor WebSocketClient {
     }
 
     private func openSocket() {
-        guard let params = connectionParams else { return }
+        guard let params = connectionParams else {
+            AppLogger.ws.warning("openSocket with no connectionParams — abort")
+            return
+        }
         state = .connecting
+        AppLogger.breadcrumb(.ws, "ws_open_begin", context: ["session": params.sessionID.uuidString, "attempt": reconnectAttempt])
 
         var components = URLComponents(string: Config.webSocketBaseURL)!
         components.path += "/sessions/\(params.sessionID.uuidString)/ws"
 
         guard let url = components.url else {
+            AppLogger.ws.critical(
+                "WebSocket URL construction failed",
+                context: ["base": Config.webSocketBaseURL, "session": params.sessionID.uuidString]
+            )
             state = .disconnected
             continuation?.finish()
             continuation = nil
@@ -135,6 +139,7 @@ actor WebSocketClient {
                     guard let message = try await self.receiveOne() else { return }
                     await self.handleIncoming(message)
                 } catch {
+                    AppLogger.ws.warning("receive loop failed — disconnecting", context: ["error": String(describing: error)])
                     await self.handleDisconnect()
                     return
                 }
@@ -148,22 +153,38 @@ actor WebSocketClient {
     }
 
     private func handleIncoming(_ raw: URLSessionWebSocketTask.Message) {
-        // A successful receive means we're fully connected again — reset the
-        // backoff counter so the next blip starts from 1s, not where we left off.
+        // reset backoff on successful receive so the next blip starts from 1s
         reconnectAttempt = 0
 
         switch raw {
         case .data(let data):
-            if let decoded = try? decoder.decode(WSServerMessage.self, from: data) {
+            do {
+                let decoded = try decoder.decode(WSServerMessage.self, from: data)
                 continuation?.yield(decoded)
+            } catch {
+                AppLogger.ws.error(
+                    "inbound decode failed (data frame)",
+                    error: error,
+                    context: ["bytes": data.count]
+                )
             }
         case .string(let text):
-            if let data = text.data(using: .utf8),
-               let decoded = try? decoder.decode(WSServerMessage.self, from: data) {
+            guard let data = text.data(using: .utf8) else {
+                AppLogger.ws.error("inbound string frame not UTF-8", context: ["len": text.count])
+                return
+            }
+            do {
+                let decoded = try decoder.decode(WSServerMessage.self, from: data)
                 continuation?.yield(decoded)
+            } catch {
+                AppLogger.ws.error(
+                    "inbound decode failed (string frame)",
+                    error: error,
+                    context: ["bytes": data.count]
+                )
             }
         @unknown default:
-            break
+            AppLogger.ws.warning("received unknown WebSocket message kind")
         }
     }
 
@@ -172,6 +193,12 @@ actor WebSocketClient {
         state = .disconnected
 
         guard shouldReconnect, reconnectAttempt < Self.maxReconnectAttempts else {
+            if shouldReconnect {
+                AppLogger.ws.critical(
+                    "reconnect budget exhausted — stream closing",
+                    context: ["attempts": reconnectAttempt, "max": Self.maxReconnectAttempts]
+                )
+            }
             continuation?.finish()
             continuation = nil
             return
@@ -181,8 +208,7 @@ actor WebSocketClient {
 
     private func scheduleReconnect() {
         reconnectAttempt += 1
-        // 1s, 2s, 4s, 8s, 16s, 30s — capped at maxBackoffSeconds. Jitter (0–25%)
-        // keeps a fleet of clients from reconnecting in lockstep after a server blip.
+        // jitter (0-25%) prevents fleet-wide reconnect lockstep after a server blip
         let base = min(UInt64(1) << (reconnectAttempt - 1), Self.maxBackoffSeconds)
         let jitter = UInt64.random(in: 0...(base * 250_000_000))
         let delayNanos = base * 1_000_000_000 + jitter
@@ -199,7 +225,13 @@ actor WebSocketClient {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard let self else { return }
-                try? await self.send(.heartbeat)
+                do {
+                    try await self.send(.heartbeat)
+                } catch {
+                    // heartbeat failure is the earliest half-open signal, return and let the receive loop trigger reconnect
+                    AppLogger.ws.warning("heartbeat send failed", context: ["error": String(describing: error)])
+                    return
+                }
             }
         }
     }

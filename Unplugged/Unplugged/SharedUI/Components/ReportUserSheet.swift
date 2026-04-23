@@ -1,15 +1,6 @@
-//
-//  ReportUserSheet.swift
-//  Unplugged.SharedUI.Components
-//
-
 import SwiftUI
 
-/// Sheet that collects a reason category and optional details for reporting a user.
-///
-/// Required by App Store Guideline 1.2: apps with user-generated interactions must provide
-/// a mechanism for reporting objectionable content. Submitted reports are persisted server-side
-/// for moderator review; we intentionally do not auto-moderate in-client.
+// required by App Store Guideline 1.2, apps with user-generated interactions must offer in-app reporting
 struct ReportUserSheet: View {
     let username: String
     let onSubmit: (_ reason: String, _ details: String) async -> Void

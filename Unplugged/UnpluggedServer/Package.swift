@@ -1,10 +1,3 @@
-//
-//  Package.swift
-//  UnpluggedServer
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-// File used to Define UnpluggedServer as Package
 // swift-tools-version: 6.0
 
 import PackageDescription
@@ -19,8 +12,9 @@ let package = Package(
         .package(url: "https://github.com/vapor/fluent.git", from: "4.11.0"),
         .package(url: "https://github.com/vapor/fluent-postgres-driver.git", from: "2.9.0"),
         .package(url: "https://github.com/vapor/jwt.git", from: "5.1.0"),
-        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"), // notifications
-        .package(url: "https://github.com/swift-server-community/APNSwift.git", from: "5.1.0"), // APNSCore types
+        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+        // APNSwift provides APNSCore types not re-exported by vapor/apns
+        .package(url: "https://github.com/swift-server-community/APNSwift.git", from: "5.1.0"),
         .package(path: "../UnpluggedShared"),
     ],
     targets: [

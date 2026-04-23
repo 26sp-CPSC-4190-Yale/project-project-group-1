@@ -1,10 +1,3 @@
-//
-//  CreateParticipants.swift (Creates member_info table)
-//  UnpluggedServer.Database.Migrations
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 
 struct CreateParticipants: AsyncMigration {

@@ -1,11 +1,5 @@
-//
-//  UnpluggedApp.swift
-//  Unplugged
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct UnpluggedApp: App {
@@ -13,13 +7,15 @@ struct UnpluggedApp: App {
     @State private var container: DependencyContainer
 
     init() {
+        // must run before any log call-site, honors the persisted kill switch across launches
+        AppLogger.loadPersistedEnabledFlag()
+        AppLogger.launch.info("UnpluggedApp.init")
+
         let container = DependencyContainer()
         _container = State(initialValue: container)
         AppDelegate.sharedContainer = container
         Self.configureNavigationBarAppearance()
-        #if DEBUG
-        MainThreadWatchdog.shared.start()
-        #endif
+        FailureDiagnostics.start()
     }
 
     private static func configureNavigationBarAppearance() {
@@ -43,6 +39,7 @@ struct UnpluggedApp: App {
         WindowGroup {
             ContentView()
                 .environment(container)
+                .onOpenURL { GIDSignIn.sharedInstance.handle($0) }
         }
     }
 }
