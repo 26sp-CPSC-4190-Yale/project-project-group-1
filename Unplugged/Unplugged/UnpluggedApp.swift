@@ -1,10 +1,3 @@
-//
-//  UnpluggedApp.swift
-//  Unplugged
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import GoogleSignIn
 
@@ -14,9 +7,7 @@ struct UnpluggedApp: App {
     @State private var container: DependencyContainer
 
     init() {
-        // Load the persisted logging kill switch BEFORE any call-sites fire.
-        // If a previous session set `AppLogger.disable()`, this honors it across
-        // launches without having to read the flag on every log call.
+        // must run before any log call-site, honors the persisted kill switch across launches
         AppLogger.loadPersistedEnabledFlag()
         AppLogger.launch.info("UnpluggedApp.init")
 

@@ -1,22 +1,7 @@
-//
-//  WebSocketClient.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
-/// Thin wrapper around `URLSessionWebSocketTask` that emits server-side session events
-/// as an `AsyncStream<WSServerMessage>`. The auth token is sent as a Bearer Authorization
-/// header on the HTTP upgrade request — query-string auth leaks into access logs and
-/// proxy caches, which is why we use the header path.
-///
-/// On unexpected disconnects the client attempts bounded reconnects with exponential
-/// backoff (1s, 2s, 4s, 8s, 16s, 30s) plus jitter, up to `maxReconnectAttempts`.
-/// Across reconnects the same `AsyncStream` continuation stays open, so subscribers
-/// don't need to re-wire; once all attempts are exhausted the stream finishes.
+// auth goes in the Bearer header, query-string auth leaks into access logs and proxy caches
 actor WebSocketClient {
     enum ConnectionState {
         case idle
@@ -55,9 +40,6 @@ actor WebSocketClient {
         return e
     }()
 
-    /// Async stream of decoded server messages. A fresh stream is handed out per connect call.
-    /// The stream survives transient disconnects — only an explicit `disconnect()` or an
-    /// exhausted reconnect budget terminates it.
     func connect(sessionID: UUID, token: String) -> AsyncStream<WSServerMessage> {
         teardownSocket()
         reconnectTask?.cancel()
@@ -157,9 +139,6 @@ actor WebSocketClient {
                     guard let message = try await self.receiveOne() else { return }
                     await self.handleIncoming(message)
                 } catch {
-                    // Receive failures are how we learn the socket dropped
-                    // (server crash, network blip, carrier handoff). Log the
-                    // error so the reconnect attempt has context in the trail.
                     AppLogger.ws.warning("receive loop failed — disconnecting", context: ["error": String(describing: error)])
                     await self.handleDisconnect()
                     return
@@ -174,8 +153,7 @@ actor WebSocketClient {
     }
 
     private func handleIncoming(_ raw: URLSessionWebSocketTask.Message) {
-        // A successful receive means we're fully connected again — reset the
-        // backoff counter so the next blip starts from 1s, not where we left off.
+        // reset backoff on successful receive so the next blip starts from 1s
         reconnectAttempt = 0
 
         switch raw {
@@ -216,9 +194,6 @@ actor WebSocketClient {
 
         guard shouldReconnect, reconnectAttempt < Self.maxReconnectAttempts else {
             if shouldReconnect {
-                // We wanted to reconnect but burned through every attempt — the
-                // session stream ends here. Everything downstream (orchestrator
-                // state sync, shield re-engagement) now falls back to polling.
                 AppLogger.ws.critical(
                     "reconnect budget exhausted — stream closing",
                     context: ["attempts": reconnectAttempt, "max": Self.maxReconnectAttempts]
@@ -233,8 +208,7 @@ actor WebSocketClient {
 
     private func scheduleReconnect() {
         reconnectAttempt += 1
-        // 1s, 2s, 4s, 8s, 16s, 30s — capped at maxBackoffSeconds. Jitter (0–25%)
-        // keeps a fleet of clients from reconnecting in lockstep after a server blip.
+        // jitter (0-25%) prevents fleet-wide reconnect lockstep after a server blip
         let base = min(UInt64(1) << (reconnectAttempt - 1), Self.maxBackoffSeconds)
         let jitter = UInt64.random(in: 0...(base * 250_000_000))
         let delayNanos = base * 1_000_000_000 + jitter
@@ -254,10 +228,7 @@ actor WebSocketClient {
                 do {
                     try await self.send(.heartbeat)
                 } catch {
-                    // Heartbeat failures are the earliest signal that the
-                    // socket is half-open (TCP keepalive hasn't fired yet).
-                    // Log and break — the next receive error will trigger
-                    // the reconnect flow.
+                    // heartbeat failure is the earliest half-open signal, return and let the receive loop trigger reconnect
                     AppLogger.ws.warning("heartbeat send failed", context: ["error": String(describing: error)])
                     return
                 }

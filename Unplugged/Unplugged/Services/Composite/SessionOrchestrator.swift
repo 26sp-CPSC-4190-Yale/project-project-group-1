@@ -1,10 +1,3 @@
-//
-//  SessionOrchestrator.swift
-//  UnpluggedServices.Composite
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Observation
 import UnpluggedShared
@@ -12,14 +5,6 @@ import UnpluggedShared
 import AudioToolbox
 #endif
 
-/// Top-level coordinator that owns the "currently active" session on this device.
-///
-/// Responsibilities:
-///  - drive session start/end over the REST API
-///  - subscribe to the WebSocket for real-time lifecycle events
-///  - engage/disengage the Screen Time shield when lock events arrive
-///  - feed observable state (countdownEndsAt, isLocked, participants) to SwiftUI
-///  - poll for jailbreak (user clearing Screen Time auth) while locked
 @MainActor
 @Observable
 final class SessionOrchestrator {
@@ -80,8 +65,6 @@ final class SessionOrchestrator {
 
     // MARK: - Entry points
 
-    /// Called after a host or guest has a `SessionResponse` in hand. Puts the device
-    /// into lobby mode and opens the WebSocket.
     func enterLobby(session: SessionResponse) async {
         let shouldConnect = currentSession?.session.id != session.session.id
         await applySessionSnapshot(session)
@@ -91,8 +74,6 @@ final class SessionOrchestrator {
         startSessionSync(sessionID: session.session.id)
     }
 
-    /// Host-only. Tells the server to lock the room for all members. The server will
-    /// broadcast `sessionLocked` which this orchestrator will handle via the WS stream.
     func hostStart() async {
         guard let session = currentSession else {
             AppLogger.session.warning("hostStart called with no currentSession")
@@ -108,8 +89,6 @@ final class SessionOrchestrator {
         }
     }
 
-    /// Host-only. Tells the server to end the room. Server broadcasts `sessionEnded`
-    /// which will clear the shield and load the recap.
     func hostEnd() async {
         guard let session = currentSession else {
             AppLogger.session.warning("hostEnd called with no currentSession")
@@ -123,12 +102,7 @@ final class SessionOrchestrator {
         }
     }
 
-    /// Non-host. Voluntarily leave a session — drops the Screen Time shield
-    /// locally, tells the server to mark the participant as left so the host
-    /// (and other members) see them removed, and tears down the orchestrator
-    /// so the device returns to idle. The shield is dropped even if the
-    /// server call fails; otherwise a network blip would strand the user
-    /// behind the lock with no way out short of waiting for the timer.
+    // unlock locally even if the server leave fails, otherwise a network blip strands the user behind the lock
     func participantLeave() async {
         guard let session = currentSession else {
             AppLogger.session.warning("participantLeave called with no currentSession")
@@ -173,8 +147,6 @@ final class SessionOrchestrator {
         lastRecap = nil
     }
 
-    /// Called from `AppDelegate` when a silent APNs push arrives. Silent push is the
-    /// fallback path when the WebSocket isn't connected (app suspended/killed).
     func applyRemoteLock(sessionID: UUID?, endsAt: Date) async {
         if let sessionID {
             startSessionSync(sessionID: sessionID)
@@ -183,10 +155,6 @@ final class SessionOrchestrator {
                 await applySessionSnapshot(response)
                 return
             } catch {
-                // Silent push woke us up but the backend fetch failed. We still
-                // engage the shield below using the push-provided endsAt, but
-                // the orchestrator state will be thinner than usual until the
-                // next sync tick catches up.
                 AppLogger.session.warning(
                     "applyRemoteLock: getSession failed, falling back to push-only lock",
                     context: ["id": sessionID.uuidString, "error": String(describing: error)]
@@ -200,10 +168,6 @@ final class SessionOrchestrator {
         await handleSessionEnded()
     }
 
-    /// Cancel all in-flight work (WebSocket listener, jailbreak watchdog) and close the
-    /// socket. Called on logout, token invalidation, and any hard teardown path — the
-    /// WS authenticates against a JWT and will fail once the token is gone, but holding
-    /// the listener open spins indefinitely against a stale identity until the TCP drops.
     func teardown() async {
         stopJailbreakWatchdog()
         stopSessionSync()
@@ -212,16 +176,10 @@ final class SessionOrchestrator {
         listenerTask = nil
         await webSocket.disconnect()
         await touchTips.stop()
-        // §64: drop the Screen Time shield on teardown. If the user signs out
-        // mid-session, leaving apps shielded with no session bound to them
-        // strands the device — next launch shows a lock with no way to clear
-        // it in-app. unlockApps is idempotent when nothing is shielded.
+        // drop the shield on teardown, otherwise a sign-out mid-session strands the device with a lock no in-app UI can clear
         do {
             try await screenTime.unlockApps()
         } catch {
-            // Shield leak on teardown. Not user-recoverable in-app — they'd
-            // need to yank the Screen Time permission. Critical because the
-            // user is now stranded.
             AppLogger.shield.critical("unlockApps failed during teardown — shield may be stuck", error: error)
         }
         phase = .idle
@@ -260,9 +218,6 @@ final class SessionOrchestrator {
 
     private func connectWebSocket(sessionID: UUID) async {
         guard let token = cache.readCachedToken() else {
-            // No cached token => no auth => session will fall back to polling.
-            // This tends to happen when a silent push beats the keychain
-            // prewarm; the next `didBecomeActive` sync loop picks it up.
             AppLogger.session.warning("connectWebSocket skipped: no cached token", context: ["id": sessionID.uuidString])
             return
         }
@@ -347,10 +302,6 @@ final class SessionOrchestrator {
             let response = try await sessions.getSession(id: sessionID)
             await applySessionSnapshot(response)
         } catch {
-            // The WebSocket remains the primary real-time path; transient
-            // polling failures are expected. Log as warning (not error) so
-            // they're visible in trace but don't look like bugs. Repeated
-            // failures here == we're drifting from server truth.
             AppLogger.session.warning(
                 "session reconcile poll failed",
                 context: ["id": sessionID.uuidString, "error": String(describing: error)]
@@ -423,9 +374,6 @@ final class SessionOrchestrator {
             lastShieldWarningMessage = nil
             startJailbreakWatchdog()
         } catch {
-            // Shield engagement is the whole point of the app — a failure here
-            // means the session is effectively cosmetic. `critical` level so
-            // it lights up in log search.
             AppLogger.shield.critical(
                 "lockApps failed",
                 error: error,
@@ -459,9 +407,7 @@ final class SessionOrchestrator {
         do {
             try await screenTime.requestAuthorization()
         } catch {
-            // Fall through to the final status check. FamilyControls can lag when
-            // returning from Settings or the permission sheet, so the property is
-            // still the source of truth after a short revalidation attempt.
+            // FamilyControls can lag returning from Settings, poll status after the throw before giving up
             AppLogger.shield.warning(
                 "requestAuthorization threw — relying on status poll to resolve",
                 context: ["error": String(describing: error)]
@@ -505,9 +451,6 @@ final class SessionOrchestrator {
             do {
                 self.lastRecap = try await recap.getRecap(sessionID: id)
             } catch {
-                // Recap may not be available immediately; the recap screen
-                // will retry. Warning-level because repeated failures here
-                // mean the user never gets their recap.
                 AppLogger.session.warning(
                     "recap fetch failed on session end",
                     context: ["id": id.uuidString, "error": String(describing: error)]

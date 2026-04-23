@@ -1,10 +1,3 @@
-//
-//  NotificationService.swift
-//  UnpluggedServer.Services
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import APNS
 import APNSCore
 import Fluent
@@ -13,7 +6,6 @@ import Vapor
 import VaporAPNS
 
 struct NotificationService {
-    // iOS app uses these to route incoming pushes
     enum NotificationType {
         static let nudge = "nudge"
         static let friendRequest = "friend_request"
@@ -26,8 +18,7 @@ struct NotificationService {
         static let sessionProximityExit = "session_proximity_exit"
     }
 
-    /// Send a visible push notification to a user.
-    /// No-op if the user has no device token or APNs is not configured.
+    // silently no-ops if the user has no device token or APNs is not configured
     static func send(
         to userID: UUID,
         title: String,
@@ -68,9 +59,7 @@ struct NotificationService {
         }
     }
 
-    /// Send a silent background push (content-available: 1) carrying a lifecycle event.
-    /// Used by session start/end broadcast so clients apply the shield even when
-    /// the WebSocket is not currently connected (e.g. backgrounded app).
+    // silent content-available push, the WebSocket fallback that applies the shield when the client is backgrounded
     static func sendSilent(
         to userID: UUID,
         type: String,
@@ -123,8 +112,7 @@ extension Application {
         set { storage[APNSConfiguredKey.self] = newValue }
     }
 
-    /// call from configure.swift. reads credentials from environment variables.
-    /// missing variable => APNs is skipped (safe for local dev without creds).
+    // call from configure.swift, any missing APNs env var skips setup so local dev runs without credentials
     func configureAPNS() throws {
         guard
             let privateKey = Environment.get("APNS_PRIVATE_KEY"),

@@ -1,12 +1,4 @@
-//
-//  CreateSessionLocations.swift
-//  UnpluggedServer.Database.Migrations
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
-// Location data is now stored directly on the rooms table (optional latitude/longitude columns).
-// Keeping this file for reference — uncomment if a separate locations table is needed later.
+// retained for reference, location now lives on the rooms table as optional lat/lng columns
 
 //import Fluent
 //

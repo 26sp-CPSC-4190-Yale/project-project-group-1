@@ -103,9 +103,6 @@ struct UsernameLoginView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(Color.secondaryColor)
 
-                        // App Store guideline 5.1.1(v) + 3.1.2: ToS and Privacy Policy
-                        // must be accessible in-app, not just on the App Store listing,
-                        // and must appear before account creation.
                         LegalFooter()
                             .padding(.top, .spacingSm)
                     }

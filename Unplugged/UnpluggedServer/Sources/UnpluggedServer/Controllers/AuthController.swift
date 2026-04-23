@@ -1,10 +1,3 @@
-//
-//  AuthController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import JWT
 import UnpluggedShared
@@ -58,8 +51,7 @@ struct AuthController: RouteCollection {
     func login(req: Request) async throws -> AuthResponse {
         let body = try req.content.decode(LoginRequest.self)
 
-        // Per-username throttle on top of the per-IP middleware: blocks credential
-        // stuffing that rotates IPs but hammers one account.
+        // per-username throttle blocks credential stuffing that rotates IPs, the per-IP middleware is not enough
         guard await RateLimit.shared.allowUsername(body.username) else {
             throw Abort(.tooManyRequests, reason: "Too many login attempts. Try again in a minute.")
         }
@@ -98,9 +90,7 @@ struct AuthController: RouteCollection {
         do {
             appleToken = try await req.jwt.apple.verify(body.identityToken)
         } catch {
-            // Log only the error type at warning — the full error description can
-            // embed decoded claims (subject, email) which we don't want in prod logs.
-            // Set LOG_LEVEL=debug to see the full error during investigation.
+            // warn with error type only, full error can embed decoded claims (subject, email), debug shows everything
             req.logger.warning("Apple identity token verification failed", metadata: [
                 "error_type": "\(type(of: error))"
             ])
@@ -110,7 +100,6 @@ struct AuthController: RouteCollection {
 
         let subject = appleToken.subject.value
 
-        // Try to find an existing user linked to this Apple subject
         if let existing = try await UserModel.query(on: req.db)
             .filter(\.$appleSubject == subject)
             .first() {
@@ -120,10 +109,7 @@ struct AuthController: RouteCollection {
             return try await issueToken(for: existing, req: req)
         }
 
-        // Otherwise create a new user. Username must be unique, so derive one.
-        // Fallback must NOT derive from the Apple subject — that made usernames
-        // enumerable for anyone scraping the social graph. A random suffix keeps
-        // the account un-linkable to its OAuth identity.
+        // fallback must not derive from the Apple subject, doing so made usernames enumerable via the social graph
         let baseUsername = usernameCandidate(
             fromFullName: body.fullName,
             email: body.email ?? appleToken.email,
@@ -133,7 +119,7 @@ struct AuthController: RouteCollection {
 
         let user = UserModel()
         user.username = username
-        // No password for OAuth accounts — store a random unusable hash.
+        // OAuth accounts have no password, store a random unusable hash so the column constraint is satisfied
         user.passwordHash = try await req.password.async.hash(UUID().uuidString)
         user.appleSubject = subject
         try await user.save(on: req.db)
@@ -195,7 +181,6 @@ struct AuthController: RouteCollection {
         )
     }
 
-    /// Derive a safe base username from full name → email local part → fallback.
     private func usernameCandidate(fromFullName fullName: String?, email: String?, fallback: String) -> String {
         if let fullName,
            let sanitized = sanitizeUsername(fullName),
@@ -211,7 +196,6 @@ struct AuthController: RouteCollection {
         return sanitizeUsername(fallback) ?? "user\(Int.random(in: 1000...9999))"
     }
 
-    /// Filter a string down to letters/numbers and clamp to the InputValidation rules (3–20 chars).
     private func sanitizeUsername(_ raw: String) -> String? {
         let filtered = raw.unicodeScalars
             .filter { CharacterSet.alphanumerics.contains($0) }
@@ -225,7 +209,6 @@ struct AuthController: RouteCollection {
         return clamped
     }
 
-    /// Ensure uniqueness by appending a numeric suffix as needed.
     private func uniqueUsername(_ base: String, on db: Database) async throws -> String {
         var candidate = base
         var counter = 1

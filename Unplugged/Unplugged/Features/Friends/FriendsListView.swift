@@ -1,10 +1,3 @@
-//
-//  FriendsListView.swift
-//  Unplugged.Features.Friends
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -32,7 +25,6 @@ struct FriendsListView: View {
                         .padding(.top, .spacingSm)
                         .padding(.bottom, .spacingSm)
 
-                        // Incoming Requests Section
                         if !viewModel.visibleIncomingRequests.isEmpty {
                             Section {
                                 ForEach(viewModel.visibleIncomingRequests) { request in
@@ -44,7 +36,6 @@ struct FriendsListView: View {
                             .padding(.bottom, .spacingMd)
                         }
 
-                        // Outgoing Pending Requests Section
                         if !viewModel.visibleOutgoingRequests.isEmpty {
                             Section {
                                 ForEach(viewModel.visibleOutgoingRequests) { request in
@@ -56,7 +47,6 @@ struct FriendsListView: View {
                             .padding(.bottom, .spacingMd)
                         }
 
-                        // Friends Section
                         if !viewModel.friends.isEmpty {
                             Section {
                                 ForEach(viewModel.filteredFriends) { friend in

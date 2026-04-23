@@ -4,15 +4,6 @@ import os
 import UIKit
 #endif
 
-/// Starts the background watchdogs that catch things going wrong which the app
-/// itself doesn't know to complain about: main-thread hangs and memory
-/// pressure. Call `FailureDiagnostics.start()` once at launch after
-/// `AppLogger.loadPersistedEnabledFlag()`.
-///
-/// Every watcher in here subscribes to `AppLogger.enabledDidChange` so that
-/// flipping the kill switch (via `AppLogger.disable()` or the persisted
-/// UserDefaults key) stops all background timers and notification observers.
-/// Turning logging back on restarts them.
 @MainActor
 enum FailureDiagnostics {
     private static var didWireEnabledObserver = false
@@ -53,13 +44,6 @@ enum FailureDiagnostics {
 
 // MARK: - MainThreadWatchdog
 
-/// Detects when the main thread can't service work for longer than `threshold`.
-/// Posts a warning to `AppLogger.hang` along with a breadcrumb trail so you can
-/// see which subsystem was active right before the stall.
-///
-/// Implementation: a dispatch timer on a background queue pings the main queue.
-/// If the ping response takes longer than `threshold`, we log once per stall
-/// and then log a "recovered after Xms" notice when it finally lands.
 final class MainThreadWatchdog: @unchecked Sendable {
     static let shared = MainThreadWatchdog()
 
@@ -72,9 +56,7 @@ final class MainThreadWatchdog: @unchecked Sendable {
 
     private init() {}
 
-    /// `threshold` is the stall duration in seconds that will trigger a warning.
-    /// 350 ms is aggressive enough to catch keyboard/picker first-use stalls but
-    /// not so tight it false-alarms on normal view-controller presentations.
+    // 350 ms catches keyboard/picker first-use stalls without false-alarming on normal presentations
     func start(threshold: TimeInterval = 0.35) {
         queue.async { [weak self] in
             guard let self, !self.isRunning else { return }
@@ -142,17 +124,6 @@ final class MainThreadWatchdog: @unchecked Sendable {
 
 // MARK: - MemoryDiagnostics
 
-/// Observes memory-warning notifications and periodically samples the app's
-/// resident footprint. Two distinct signals:
-///   1. `didReceiveMemoryWarningNotification` — iOS is telling us we're under
-///      pressure. Always logged with the current footprint and a breadcrumb
-///      dump so you can see what was running at the time.
-///   2. Periodic sampler — every 30 s. Logs a warning if footprint crosses a
-///      hard ceiling (250 MB) or if it grew by > 50 MB since the last sample
-///      with no intervening memory warning. Useful as a cheap "leak detector"
-///      for views/services that forget to tear down on backgrounding.
-///
-/// All output routes through `AppLogger.memory`, so the kill switch silences it.
 final class MemoryDiagnostics: @unchecked Sendable {
     static let shared = MemoryDiagnostics()
 
@@ -163,16 +134,8 @@ final class MemoryDiagnostics: @unchecked Sendable {
     private var lastSampleBytes: UInt64?
     private var samplesSinceLastWarning = 0
 
-    /// Absolute ceiling. Apps are terminated somewhere between 1-2 GB on modern
-    /// devices but UI hitches well before that. 250 MB is a generous
-    /// everyday-usage cap — crossing it is a signal to investigate.
     private let ceilingBytes: UInt64 = 250 * 1024 * 1024
-
-    /// Growth between samples that triggers a "leak suspect" warning. Smaller
-    /// spikes are normal (image decode, JSON buffers); 50 MB in 30s without a
-    /// memory warning is suspicious.
     private let growthAlertBytes: UInt64 = 50 * 1024 * 1024
-
     private let samplingInterval: TimeInterval = 30
 
     private init() {}
@@ -281,9 +244,7 @@ final class MemoryDiagnostics: @unchecked Sendable {
         }
     }
 
-    /// Resident footprint ("phys_footprint") from `task_vm_info`. This is what
-    /// iOS actually measures against the kill threshold, not resident_size.
-    /// Returns 0 on the (rare) kernel error.
+    // phys_footprint, not resident_size, is what iOS measures against the kill threshold
     static func residentFootprintBytes() -> UInt64 {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info>.size / MemoryLayout<natural_t>.size)

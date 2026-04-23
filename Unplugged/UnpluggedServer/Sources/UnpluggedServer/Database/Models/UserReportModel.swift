@@ -1,8 +1,3 @@
-//
-//  UserReportModel.swift
-//  UnpluggedServer.Database.Models
-//
-
 import Fluent
 import Vapor
 

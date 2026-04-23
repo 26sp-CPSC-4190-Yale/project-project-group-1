@@ -30,9 +30,7 @@ actor ScreenTimeAllowlistRepository {
             let allowlist = try decoder.decode(ScreenTimeEmergencyAllowlist.self, from: archived)
             return ScreenTimeAllowlistSnapshot(allowlist: allowlist, hasStoredValue: true)
         } catch {
-            // Fall through to legacy decode. Only worth logging if BOTH fail
-            // — the current-schema decode failure is expected for data saved
-            // before this shape existed.
+            // current-shape miss is expected for pre-migration data, only log if legacy also fails
         }
 
         do {
@@ -43,8 +41,6 @@ actor ScreenTimeAllowlistRepository {
                 hasStoredValue: true
             )
         } catch {
-            // Both shapes failed. The user has stored data we can't read —
-            // they'll see an empty allowlist and need to pick again.
             AppLogger.screenTime.error(
                 "allowlist decode failed for both current and legacy schemas — resetting",
                 error: error,

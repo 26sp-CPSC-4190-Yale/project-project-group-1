@@ -71,10 +71,6 @@ struct ActiveRoomView: View {
             }
         }
         .task(id: initialSession.session.id) {
-            // Host keeps the room advertisable during the lobby phase so late
-            // joiners can still pair via proximity while watching the member
-            // list fill up. Advertising stops when the host locks (below) or
-            // the view is dismissed.
             await viewModel.startLobbyIfNeeded(
                 session: initialSession,
                 orchestrator: orchestrator,
@@ -267,10 +263,6 @@ struct ActiveRoomView: View {
         }
     }
 
-    // Unified lobby shown to both host and guest. The only visual difference
-    // is the copy under the icon and the advertising pulse on the host side
-    // — the room code is shown to everyone so joiners can confirm they're in
-    // the right room and hosts can share it out-of-band.
     private var lobbyContent: some View {
         VStack(spacing: .spacingLg) {
             Image(systemName: "iphone.radiowaves.left.and.right")

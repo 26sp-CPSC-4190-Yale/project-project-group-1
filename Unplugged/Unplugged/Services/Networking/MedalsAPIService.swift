@@ -1,8 +1,3 @@
-//
-//  MedalsAPIService.swift
-//  Unplugged.Services.Networking
-//
-
 import Foundation
 import UnpluggedShared
 

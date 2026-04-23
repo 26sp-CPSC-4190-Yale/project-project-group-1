@@ -1,10 +1,3 @@
-//
-//  AuthViewModel.swift
-//  Unplugged.Features.Auth
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import AuthenticationServices
 import Foundation
 import Observation
@@ -45,11 +38,7 @@ class AuthViewModel {
                 let user = try await userService.getMe()
                 cache.saveUser(user)
             } catch {
-                // Token was cached but /me failed. Could be 401 (token expired
-                // while app was backgrounded) or network issue. Log so we can
-                // distinguish "user never signed in" from "user silently
-                // bounced out on launch" in support reports.
-                AppLogger.auth.error("restoreSession: getMe failed — proceeding without cached user", error: error)
+                AppLogger.auth.error("restoreSession: getMe failed, proceeding without cached user", error: error)
             }
         }
         isAuthenticated = true
@@ -91,7 +80,6 @@ class AuthViewModel {
         isLoading = false
     }
 
-    /// Called from the Sign in with Apple button's completion handler.
     func handleAppleSignInResult(_ result: Result<ASAuthorization, Error>) async {
         guard let authService, let cache else {
             AppLogger.auth.warning("handleAppleSignInResult called before configure()")
@@ -144,8 +132,6 @@ class AuthViewModel {
         }
     }
 
-    /// Google sign-in entry point. Requires the GoogleSignIn SDK to be wired up at the call site
-    /// to obtain an ID token; once integrated, pass the resulting idToken here.
     func signInWithGoogle(idToken: String) async {
         guard let authService, let cache else {
             AppLogger.auth.warning("signInWithGoogle called before configure()")
@@ -165,10 +151,6 @@ class AuthViewModel {
     }
 
     func signOut() {
-        // Close the session WebSocket and stop the watchdog BEFORE clearing auth —
-        // the socket authenticates via JWT, so it keeps the user's identity alive
-        // on the wire even after clearAuth() runs locally. Without this, the listener
-        // loop spins until the TCP connection naturally drops.
         if let orchestrator = sessionOrchestrator {
             Task { await orchestrator.teardown() }
         }
@@ -177,10 +159,6 @@ class AuthViewModel {
     }
 
     private func message(for error: Error) -> String {
-        // APIClient wraps non-2xx responses as NSError(domain: "Vapor", ...)
-        // with the server's `reason` string in localizedDescription. Surface
-        // that directly so rate-limit responses, "Username already taken",
-        // etc. aren't buried under a generic fallback message.
         let nsError = error as NSError
         if nsError.domain == "Vapor" {
             let description = nsError.localizedDescription

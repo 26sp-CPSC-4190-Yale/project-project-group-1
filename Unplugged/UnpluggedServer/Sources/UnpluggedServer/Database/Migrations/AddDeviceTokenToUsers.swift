@@ -1,8 +1,3 @@
-//
-//  AddDeviceTokenToUsers.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddDeviceTokenToUsers: AsyncMigration {

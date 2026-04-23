@@ -1,10 +1,3 @@
-//
-//  UnpluggedTests.swift
-//  UnpluggedTests
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Testing
 @testable import Unplugged

@@ -1,10 +1,3 @@
-//
-//  configure.swift
-//  UnpluggedServer
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import FluentPostgresDriver
 import Foundation
@@ -14,11 +7,7 @@ import Vapor
 import VaporAPNS
 
 public func configure(_ app: Application) async throws {
-    // CORS: iOS clients don't enforce CORS, but any browser-based admin
-    // tooling or future web client will. Declaring an explicit policy now
-    // avoids the "it works in dev, fails in prod behind a real origin"
-    // surprise later. Origins are pulled from ALLOWED_ORIGINS (comma-separated);
-    // in development we allow any origin for local tooling.
+    // iOS doesn't enforce CORS, this exists for web clients, ALLOWED_ORIGINS is comma separated
     let corsOrigins: CORSMiddleware.AllowOriginSetting
     if let raw = Environment.get("ALLOWED_ORIGINS"), !raw.isEmpty {
         let origins = raw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -59,7 +48,7 @@ public func configure(_ app: Application) async throws {
     )
     app.databases.use(.postgres(configuration: dbConfig), as: .psql)
 
-    // Register migrations in dependency order
+    // order matters, foreign keys assume these tables already exist
     app.migrations.add(CreateUsers())
     app.migrations.add(CreateSessions())
     app.migrations.add(CreateParticipants())
@@ -92,12 +81,7 @@ public func configure(_ app: Application) async throws {
     try routes(app)
 }
 
-/// Resolve the JWT signing secret.
-///
-/// In production we require `JWT_SECRET` to be set and at least 32 characters. Booting with
-/// a short or missing secret would mean every token is signed with a key an attacker can trivially
-/// guess — an auth bypass. In development we allow a well-known fallback so local dev works
-/// without extra config, but the fallback is rejected for any non-development environment.
+// prod requires JWT_SECRET at 32+ chars, a short or missing secret is an auth bypass, dev falls back to a known string
 private func resolveJWTSecret(environment: Environment) throws -> String {
     if let secret = Environment.get("JWT_SECRET") {
         guard secret.count >= 32 else {

@@ -1,8 +1,3 @@
-//
-//  CreateUserBlocks.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct CreateUserBlocks: AsyncMigration {

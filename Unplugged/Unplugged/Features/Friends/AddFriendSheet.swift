@@ -1,10 +1,3 @@
-//
-//  AddFriendSheet.swift
-//  Unplugged.Features.Friends
-//
-//  Created by Sebastian Gonzalez on 4/10/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -51,6 +44,7 @@ class AddFriendViewModel {
             ]
         )
 
+        // plain Task inherits @MainActor, Task.detached + MainActor.run caused per-keystroke hitches on iOS 17.6
         searchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self, !Task.isCancelled else { return }
@@ -107,7 +101,6 @@ struct AddFriendSheet: View {
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Search Bar
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.tertiaryColor.opacity(0.5))
@@ -174,6 +167,7 @@ struct AddFriendSheet: View {
                                     Button(action: {
                                         viewModel.addingUserID = user.id
                                         Task {
+                                            // parent dismisses via showAddFriend = false, calling dismiss() here double-dismisses and crashes
                                             let didAdd = await onAddFriend(user.username)
                                             if !didAdd {
                                                 viewModel.addingUserID = nil

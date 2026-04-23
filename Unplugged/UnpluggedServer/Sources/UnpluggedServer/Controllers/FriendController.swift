@@ -1,10 +1,3 @@
-//
-//  FriendController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import UnpluggedShared
 import Vapor
@@ -17,10 +10,10 @@ extension LeaderboardEntryResponse: @retroactive Content {}
 struct FriendController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let friends = routes.grouped("friends")
-        // POST /friends -> send friend request (or accept if reciprocal exists)
+        // POST sends, or accepts if a reciprocal pending request already exists
         friends.post(use: add)
         friends.delete(":friendID", use: remove)
-        friends.get(use: list) // list accepted friends
+        friends.get(use: list)
         friends.get("leaderboard", use: leaderboard)
         friends.post(":friendID", "nudge", use: nudge)
         friends.post(":friendID", "accept", use: acceptFromUser)
@@ -53,13 +46,11 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest, reason: "Cannot add yourself as a friend.")
         }
 
-        // If either side has blocked the other, silently refuse. Using 404 rather than a
-        // dedicated status prevents leaking "this user blocked you" to the sender.
+        // 404 rather than a dedicated status hides "this user blocked you" from the sender
         if try await BlockService.isBlocked(between: userID, and: targetID, on: req.db) {
             throw Abort(.notFound, reason: "User not found.")
         }
 
-        // check for existing relationship
         let existingQuery = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
@@ -76,18 +67,15 @@ struct FriendController: RouteCollection {
             if existing.status == "accepted" {
                 throw Abort(.conflict, reason: "Already friends.")
             }
-            // if there is a pending from the other user, accept it
             if existing.status == "pending" && existing.user1ID == targetID && existing.user2ID == userID {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
                 try await Self.deletePendingFriendships(between: userID, and: targetID, on: req.db)
                 return try await Self.buildFriendResponse(user: target, status: "accepted", db: req.db)
             }
-            // if there's already a pending from this user, inform conflict
             throw Abort(.conflict, reason: "Friend request already exists.")
         }
 
-        // create pending request
         let friendship = FriendshipModel()
         friendship.user1ID = userID
         friendship.user2ID = targetID
@@ -139,7 +127,6 @@ struct FriendController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
-        // only return accepted friendships
         let friendships = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
@@ -172,7 +159,6 @@ struct FriendController: RouteCollection {
         return results
     }
 
-    // List incoming (requests where current user is recipient)
     @Sendable
     func listIncoming(req: Request) async throws -> [FriendResponse] {
         let payload = try req.auth.require(UserPayload.self)
@@ -222,7 +208,6 @@ struct FriendController: RouteCollection {
         return results
     }
 
-    // List outgoing (requests current user sent)
     @Sendable
     func listOutgoing(req: Request) async throws -> [FriendResponse] {
         let payload = try req.auth.require(UserPayload.self)
@@ -267,7 +252,6 @@ struct FriendController: RouteCollection {
         return results
     }
 
-    // Accept an incoming friend request by friendship ID
     @Sendable
     func acceptRequest(req: Request) async throws -> FriendResponse {
         let payload = try req.auth.require(UserPayload.self)
@@ -327,7 +311,6 @@ struct FriendController: RouteCollection {
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
 
-    // Reject an incoming friend request (delete)
     @Sendable
     func rejectRequest(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
@@ -353,7 +336,6 @@ struct FriendController: RouteCollection {
         return .noContent
     }
 
-    // Accept request by requester user ID (friendly client path)
     @Sendable
     func acceptFromUser(req: Request) async throws -> FriendResponse {
         let payload = try req.auth.require(UserPayload.self)
@@ -421,10 +403,7 @@ struct FriendController: RouteCollection {
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
 
-    /// Reject an incoming request OR cancel an outgoing request.
-    /// The endpoint takes the OTHER user's ID; the direction of the pending
-    /// friendship row is figured out server-side so the same client action works
-    /// for both cases.
+    // rejects an incoming OR cancels an outgoing, the direction is resolved server side from the other user's ID
     @Sendable
     func rejectFromUser(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
@@ -489,8 +468,7 @@ struct FriendController: RouteCollection {
         return NudgeResponse(status: "nudge sent")
     }
 
-    /// Expanded profile for a friend: summary + stats + medals.
-    /// Requires an accepted friendship (or self) so you can't scrape arbitrary user data.
+    // gated on accepted friendship or self, otherwise the endpoint becomes a user data scraper
     @Sendable
     func profile(req: Request) async throws -> FriendProfileResponse {
         let payload = try req.auth.require(UserPayload.self)
@@ -534,8 +512,6 @@ struct FriendController: RouteCollection {
         return FriendProfileResponse(friend: f, stats: s, medals: m)
     }
 
-    /// Leaderboard across the caller's accepted friends + the caller themselves,
-    /// ranked by focused minutes (descending). Ties share a rank.
     @Sendable
     func leaderboard(req: Request) async throws -> [LeaderboardEntryResponse] {
         let payload = try req.auth.require(UserPayload.self)
@@ -597,9 +573,6 @@ struct FriendController: RouteCollection {
             .delete()
     }
 
-    /// Build a FriendResponse with computed presence and hoursUnplugged for the given user.
-    /// - Parameter overrideID: if non-nil, used as the response ID (useful when
-    ///   representing a friendship-request row rather than the user itself).
     static func buildFriendResponse(
         user: UserModel,
         status: String?,
@@ -619,10 +592,7 @@ struct FriendController: RouteCollection {
         )
     }
 
-    /// Presence rules:
-    /// - `.unplugged` if user is currently a member of an active locked room (`locked_at != nil` and `ended_at == nil`).
-    /// - `.online` if `last_seen_at` is within the last 5 minutes.
-    /// - `.offline` otherwise.
+    // unplugged if in an active locked room, online if last_seen within 5 minutes, else offline
     private static func computePresence(for userID: UUID, lastSeenAt: Date?, db: Database) async throws -> PresenceStatus {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)

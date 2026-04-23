@@ -19,7 +19,7 @@ struct MedalsController: RouteCollection {
         users.get(":userID", "medals", use: getUserMedals)
     }
 
-    // Empty ADMIN_USER_IDS => nobody passes => all admin endpoints 403.
+    // empty or unset ADMIN_USER_IDS means no one passes, so admin endpoints 403 by default
     private func requireAdmin(_ req: Request) throws {
         let payload = try req.auth.require(UserPayload.self)
         let callerID = try payload.userID
@@ -72,9 +72,6 @@ struct MedalsController: RouteCollection {
         return try await MedalService.getUserMedals(userID: userID, on: req.db)
     }
 
-    /// Return every medal in the catalog with the current user's unlock status and
-    /// a short "how to unlock" rule description. Clients use this for a gallery of
-    /// locked + unlocked medals.
     func getCatalog(req: Request) async throws -> [MedalCatalogEntry] {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID

@@ -36,9 +36,7 @@ final class ActiveRoomViewModel {
         await orchestrator.enterLobby(session: session)
 
         guard isHost else { return }
-        // Fire TouchTips activation off the main actor. MC/NI framework calls
-        // (MCSession init, startAdvertisingPeer) stall the main thread for a
-        // few hundred ms when awaited inline.
+        // MCSession init and startAdvertisingPeer stall the main actor for hundreds of ms, run off-actor
         Task.detached { [sessionID] in
             do {
                 try await touchTips.activate(roomID: sessionID)

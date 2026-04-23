@@ -1,8 +1,3 @@
-//
-//  AddLifecycleFieldsToRooms.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddLifecycleFieldsToRooms: AsyncMigration {

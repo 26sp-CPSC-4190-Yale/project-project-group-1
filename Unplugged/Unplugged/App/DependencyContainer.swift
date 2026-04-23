@@ -1,10 +1,3 @@
-//
-//  DependencyContainer.swift
-//  Unplugged.App
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Observation
 
@@ -27,11 +20,7 @@ class DependencyContainer {
 
     init() {
         let cache = LocalCacheService()
-        // Pre-warm the keychain cache off the main thread. SecItemCopyMatching can take
-        // several hundred milliseconds on a cold keychain and `UnpluggedApp.init` runs on
-        // the MainActor, so doing the read inline freezes the first frame. prewarmToken()
-        // dispatches the read onto a background queue and publishes the result back to
-        // the cache when it lands.
+        // SecItemCopyMatching can block hundreds of ms on a cold keychain, pre-warm off the main actor
         cache.prewarmToken()
         let client = APIClient(cache: cache)
         let screenTime = ScreenTimeService()

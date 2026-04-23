@@ -1,11 +1,3 @@
-//
-//  SessionDetailView.swift
-//  Unplugged.Features.History
-//
-//  Detail view for a historical session: shows planned vs. actual duration,
-//  whether the user left early, and why.
-//
-
 import SwiftUI
 import UnpluggedShared
 

@@ -1,10 +1,3 @@
-//
-//  InputValidation.swift
-//  UnpluggedShared.Validation
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 public enum InputValidation {
     public static let usernameMinLength = 3
     public static let usernameMaxLength = 20
@@ -17,14 +10,7 @@ public enum InputValidation {
         return username.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
     }
 
-    /// Password strength rules.
-    ///
-    /// We require 8+ characters and at least three of the four character classes
-    /// (lower, upper, digit, symbol). This rejects the obvious offenders — "password",
-    /// "12345678", "aaaaaaaa" — without pushing users into the impossible-to-remember
-    /// territory that NIST explicitly warns against. We deliberately do *not* mandate
-    /// every class or a rotating expiry; those patterns harm security in practice by
-    /// pushing users to predictable substitutions.
+    // 8+ chars and 3 of 4 classes, intentionally not all 4 nor expiry-based since NIST warns those push predictable substitutions
     public static func isValidPassword(_ password: String) -> Bool {
         guard password.count >= passwordMinLength else { return false }
         var classes = 0
@@ -35,8 +21,7 @@ public enum InputValidation {
         return classes >= 3
     }
 
-    /// Human-readable explanation of the rules — used as the 400 response and the
-    /// client-side helper text so both surfaces say exactly the same thing.
+    // used by server 400 and client helper text, keep the two surfaces identical
     public static let passwordRequirementsMessage =
         "Password must be at least 8 characters and include three of: lowercase, uppercase, numbers, symbols."
 

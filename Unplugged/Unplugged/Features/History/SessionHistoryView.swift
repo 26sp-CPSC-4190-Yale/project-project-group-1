@@ -1,10 +1,3 @@
-//
-//  SessionHistoryView.swift
-//  Unplugged.Features.History
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -116,7 +109,6 @@ struct SessionHistoryView: View {
     }
 
     private func durationLabel(for session: SessionHistoryResponse) -> String {
-        // Prefer actual focused time if present; otherwise fall back to planned.
         if let actual = session.actualFocusedSeconds, actual > 0 {
             return TimeInterval(actual).humanReadable
         }

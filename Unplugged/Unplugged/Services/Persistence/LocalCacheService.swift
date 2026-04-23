@@ -1,10 +1,3 @@
-//
-//  LocalCacheService.swift
-//  Unplugged.Services.Persistence
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Security
 import UnpluggedShared
@@ -47,9 +40,6 @@ class LocalCacheService {
             }
             let addStatus = SecItemAdd(query as CFDictionary, nil)
             if addStatus != errSecSuccess {
-                // Loss of keychain write means the user will be silently
-                // signed out on next cold launch — that's bad enough to warrant
-                // a fault-level log.
                 AppLogger.cache.critical("SecItemAdd(token) failed", context: ["status": addStatus])
             }
         }
@@ -63,10 +53,7 @@ class LocalCacheService {
         return token
     }
 
-    /// Async variant: performs the keychain read on a background queue so the caller
-    /// never blocks on `SecItemCopyMatching`. `SecItemCopyMatching` can take hundreds
-    /// of milliseconds on a cold keychain — calling it from the MainActor freezes the
-    /// first frame, which then cascades into every subsequent interaction feeling slow.
+    // SecItemCopyMatching on a cold keychain stalls for hundreds of ms, do not call the sync variant from MainActor
     func readTokenAsync() async -> String? {
         if didLoadToken { return cachedToken }
         let key = tokenKey
@@ -80,8 +67,6 @@ class LocalCacheService {
         return token
     }
 
-    /// Kick off an asynchronous keychain prewarm. Safe to call at app launch from the
-    /// MainActor — the actual `SecItemCopyMatching` runs on `keychainQueue`.
     func prewarmToken() {
         guard !didLoadToken else { return }
         let key = tokenKey
@@ -105,7 +90,7 @@ class LocalCacheService {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
-            // Expected on a fresh install — not worth logging.
+            // expected on a fresh install, do not log
             return nil
         }
         guard status == errSecSuccess, let data = result as? Data else {
@@ -118,8 +103,7 @@ class LocalCacheService {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Fast in-memory snapshot for request construction. This intentionally does not
-    /// fall back to Keychain; API paths must not block the UI on SecItemCopyMatching.
+    // deliberately no keychain fallback, API paths must not block on SecItemCopyMatching
     func readCachedToken() -> String? {
         cachedToken
     }
@@ -142,7 +126,6 @@ class LocalCacheService {
 
     var isLoggedIn: Bool { readToken() != nil }
 
-    /// Async version of `isLoggedIn` that avoids blocking the MainActor on the keychain.
     func isLoggedInAsync() async -> Bool {
         await readTokenAsync() != nil
     }
@@ -165,8 +148,6 @@ class LocalCacheService {
             cachedUser = user
             return user
         } catch {
-            // Schema drift: old User shape saved, new app version trying to
-            // decode it. Log and clear so next sign-in writes a fresh copy.
             AppLogger.cache.error("user decode failed — clearing cached value", error: error, context: ["bytes": data.count])
             UserDefaults.standard.removeObject(forKey: userKey)
             return nil

@@ -1,20 +1,9 @@
-//
-//  BlockService.swift
-//  UnpluggedServer.Services
-//
-
 import Fluent
 import Foundation
 import Vapor
 
-/// Helpers for applying user-block filtering across the API.
-///
-/// Blocks are bidirectional: if A blocks B, neither should see the other in search results,
-/// friend lists, or incoming requests. We union both directions into a single set of IDs to
-/// strip from any listing endpoint before it returns.
 enum BlockService {
-    /// User IDs that `viewerID` should not see — either because they blocked that user, or
-    /// because that user blocked them.
+    // bidirectional, returns both outgoing and incoming blocks as one union so list endpoints strip both sides
     static func hiddenUserIDs(for viewerID: UUID, on db: Database) async throws -> Set<UUID> {
         let outgoing = try await UserBlockModel.query(on: db)
             .filter(\.$blockerID == viewerID)
@@ -28,7 +17,6 @@ enum BlockService {
         return set
     }
 
-    /// Returns true if either side has blocked the other.
     static func isBlocked(between a: UUID, and b: UUID, on db: Database) async throws -> Bool {
         let count = try await UserBlockModel.query(on: db)
             .group(.or) { group in

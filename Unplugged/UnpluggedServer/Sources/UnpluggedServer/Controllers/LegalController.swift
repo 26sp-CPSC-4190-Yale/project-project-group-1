@@ -1,17 +1,7 @@
-//
-//  LegalController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Vapor
 
-/// Serves the public Privacy Policy and Terms of Service pages as plain HTML.
-///
-/// Routes are intentionally unauthenticated — the client's LegalFooter component
-/// and the App Store review team both need to reach these without a token.
-/// Copy is a placeholder; replace before submitting the app for review.
+// TODO copy is placeholder, replace before App Store submission
+// routes are intentionally unauthenticated, the client footer and App Store reviewers need them without a token
 struct LegalController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         let legal = routes.grouped("legal")

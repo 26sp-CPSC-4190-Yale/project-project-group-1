@@ -60,9 +60,6 @@ struct CreateRoomView: View {
 
                 Spacer(minLength: .spacingXl)
 
-                // Hands off to the unified lobby (ActiveRoomView) which owns
-                // the room code display, member list, proximity advertising,
-                // and the lock action.
                 CreateRoomActionButton(
                     viewModel: viewModel,
                     sessions: sessions,

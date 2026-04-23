@@ -1,11 +1,3 @@
-//
-//  LeaderboardView.swift
-//  Unplugged.Features.Profile
-//
-//  Leaderboard across the current user + their accepted friends,
-//  ranked by actual focused minutes.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -22,7 +14,6 @@ final class LeaderboardViewModel {
         do {
             entries = try await service.getLeaderboard()
         } catch is CancellationError {
-            // View torn down — not a user-facing error.
         } catch {
             self.error = "Could not load leaderboard"
         }

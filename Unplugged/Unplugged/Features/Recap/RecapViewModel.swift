@@ -1,10 +1,3 @@
-//
-//  RecapViewModel.swift
-//  Unplugged.Features.Recap
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import Observation
 import UnpluggedShared

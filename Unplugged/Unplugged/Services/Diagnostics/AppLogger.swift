@@ -2,67 +2,27 @@ import Foundation
 import os
 import os.lock
 
-/// Central logger for the Unplugged app. Every subsystem gets a named category so
-/// Console.app and `log stream` can filter by it (e.g.
-/// `log stream --predicate 'subsystem == "com.unplugged.app" && category == "ws"'`).
-///
-/// The focus is on FAILURES. Success-path signposts are intentionally minimal —
-/// what you care about when triaging a crash report or a support ticket is
-/// "what went wrong and what happened just before it." Every `error` / `warning`
-/// call on this logger also drops a breadcrumb, so a single `AppLogger.dumpRecent()`
-/// at the top of a crash handler (or when you reproduce a bug) gives you the last
-/// N relevant events in chronological order.
-///
-/// # Kill switch
-/// Logging itself is never free — even `Logger.debug` formats its arguments, and
-/// breadcrumb capture takes a lock. If you suspect logging is contributing to a
-/// hang or battery regression, flip the kill switch:
-///
-///     AppLogger.disable()           // runtime, persisted
-///     AppLogger.enable()
-///     AppLogger.isEnabled = false   // or set directly
-///
-/// When disabled, every call on this API short-circuits BEFORE any string
-/// formatting or lock acquisition, so the cost of a disabled `AppLogger.network.error(...)`
-/// is roughly a single atomic bool load. The watchdog and memory observer also
-/// stop their background timers while disabled — see `FailureDiagnostics.swift`.
-///
-/// The setting persists in UserDefaults under `AppLogger.enabledDefaultsKey` so a
-/// toggle in a debug menu or via `defaults write` survives launches.
 enum AppLogger {
     static let subsystem = "com.unplugged.app"
     static let enabledDefaultsKey = "com.unplugged.app.logging.enabled"
 
     // MARK: - Kill switch
 
-    /// Master enable flag. Reads are a single atomic bool load on every log call
-    /// — cheap enough that instrumented hot paths stay viable when disabled.
-    /// Writes persist to UserDefaults and broadcast via `enabledDidChange`.
     static var isEnabled: Bool {
         get { EnabledFlag.shared.value }
         set { EnabledFlag.shared.set(newValue) }
     }
 
-    /// Fires on the main queue whenever `isEnabled` changes. `FailureDiagnostics`
-    /// subscribes to this so the main-thread watchdog and memory monitor stop
-    /// their timers when logging is turned off.
     static let enabledDidChange = Notification.Name("com.unplugged.app.logging.enabledDidChange")
 
-    /// Shorthand. Use from debug UI or a hidden gesture.
     static func enable()  { isEnabled = true }
     static func disable() { isEnabled = false }
 
-    /// Call once at launch (before any log call) to apply a persisted setting.
-    /// Safe to call multiple times — idempotent.
     static func loadPersistedEnabledFlag(defaults: UserDefaults = .standard) {
         EnabledFlag.shared.loadFromDefaults(defaults)
     }
 
     // MARK: - Categories
-    //
-    // One Logger per subsystem so categories show up distinctly in Console.app.
-    // Add new ones here as new subsystems land — don't reuse `misc` because it
-    // makes filtering useless.
 
     static let app        = CategoryLogger(category: "app")
     static let launch     = CategoryLogger(category: "launch")
@@ -85,12 +45,6 @@ enum AppLogger {
 
     // MARK: - Breadcrumbs
 
-    /// Record a free-form breadcrumb. Use this for state transitions you want
-    /// visible in the trail leading up to a failure (e.g. "ws_connect",
-    /// "shield_engage_begin", "task_cancelled"). Prefer the `error`/`warning`
-    /// calls on a CategoryLogger for actual failures — those auto-breadcrumb.
-    ///
-    /// No-op when the kill switch is off.
     static func breadcrumb(_ category: Breadcrumb.Category,
                            _ name: String,
                            context: [String: Any]? = nil) {
@@ -106,11 +60,6 @@ enum AppLogger {
         )
     }
 
-    /// Dump the last `limit` breadcrumbs to the log. Call this when you want
-    /// to attach context to a failure that isn't itself a logger call — e.g.
-    /// from a watchdog tick, an unexpected terminal state, or an ExceptionHandler.
-    ///
-    /// No-op when the kill switch is off.
     static func dumpRecent(_ category: StaticString = "trail", limit: Int = 50) {
         guard isEnabled else { return }
         let trail = BreadcrumbStore.shared.recent(limit: limit)
@@ -139,12 +88,7 @@ enum AppLogger {
 
 // MARK: - CategoryLogger
 
-/// Wraps `os.Logger` so every warning/error/critical also drops a breadcrumb.
-/// Debug/info calls go to `os.Logger` only — they're not part of the failure
-/// trail by design (too noisy; the whole point of breadcrumbs is signal).
-///
-/// Every method short-circuits on `AppLogger.isEnabled == false` BEFORE
-/// any string formatting, so disabled logging has near-zero runtime cost.
+// warning, error, and critical auto-drop a breadcrumb, debug/info/notice do not
 struct CategoryLogger: Sendable {
     let category: String
     private let logger: Logger
@@ -187,8 +131,6 @@ struct CategoryLogger: Sendable {
         }
     }
 
-    /// Something unexpected happened but the app is continuing. Drops a breadcrumb
-    /// so the failure trail has context leading into any downstream error.
     func warning(_ message: @autoclosure () -> String,
                  error: Error? = nil,
                  context: @autoclosure () -> [String: Any]? = nil,
@@ -217,9 +159,6 @@ struct CategoryLogger: Sendable {
         )
     }
 
-    /// Recoverable failure path. Use for silent-catch replacements, unexpected
-    /// nils that force an early return, auth expiry, timeouts, and anything
-    /// the user cannot act on but that you want to see in Console.
     func error(_ message: @autoclosure () -> String,
                error: Error? = nil,
                context: @autoclosure () -> [String: Any]? = nil,
@@ -248,9 +187,6 @@ struct CategoryLogger: Sendable {
         )
     }
 
-    /// Unrecoverable from the feature's perspective — e.g. keychain corruption,
-    /// shield failed and the session can't proceed. Same shape as `.error` but
-    /// at `.fault` level so it lights up in log search.
     func critical(_ message: @autoclosure () -> String,
                   error: Error? = nil,
                   context: @autoclosure () -> [String: Any]? = nil,
@@ -282,10 +218,6 @@ struct CategoryLogger: Sendable {
 
 // MARK: - Enabled flag storage
 
-/// Atomic bool + UserDefaults persistence + change notification. Hot-path
-/// reads (`value`) are a single `os_unfair_lock` lock cycle; writes are rare
-/// (toggled from debug UI), so this simple scheme is plenty fast and avoids
-/// needing a lock-free atomic type.
 private final class EnabledFlag: @unchecked Sendable {
     static let shared = EnabledFlag()
 
@@ -312,8 +244,7 @@ private final class EnabledFlag: @unchecked Sendable {
     }
 
     func loadFromDefaults(_ defaults: UserDefaults) {
-        // Only override if the key is actually present — otherwise keep the
-        // default (true) so first-launch installs get logging on.
+        // only override if the key is present, first-launch installs get logging on by default
         guard defaults.object(forKey: AppLogger.enabledDefaultsKey) != nil else { return }
         let persisted = defaults.bool(forKey: AppLogger.enabledDefaultsKey)
         os_unfair_lock_lock(&lock)
@@ -387,9 +318,6 @@ struct Breadcrumb: Sendable {
     let context: String?
 }
 
-/// Rolling buffer of the most recent breadcrumbs. The MainThreadWatchdog
-/// (and any future crash handler) dumps this when something goes wrong so
-/// we know what the app was doing in the moments leading up to the failure.
 final class BreadcrumbStore: @unchecked Sendable {
     static let shared = BreadcrumbStore()
 
@@ -425,8 +353,6 @@ final class BreadcrumbStore: @unchecked Sendable {
             .joined(separator: "\n")
     }
 
-    /// Clear the buffer — used by tests and by sign-out if we want a clean
-    /// trail for the next authenticated user.
     func reset() {
         lock.lock()
         storage.removeAll(keepingCapacity: true)

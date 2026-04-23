@@ -1,10 +1,3 @@
-//
-//  User.swift
-//  UnpluggedShared.Models
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 public struct User: Codable, Identifiable, Sendable {

@@ -1,10 +1,3 @@
-//
-//  FriendProfileView.swift
-//  Unplugged.Features.Friends
-//
-//  Expanded profile for a friend: presence, stats, and medals.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -21,7 +14,6 @@ final class FriendProfileViewModel {
         do {
             profile = try await service.getProfile(id: friendID)
         } catch is CancellationError {
-            // Navigation torn down — not user-facing.
         } catch {
             self.error = "Could not load profile"
         }

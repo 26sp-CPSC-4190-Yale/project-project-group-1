@@ -1,11 +1,3 @@
-//
-//  MedalsGalleryView.swift
-//  Unplugged.Features.Profile
-//
-//  Gallery of all medals in the catalog. Unlocked medals appear first;
-//  locked medals are grayed out. Tap any medal to see the detail sheet.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -23,7 +15,6 @@ final class MedalsGalleryViewModel {
         do {
             entries = try await service.getCatalog()
         } catch is CancellationError {
-            // View torn down — not a user-facing error.
         } catch {
             self.error = "Could not load medals"
         }

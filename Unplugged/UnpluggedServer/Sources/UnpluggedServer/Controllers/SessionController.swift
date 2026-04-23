@@ -1,10 +1,3 @@
-//
-//  SessionController.swift
-//  UnpluggedServer.Controllers
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import UnpluggedShared
 import Vapor
@@ -59,8 +52,7 @@ struct SessionController: RouteCollection {
             longitude: body.longitude
         )
 
-        // Room + owner-membership must be atomic — a room with no host row is
-        // a ghost that passes auth checks but can never be joined or ended.
+        // room plus owner-membership must be atomic, otherwise a ghost room passes auth checks but cannot be joined or ended
         try await req.db.transaction { db in
             try await room.save(on: db)
             let member = MemberModel()
@@ -97,10 +89,6 @@ struct SessionController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
 
-        // Cursor pagination: `before` is the endedAt of the last row from the
-        // previous page; clients request older rows by passing it back. Limit
-        // is clamped to [1, 100] with a default of 25 so unbounded queries
-        // can't blow up on users with long histories.
         let limit = min(max(req.query[Int.self, at: "limit"] ?? 25, 1), 100)
         let before = req.query[Date.self, at: "before"]
 
@@ -132,7 +120,6 @@ struct SessionController: RouteCollection {
                 .filter(\.$sessionID ~~ returnedRoomIDs)
                 .all()
         }
-        // earliest leave per room + its reason
         var leaveMap: [UUID: (at: Date, reason: String?)] = [:]
         for jb in jailbreaks {
             if let existing = leaveMap[jb.sessionID], existing.at <= jb.detectedAt {
@@ -223,7 +210,6 @@ struct SessionController: RouteCollection {
         guard room.isActive, room.endedAt == nil else {
             throw Abort(.gone, reason: "Room is no longer active")
         }
-        // Once a room has been locked, you cannot join mid-session.
         guard room.lockedAt == nil else {
             throw Abort(.forbidden, reason: "Room is locked; cannot join an in-progress session.")
         }
@@ -238,7 +224,6 @@ struct SessionController: RouteCollection {
             let member = MemberModel(userID: userID, roomID: roomID)
             try await member.save(on: req.db)
 
-            // Announce to everyone else in the lobby via WebSocket
             if let user = try await UserModel.find(userID, on: req.db) {
                 let response = ParticipantResponse(
                     id: try member.requireID(),
@@ -284,10 +269,8 @@ struct SessionController: RouteCollection {
 
         let roomID = try room.requireID()
 
-        // Broadcast to any live WebSocket listeners
         await req.sessionHub.broadcast(roomID: roomID, message: .sessionLocked(endsAt: endsAt))
 
-        // Silent APNS fallback for backgrounded clients
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .all()
@@ -356,8 +339,7 @@ struct SessionController: RouteCollection {
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        // Hosts end the session for everyone via /end; routing host leaves
-        // through here would silently drop the room without telling members.
+        // hosts must end via /end, letting the host leave here silently drops the room without notifying members
         guard room.roomOwner != userID else {
             throw Abort(.forbidden, reason: "Hosts must end the session instead of leaving.")
         }
@@ -374,9 +356,7 @@ struct SessionController: RouteCollection {
             try await member.save(on: req.db)
         }
 
-        // Recap and history determine "left early" from JailbreakModel rows.
-        // Skip if a leave reason is already recorded so a double-tap doesn't
-        // double-count.
+        // recap and history read left-early from JailbreakModel rows, skip on duplicate so a double-tap does not double-count
         let reason = "left_voluntarily"
         let existingReport = try await JailbreakModel.query(on: req.db)
             .filter(\.$sessionID == roomID)
@@ -391,10 +371,6 @@ struct SessionController: RouteCollection {
 
         await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
 
-        // Backgrounded members aren't reached by the WebSocket, so fall back to
-        // a visible APNs push so the rest of the room finds out when someone
-        // bails. Framed as "Oh no!" rather than an error, since voluntarily
-        // leaving is expected behavior we still want the room to react to.
         let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
@@ -427,7 +403,6 @@ struct SessionController: RouteCollection {
 
         let roomID = try room.requireID()
 
-        // Only members can read recap
         let membership = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .filter(\.$userID == userID)
@@ -477,10 +452,7 @@ struct SessionController: RouteCollection {
         }
 
         let planned = max(0, room.durationSeconds ?? 0)
-        // Actual time the room was locked in, clamped into [0, planned]. We
-        // intentionally ignore per-user jailbreak rows here — this metric
-        // describes the *room's* lifetime (host ending early shortens it),
-        // not any one participant's focus streak.
+        // room-lifetime metric, not per-user, ignore jailbreak rows so host-ending-early is the only shortener
         let actualFocusedSeconds = StatsService.focusedSeconds(
             room: room,
             earliestLeaveAt: nil
@@ -525,9 +497,7 @@ struct SessionController: RouteCollection {
             message: .jailbreakReported(userID: userID, reason: body.reason)
         )
 
-        // Notify everyone else in the room — not just the host. Members who
-        // already left via proximity or voluntary-exit are skipped so we don't
-        // spam them once they've detached.
+        // notify everyone still in the room, already-exited members are skipped so they are not pinged after detaching
         let reporter = try await UserModel.find(userID, on: req.db)
         let reporterName = reporter?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)

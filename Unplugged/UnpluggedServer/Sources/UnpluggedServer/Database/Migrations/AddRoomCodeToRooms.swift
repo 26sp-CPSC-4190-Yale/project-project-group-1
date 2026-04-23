@@ -1,8 +1,3 @@
-//
-//  AddRoomCodeToRooms.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 import SQLKit
 

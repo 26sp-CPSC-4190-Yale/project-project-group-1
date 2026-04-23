@@ -1,8 +1,3 @@
-//
-//  MedalDTOs.swift
-//  UnpluggedShared.DTOs
-//
-
 import Foundation
 
 public struct MedalResponse: Codable, Sendable, Hashable {
@@ -29,8 +24,6 @@ public struct UserMedalResponse: Codable, Sendable {
     }
 }
 
-/// Catalog entry: one per medal that exists, with the user's unlock status.
-/// `earnedAt == nil` means locked. `howToUnlock` is a short human-readable rule.
 public struct MedalCatalogEntry: Codable, Sendable, Identifiable, Hashable {
     public var id: UUID { medal.id }
     public let medal: MedalResponse

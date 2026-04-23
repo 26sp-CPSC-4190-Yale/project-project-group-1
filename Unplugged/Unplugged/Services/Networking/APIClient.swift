@@ -1,10 +1,3 @@
-//
-//  APIClient.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -34,9 +27,6 @@ struct APIClient {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            // Decode failure here is almost always a schema mismatch between
-            // client model and server response. Log a preview of the payload
-            // so triage doesn't require re-running with a proxy.
             AppLogger.network.error(
                 "decode failed for \(String(describing: T.self))",
                 error: error,
@@ -60,9 +50,6 @@ struct APIClient {
         do {
             return try await session.data(for: request)
         } catch let urlError as URLError {
-            // URLSession errors are the biggest source of "sometimes the app
-            // just hangs" reports — timeouts, DNS, cancellation mid-flight.
-            // Capture the code so Console triage doesn't need tcpdump.
             AppLogger.network.error(
                 "URLSession failed \(route.method.rawValue) \(route.path)",
                 error: urlError,
@@ -133,13 +120,9 @@ struct APIClient {
         }
         if (200...299).contains(http.statusCode) { return }
 
-        // Vapor includes "reason" in its JSON error responses
         let reason = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["reason"] as? String
         let fallbackMsg = reason ?? "HTTP \(http.statusCode)"
 
-        // 401s on most endpoints are "token expired, user needs to re-auth" —
-        // routine enough to be `warning` not `error`. Everything else is
-        // a real failure (server bug, validation error, etc).
         let level: (String, [String: Any]) -> Void = http.statusCode == 401
             ? { msg, ctx in AppLogger.network.warning(msg, context: ctx) }
             : { msg, ctx in AppLogger.network.error(msg, context: ctx) }
@@ -161,9 +144,7 @@ struct APIClient {
         }
     }
 
-    /// Clip response bodies for logging — large payloads blow up the log
-    /// ring buffer and slow down Console.app. 256 bytes is enough to see the
-    /// "reason" field for Vapor errors.
+    // 256 bytes captures the Vapor reason field without flooding the log ring buffer
     private static func previewBody(_ data: Data, limit: Int = 256) -> String {
         guard !data.isEmpty else { return "<empty>" }
         let clipped = data.prefix(limit)

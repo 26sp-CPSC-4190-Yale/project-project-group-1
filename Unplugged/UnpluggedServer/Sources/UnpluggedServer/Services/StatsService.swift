@@ -1,28 +1,18 @@
-//
-//  StatsService.swift
-//  UnpluggedServer.Services
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Fluent
 import Foundation
 import UnpluggedShared
 import Vapor
 
 struct StatsService {
-    /// Small tolerance when deciding "left early" — sub-second drift between
-    /// client clocks and the server's `Date()` shouldn't downgrade a clean run.
+    // absorbs sub-second drift between client clocks and server Date(), so a clean run is not flagged as early
     static let earlyLeaveToleranceSeconds: Int = 5
 
     static func getStats(for userID: UUID, on db: Database) async throws -> UserStatsResponse {
-        // All memberships for this user
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
         let roomIDs = memberships.map { $0.roomID }
 
-        // Only ended rooms count for stats
         let endedRooms: [RoomModel]
         if roomIDs.isEmpty {
             endedRooms = []
@@ -33,8 +23,6 @@ struct StatsService {
                 .all()
         }
 
-        // Pull this user's jailbreak records for every ended room so we can
-        // clamp focused time at the earliest exit per room.
         let endedRoomIDs = endedRooms.compactMap { try? $0.requireID() }
         let jailbreaks: [JailbreakModel]
         if endedRoomIDs.isEmpty {
@@ -79,7 +67,6 @@ struct StatsService {
             ? Double(plannedSeconds) / Double(totalSessions) / 60.0
             : 0
 
-        // Streaks — distinct days with an ended session, sorted descending
         let calendar = Calendar(identifier: .gregorian)
         let sessionDays: Set<Date> = Set(endedRooms.compactMap { room in
             guard let ended = room.endedAt else { return nil }
@@ -102,7 +89,7 @@ struct StatsService {
             previousDay = day
         }
 
-        // Current streak: consecutive days ending today or yesterday
+        // walks from today then retries from yesterday so a streak that has not been extended yet today still counts
         var currentStreak = 0
         let today = calendar.startOfDay(for: Date())
         var cursor = today
@@ -121,8 +108,7 @@ struct StatsService {
             }
         }
 
-        // Friends (accepted) — used both for the friend count and to scope the
-        // rank to "among friends" so it matches what the leaderboard shows.
+        // scope is accepted friends plus self, must match FriendController.leaderboard so rank and leaderboard agree
         let friendships = try await FriendshipModel.query(on: db)
             .filter(\.$status == "accepted")
             .group(.or) { group in
@@ -132,8 +118,6 @@ struct StatsService {
             .all()
         let friendCount = friendships.count
 
-        // Rank — position among caller's accepted friends + self (mirrors
-        // FriendController.leaderboard's scope, including block exclusion).
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: db)
         var rankScope: Set<UUID> = [userID]
         for f in friendships {
@@ -164,11 +148,7 @@ struct StatsService {
         )
     }
 
-    /// Compute seconds the user was actually locked in for one room.
-    /// - If `lockedAt` is nil (room ended before start), result is 0.
-    /// - If the user jailbroke, clamp at the earliest detectedAt.
-    /// - Otherwise, use the room's `endedAt` (or `lockedAt` if somehow missing).
-    /// - Clamped into [0, planned duration] — handles clock drift and overrun.
+    // earliest jailbreak wins as the exit anchor, result is clamped into [0, planned] to absorb clock drift and overrun
     static func focusedSeconds(room: RoomModel, earliestLeaveAt: Date?) -> Int {
         guard let lockedAt = room.lockedAt else { return 0 }
         let planned = max(0, room.durationSeconds ?? 0)
@@ -182,9 +162,7 @@ struct StatsService {
         return max(0, min(elapsed, planned))
     }
 
-    /// Compute the user's rank by focused minutes within `scopeIDs`
-    /// (callers pass in {self} ∪ accepted-friends to match the leaderboard).
-    /// Ties share the same rank, matching `buildLeaderboard`.
+    // ties share the same rank, matching buildLeaderboard's behavior
     private static func computeRank(
         for userID: UUID,
         focusedMinutes: Int,
@@ -209,7 +187,6 @@ struct StatsService {
             .filter(\.$userID ~~ scopeArray)
             .all()
 
-        // (userID, roomID) -> earliest leave
         var leaveMap: [UUID: [UUID: Date]] = [:]
         for jb in allJailbreaks {
             var byRoom = leaveMap[jb.userID] ?? [:]
@@ -220,13 +197,12 @@ struct StatsService {
             leaveMap[jb.userID] = byRoom
         }
 
-        // roomID -> RoomModel lookup
         var roomsByID: [UUID: RoomModel] = [:]
         for room in allEndedRooms {
             if let id = room.id { roomsByID[id] = room }
         }
 
-        // Seed every scoped user at 0 so users with no ended rooms still rank.
+        // seed every scoped user at 0 so users with no ended rooms still appear in the ranking
         var userMinutes: [UUID: Int] = Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
         for member in allMemberships {
             guard let room = roomsByID[member.roomID] else { continue }
@@ -234,8 +210,7 @@ struct StatsService {
             let focused = focusedSeconds(room: room, earliestLeaveAt: leave)
             userMinutes[member.userID, default: 0] += focused / 60
         }
-        // Ensure the caller's canonical total is used (avoids any drift between
-        // this recomputation and the caller's already-computed totalMinutes).
+        // pin the caller's total to the already-computed figure so this recomputation cannot drift from the caller's
         userMinutes[userID] = focusedMinutes
 
         let allTotals = userMinutes.values.sorted(by: >)
@@ -250,8 +225,6 @@ struct StatsService {
         return rank
     }
 
-    /// Build a leaderboard ranked by focused minutes, scoped to `userIDs`.
-    /// Current user is always included (callers pass `userID` in the list).
     static func buildLeaderboard(
         userIDs: [UUID],
         currentUserID: UUID,
@@ -267,8 +240,6 @@ struct StatsService {
             return (id, u.username)
         })
 
-        // Each user's focused minutes — reuse getStats for consistency.
-        // For small friend lists this is fine; larger lists would merit caching.
         var focusedByUser: [UUID: Int] = [:]
         for userID in userIDs {
             let stats = try await getStats(for: userID, on: db)
@@ -289,7 +260,6 @@ struct StatsService {
         var position = 0
         for (uid, minutes) in sorted {
             position += 1
-            // Ties share the same rank.
             if minutes != previousValue {
                 rank = position
                 previousValue = minutes

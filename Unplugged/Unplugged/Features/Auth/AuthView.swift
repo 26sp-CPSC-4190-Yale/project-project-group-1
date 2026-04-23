@@ -1,10 +1,3 @@
-//
-//  AuthView.swift
-//  Unplugged.Features.Auth
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import AuthenticationServices
 import GoogleSignIn
@@ -41,11 +34,7 @@ struct AuthView: View {
                     Spacer()
 
                     VStack(spacing: 12) {
-                        // Note: do not wrap this button in `.clipShape(...)`. Apple's
-                        // ASAuthorizationAppleIDButton draws its own rounded border via
-                        // AKDrawAppleIDButtonWithCornerRadius, and that draw path leaks a
-                        // CGPath every time it's invoked. An outer clipShape forces SwiftUI
-                        // to re-rasterize the button, which retriggers the leak.
+                        // do not wrap in clipShape, Apple's AppleIDButton leaks a CGPath through AKDrawAppleIDButtonWithCornerRadius on every re-rasterize
                         SignInWithAppleButton(.signIn) { request in
                             request.requestedScopes = [.fullName, .email]
                         } onCompletion: { result in

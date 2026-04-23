@@ -1,10 +1,3 @@
-//
-//  APIRouter.swift
-//  Unplugged.Services.Networking
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 
@@ -17,14 +10,11 @@ enum HTTPMethod: String {
 }
 
 enum APIRouter {
-
-    // Auth
     case login(LoginRequest)
     case register(RegisterRequest)
     case signInWithApple(AppleSignInRequest)
     case signInWithGoogle(GoogleSignInRequest)
 
-    // User
     case getMe
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
@@ -35,14 +25,11 @@ enum APIRouter {
     case listBlocks
     case reportUser(id: UUID, body: ReportUserRequest)
 
-    // Stats
     case getStats
 
-    // Medals
     case getMyMedals
     case getMedalCatalog
 
-    // Sessions
     case createSession(CreateSessionRequest)
     case listSessions
     case sessionHistory(limit: Int? = nil, before: Date? = nil)
@@ -56,7 +43,6 @@ enum APIRouter {
     case reportJailbreak(id: UUID, body: ReportJailbreakRequest)
     case getRecap(id: UUID)
 
-    // Friends
     case listFriends
     case addFriend(AddFriendRequest)
     case removeFriend(id: UUID)
@@ -68,7 +54,6 @@ enum APIRouter {
     case getFriendProfile(id: UUID)
     case getLeaderboard
 
-    // Groups
     case createGroup(CreateGroupRequest)
     case listGroups
     case getGroup(id: UUID)

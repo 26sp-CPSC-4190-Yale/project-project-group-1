@@ -1,10 +1,3 @@
-//
-//  ScreenTimeService.swift
-//  Unplugged.Services.Hardware
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 import UnpluggedShared
 #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
@@ -13,14 +6,7 @@ import ManagedSettings
 import DeviceActivity
 #endif
 
-/// Wraps FamilyControls + ManagedSettings + DeviceActivity so the rest of the app can
-/// engage the "unplugged" shield without caring whether the entitlement is present.
-///
-/// On a paid Apple Developer account with the Family Controls entitlement approved this
-/// issues a real `ManagedSettingsStore.shield` and schedules a DeviceActivity monitor
-/// so the shield clears at `endsAt` even if the app is killed. Without the entitlement
-/// (free account, Simulator, missing permission) every call no-ops and the service
-/// advertises `isAvailable == false` so the UI can degrade gracefully.
+// all calls no-op and isAvailable is false when the FamilyControls entitlement is missing, on simulator, or permission is denied
 final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     static let appGroup = "group.com.unplugged.app.shared"
     static let allowlistKey = "emergencyAllowlist"
@@ -53,9 +39,6 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     init() {
         let defaults = UserDefaults(suiteName: Self.appGroup)
         if defaults == nil {
-            // App Group not provisioned — the shield extension cannot share
-            // the allowlist with the main app. This only fails when the
-            // entitlements plist and dev portal are misconfigured.
             AppLogger.screenTime.critical(
                 "App Group UserDefaults unavailable — allowlist will not be shared with shield extension",
                 context: ["suite": Self.appGroup]
@@ -134,16 +117,8 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let allowedWebDomains = emergencySelection.webDomains
         let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
-        // Set up the DeviceActivity monitor BEFORE we engage the shield. If
-        // monitoring can't be scheduled (intervalTooShort, etc.) we still want
-        // to fall back to an in-app timer to drop the shield, but we must not
-        // leave the shield engaged with no way to clear it.
         let now = Date()
-        // Apple's DeviceActivitySchedule requires >= 15 minutes between start
-        // and end, or it rejects with intervalTooShort. Pad short sessions to
-        // 16 minutes so the scheduled auto-clear still runs; the app's normal
-        // unlock flow (session-ended WS / silent push / poll) clears the
-        // shield at the real endsAt well before the monitor fires.
+        // DeviceActivitySchedule requires >= 15 min window, pad short sessions to 16, the normal unlock flow clears the shield at the real endsAt well before the monitor fires
         let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
         let calendar = Calendar.current
         let start = calendar.dateComponents([.hour, .minute, .second], from: now)
@@ -159,11 +134,7 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         do {
             try center.startMonitoring(activityName, during: schedule)
         } catch {
-            // Auto-clear won't run. The app still unlocks on session end via
-            // the normal flow; log loudly so a stuck shield on a killed app
-            // is triageable, but don't refuse to engage the shield — the
-            // user would otherwise get a "couldn't engage shield" alert even
-            // though we can still enforce the session while the app is alive.
+            // do not throw, in-process enforcement still works and the user should not get a "couldn't engage shield" alert
             monitoringFailed = true
             AppLogger.screenTime.critical(
                 "DeviceActivityCenter.startMonitoring failed — shield will not auto-clear",
@@ -175,12 +146,7 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
             )
         }
 
-        // Apple's built-in apps aren't covered by ActivityCategoryPolicy.all(except:)
-        // — their tokens can't be derived from a bundle ID, and many aren't in a
-        // shieldable category. blockedApplications is the only API that can stop
-        // them from launching, and it accepts Application(bundleIdentifier:). The
-        // home-screen-reorder side effect is acceptable; letting Apple apps through
-        // defeats the session lock.
+        // ActivityCategoryPolicy does not cover Apple's built-in apps, blockedApplications is the only API that can stop them, home-screen reorder is the tradeoff
         let blockedSystemApplications: Set<Application> = Set(
             EmergencySystemApplication.allCases
                 .filter { !allowedSystemBundleIDs.contains($0.bundleIdentifier) }

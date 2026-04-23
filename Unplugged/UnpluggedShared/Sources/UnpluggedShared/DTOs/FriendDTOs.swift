@@ -1,10 +1,3 @@
-//
-//  FriendDTOs.swift
-//  UnpluggedShared.DTOs
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import Foundation
 
 public enum PresenceStatus: String, Codable, Sendable, Hashable {
@@ -24,7 +17,6 @@ public struct AddFriendRequest: Codable, Sendable {
 public struct FriendResponse: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let username: String
-    // "pending" | "accepted"
     public let status: String?
     public let presence: PresenceStatus
     public let hoursUnplugged: Int
@@ -55,7 +47,6 @@ public struct NudgeResponse: Codable, Sendable {
     }
 }
 
-/// Expanded profile view for a single friend — richer than FriendResponse's summary.
 public struct FriendProfileResponse: Codable, Sendable, Identifiable {
     public var id: UUID { friend.id }
     public let friend: FriendResponse

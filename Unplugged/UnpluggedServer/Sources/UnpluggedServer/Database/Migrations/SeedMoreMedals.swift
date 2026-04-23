@@ -2,31 +2,25 @@ import Fluent
 
 struct SeedMoreMedals: AsyncMigration {
     static let seeds: [(name: String, description: String, icon: String)] = [
-        // Progressive session counts
         ("25 Sessions", "Completed twenty-five unplugged sessions.", "⭐"),
         ("50 Sessions", "Completed fifty unplugged sessions.", "🌟"),
         ("100 Sessions", "Completed one hundred unplugged sessions.", "💯"),
 
-        // Progressive hours
         ("5 Hours Unplugged", "Spent five hours unplugged.", "⏰"),
         ("50 Hours Unplugged", "Spent fifty hours unplugged.", "🎖️"),
         ("100 Hours Unplugged", "Spent one hundred hours unplugged.", "🏅"),
 
-        // Streaks
         ("3-Day Streak", "Sessioned three days in a row.", "📅"),
         ("7-Day Streak", "Sessioned seven days in a row.", "⚡"),
         ("30-Day Streak", "Sessioned thirty days in a row.", "🌋"),
 
-        // Friend count
         ("First Friend", "Added your first friend.", "🤝"),
         ("Social Circle", "Reached five friends.", "👥"),
         ("Popular", "Reached ten friends.", "🧑‍🤝‍🧑"),
 
-        // Sessions with friends
         ("Better Together", "Finished a session with a friend.", "💞"),
         ("Squad Up", "Finished a session with three or more friends.", "👨‍👩‍👧"),
 
-        // Early-leave medals
         ("Slip-Up", "Left a session early.", "😅"),
         ("Weak Willed", "Left early five times.", "😬"),
         ("Hall of Shame", "Left early ten times.", "💀"),

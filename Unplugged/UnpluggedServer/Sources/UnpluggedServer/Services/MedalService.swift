@@ -1,8 +1,3 @@
-//
-//  MedalService.swift
-//  UnpluggedServer.Services
-//
-
 import Fluent
 import Foundation
 import UnpluggedShared
@@ -15,20 +10,14 @@ struct MedalService {
         let earned: @Sendable (UserStatsResponse) -> Bool
     }
 
-    /// Catalog-only entries for medals whose eligibility depends on per-session
-    /// DB queries (friend overlap with session participants) and can't be
-    /// expressed against the flat `UserStatsResponse`. Evaluated separately
-    /// by `evaluateSocialMedals`; listed here so `getCatalog` can show the
-    /// how-to-unlock copy alongside stats-based medals.
+    // catalog-only, eligibility depends on per-session friend overlap so it cannot be expressed against UserStatsResponse
     private struct SocialRule: Sendable {
         let medalName: String
         let howToUnlock: String
     }
 
-    // medalName must match a row seeded by SeedMedals / SeedMoreMedals.
-    // The howToUnlock strings are user-facing copy for the medal detail sheet.
+    // medalName must match a row seeded by SeedMedals or SeedMoreMedals
     private static let rules: [Rule] = [
-        // Sessions completed
         Rule(medalName: "First Session",
              howToUnlock: "Finish your first unplugged session.",
              earned: { $0.totalSessions >= 1 }),
@@ -45,7 +34,6 @@ struct MedalService {
              howToUnlock: "Finish one hundred unplugged sessions.",
              earned: { $0.totalSessions >= 100 }),
 
-        // Total hours unplugged
         Rule(medalName: "1 Hour Unplugged",
              howToUnlock: "Stay locked in for one hour in total.",
              earned: { $0.totalMinutes >= 60 }),
@@ -62,7 +50,7 @@ struct MedalService {
              howToUnlock: "Stay locked in for one hundred hours in total.",
              earned: { $0.totalMinutes >= 6_000 }),
 
-        // Streaks (longestStreak, so earning survives a missed day)
+        // checked against longestStreak so a missed day does not revoke a previously earned medal
         Rule(medalName: "3-Day Streak",
              howToUnlock: "Complete a session on three days in a row.",
              earned: { $0.longestStreak >= 3 }),
@@ -73,7 +61,6 @@ struct MedalService {
              howToUnlock: "Complete a session on thirty days in a row.",
              earned: { $0.longestStreak >= 30 }),
 
-        // Friend count
         Rule(medalName: "First Friend",
              howToUnlock: "Add your first friend.",
              earned: { $0.friendsCount >= 1 }),
@@ -84,8 +71,7 @@ struct MedalService {
              howToUnlock: "Reach ten friends.",
              earned: { $0.friendsCount >= 10 }),
 
-        // Early-leave medals — captures both voluntary exits and
-        // jailbreak-shortened sessions (see StatsService.earlyLeaveCount).
+        // earlyLeaveCount counts both voluntary exits and jailbreak-shortened sessions, defined in StatsService
         Rule(medalName: "Slip-Up",
              howToUnlock: "Leave a session before it ends.",
              earned: { $0.earlyLeaveCount >= 1 }),
@@ -104,7 +90,7 @@ struct MedalService {
                    howToUnlock: "Finish a session with three or more friends."),
     ]
 
-    // Non-throwing: medal failures must not break session end.
+    // never throws, medal failures must not prevent session end from completing
     static func evaluateAndAward(userID: UUID, on db: Database, logger: Logger) async {
         do {
             let stats = try await StatsService.getStats(for: userID, on: db)
@@ -121,12 +107,8 @@ struct MedalService {
         await evaluateSocialMedals(userID: userID, on: db, logger: logger)
     }
 
-    /// Awards session-with-friends medals by scanning the user's ended
-    /// sessions and checking how many co-participants are accepted friends.
-    /// Runs after the stats-based rules in `evaluateAndAward`.
     private static func evaluateSocialMedals(userID: UUID, on db: Database, logger: Logger) async {
         do {
-            // Friend set (accepted only)
             let friendships = try await FriendshipModel.query(on: db)
                 .filter(\.$status == "accepted")
                 .group(.or) { group in
@@ -137,7 +119,6 @@ struct MedalService {
             let friendIDs: Set<UUID> = Set(friendships.map { $0.user1ID == userID ? $0.user2ID : $0.user1ID })
             guard !friendIDs.isEmpty else { return }
 
-            // Rooms the user was in that have ended
             let myMemberships = try await MemberModel.query(on: db)
                 .filter(\.$userID == userID)
                 .all()
@@ -151,12 +132,10 @@ struct MedalService {
                 .compactMap { try? $0.requireID() }
             guard !endedRoomIDs.isEmpty else { return }
 
-            // All members of those ended rooms in one query
             let allMembers = try await MemberModel.query(on: db)
                 .filter(\.$roomID ~~ endedRoomIDs)
                 .all()
 
-            // Count friend co-participants per room (exclude self)
             var friendCountByRoom: [UUID: Int] = [:]
             for member in allMembers where member.userID != userID {
                 if friendIDs.contains(member.userID) {
@@ -202,9 +181,6 @@ struct MedalService {
         }
     }
 
-    /// All medals in the catalog with the user's unlock status + how-to-unlock copy.
-    /// Unlocked medals come first (most recent earnedAt first); then locked medals
-    /// follow in catalog order.
     static func getCatalog(userID: UUID, on db: Database) async throws -> [MedalCatalogEntry] {
         let allMedals = try await MedalModel.query(on: db).all()
         let pivots = try await UserMedalPivot.query(on: db)
@@ -239,7 +215,6 @@ struct MedalService {
             )
         }
 
-        // Sort: unlocked first (newest earned first), then locked in catalog order.
         return entries.sorted { lhs, rhs in
             switch (lhs.earnedAt, rhs.earnedAt) {
             case let (l?, r?): return l > r

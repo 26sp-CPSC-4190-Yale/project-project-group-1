@@ -5,7 +5,7 @@ struct DurationValue: Equatable {
     var minutes: Int
     var isUnlimited: Bool
 
-    // Unlimited rides the server's 24h cap (UI-only shortcut).
+    // 24h matches the server-side cap, unlimited is a UI shortcut
     var durationSeconds: Int {
         isUnlimited ? 24 * 60 * 60 : (hours * 60 + minutes) * 60
     }
@@ -63,8 +63,7 @@ private struct WheelDurationPicker: View {
         .labelsHidden()
     }
 
-    // Snap to the nearest 5-minute step so arbitrary incoming values still
-    // map to a valid picker row (otherwise the wheel silently picks "0").
+    // snap to 5-min step, unmapped values make the wheel silently pick 0
     private var minutesBinding: Binding<Int> {
         Binding(
             get: {

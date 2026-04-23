@@ -1,10 +1,3 @@
-//
-//  ProfileView.swift
-//  Unplugged.Features.Profile
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 import UnpluggedShared
 
@@ -52,7 +45,6 @@ struct ProfileView: View {
                         .padding(.horizontal, .spacingLg)
                         .padding(.top, .spacingSm)
 
-                        // Profile header
                         VStack(spacing: .spacingSm) {
                             ParticipantAvatar(name: viewModel.userName, size: 64)
                             Text(viewModel.userName)
@@ -61,11 +53,9 @@ struct ProfileView: View {
                         }
                         .padding(.top, .spacingMd)
 
-                        // Tab picker
                         ProfileTabPicker(selection: $selectedTab)
                             .padding(.horizontal, .spacingLg)
 
-                        // Content
                         switch selectedTab {
                         case .history:
                             dashboardContent

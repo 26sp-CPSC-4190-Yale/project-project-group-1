@@ -1,10 +1,3 @@
-//
-//  OnboardingView.swift
-//  Unplugged.Features.Onboarding
-//
-//  Created by Sebastian Gonzalez on 3/12/26.
-//
-
 import SwiftUI
 
 struct OnboardingView: View {
@@ -18,7 +11,6 @@ struct OnboardingView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Progress dots
                 HStack(spacing: 8) {
                     ForEach(OnboardingViewModel.Step.progressSteps, id: \.self) { step in
                         Circle()
@@ -30,7 +22,6 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                // Step content
                 Group {
                     switch viewModel.currentStep {
                     case .welcome:         welcomeStep
@@ -46,7 +37,6 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                // Footer
                 footer
             }
             .padding(.horizontal, .spacingXl)
@@ -123,8 +113,7 @@ struct OnboardingView: View {
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
 
-                // Be explicit about the distance so users don't expect "same room"
-                // pairing. The UWB gate requires phones pressed together (~10 cm).
+                // be explicit about distance, users should not expect same-room pairing since UWB gates on ~10cm
                 Text("To join a friend's room, hold your phones back-to-back — about 4 inches apart. iOS will ask for Local Network access before your first proximity pair.")
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
@@ -383,14 +372,10 @@ struct OnboardingView: View {
 
     @MainActor
     private func pauseThenAdvanceIfStillCurrent(_ step: OnboardingViewModel.Step) async {
-        // Brief pause so the user sees the granted/denied status before
-        // the page transitions.
         try? await Task.sleep(nanoseconds: 600_000_000)
         advanceIfStillCurrent(step)
     }
 
-    /// Maps the current step to its progress-dot milestone so that denied
-    /// sub-pages light up the same dot as the parent permission step.
     private func isProgressDotActive(_ dotStep: OnboardingViewModel.Step) -> Bool {
         let current = viewModel.currentStep
         switch current {

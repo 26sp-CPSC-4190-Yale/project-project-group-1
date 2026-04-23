@@ -1,8 +1,3 @@
-//
-//  LegalFooter.swift
-//  Unplugged.SharedUI.Components
-//
-
 import SwiftUI
 
 struct LegalFooter: View {

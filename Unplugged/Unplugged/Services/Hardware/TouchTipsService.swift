@@ -1,40 +1,5 @@
-//
-//  TouchTipsService.swift
-//  Unplugged.Services.Hardware
-//
-//  Proximity-based room pairing built on MultipeerConnectivity (discovery + messaging)
-//  and NearbyInteraction (short-range UWB distance gating).
-//
-//  Why not GroupActivities / SharePlay?
-//  GroupActivities is designed for FaceTime-relayed shared sessions, not on-device
-//  proximity pairing. iOS 17+ also intercepts "tips-together" gestures as NameDrop,
-//  which third-party apps cannot override. The previous implementation used
-//  GroupActivities in a way that Apple's TipKit never actually fired locally, so
-//  discovery never worked and users got NameDrop instead.
-//
-//  Flow
-//  ────
-//    1. Host calls `activate(roomID:)`. TouchTipsService starts advertising on
-//       `unplugged-rm` with the room UUID in the discoveryInfo dict.
-//    2. Joiner calls `startListening()`, gets an AsyncStream back. Browser starts,
-//       auto-invites any advertiser it sees on the same service type (no UI).
-//    3. MCSession connects. Host sends a one-shot handshake:
-//         { "roomID": "<uuid>", "niToken": "<base64-archived NIDiscoveryToken>" }
-//    4. Both sides start an NISession configured with the peer's token and begin
-//       receiving distance readings.
-//    5. When distance <= ProximityConstants.touchThresholdMeters (10 cm) for
-//       `consecutiveCloseSamples` (2) consecutive readings, the joiner yields the
-//       room UUID on its AsyncStream and auto-joins — no buttons.
-//
-//  No MC-only fallback for auto-pairing
-//  ────────────────────────────────────
-//  MC alone is ~10 m range (BT LE + P2P Wi-Fi). Auto-pairing on MC connect would let
-//  two phones in the same room silently pair — exactly the bug we've seen. UWB is the
-//  ONLY auto-pair gate. If UWB is unavailable (pre-U1 hardware, permission denied,
-//  older iOS) the stream simply never yields; the UI surfaces the manual room-code
-//  path instead. Do not reintroduce a time-based "if MC connects, assume proximity"
-//  shortcut — users will join from across the room.
-//
+// GroupActivities is FaceTime-relayed, not on-device proximity. iOS 17+ intercepts tips-together as NameDrop, which third-party apps can't override
+// UWB is the ONLY auto-pair gate. MC alone is ~10m range. Do NOT reintroduce an "if MC connects, assume proximity" shortcut, users will pair from across the room
 
 import Foundation
 import MultipeerConnectivity
@@ -49,7 +14,6 @@ actor TouchTipsService {
 
     // MARK: - Public API
 
-    /// Host: advertise this roomID so nearby joiners can auto-pair.
     func activate(roomID: UUID) async throws {
         stopInternal(keepContinuation: true)
         role = .host(roomID: roomID)
@@ -71,8 +35,6 @@ actor TouchTipsService {
         advertiser.startAdvertisingPeer()
     }
 
-    /// Joiner: return a stream that yields the host's roomID when phones are close.
-    /// Re-entrant: a second call finishes the previous stream and starts over.
     func startListening() -> AsyncStream<UUID> {
         stopInternal(keepContinuation: false)
         role = .joiner
@@ -141,10 +103,6 @@ actor TouchTipsService {
         stopInternal(keepContinuation: false)
     }
 
-    /// Trigger the OS Local Network permission dialog during onboarding so the first
-    /// real pairing attempt doesn't silently fail. The Bonjour browser resolves only
-    /// after iOS has accepted or denied local-network access, which lets onboarding
-    /// wait for the user's actual choice before moving forward.
     func primeLocalNetworkPermission() async -> Bool {
         stopInternal(keepContinuation: false)
 
@@ -177,9 +135,6 @@ actor TouchTipsService {
     private var mcSession: MCSession?
     private var localPeerID: MCPeerID?
 
-    /// roomID pulled from discoveryInfo on the joiner side, keyed by the peer we invited.
-    /// Used as a fallback if the handshake message arrives before we've parsed the payload,
-    /// or if the host never sends a roomID for some reason.
     private var discoveredRoomID: [MCPeerID: UUID] = [:]
     private var pendingPeerInvitations: Set<String> = []
 
@@ -187,9 +142,7 @@ actor TouchTipsService {
     private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
     private var didYield = false
 
-    /// Count of consecutive sub-threshold distance samples. Reset whenever a reading
-    /// comes back above the threshold (or is missing). We require N in a row — a single
-    /// spike below 10cm during a hand wave isn't proof the phones are together.
+    // require N consecutive sub-threshold samples, a single sub-10cm spike from a hand wave is not proof the phones are together
     private var consecutiveCloseCount: Int = 0
 
     // MARK: - Wire delegate callbacks
@@ -211,8 +164,7 @@ actor TouchTipsService {
             Task { await self?.handleNIUpdate(session: session, objects: objects) }
         }
         bridge.onNIRemoved = { [weak self] session, _ in
-            // Peer moved out of range or session broke. Not fatal — keep MC alive so
-            // they can approach again without re-pairing.
+            // do not tear down MC, the peer can approach again without re-pairing
             Task { await self?.handleNIRemoved(session: session) }
         }
         bridge.onNIInvalidated = { [weak self] session, error in
@@ -283,8 +235,7 @@ actor TouchTipsService {
             handler(false, nil)
             return
         }
-        // Auto-accept any inbound invite on our namespaced service — the service type
-        // itself is the coarse gate; UWB is the fine gate.
+        // auto-accept, service type is the coarse gate and UWB is the fine gate
         log("received invitation from \(peer.displayName), accepting: \(mcSession != nil ? "YES" : "NO_SESSION")")
         handler(true, mcSession)
     }
@@ -306,9 +257,7 @@ actor TouchTipsService {
                 publishLockedSignalLoss(reason: "mc_\(state.logDescription)")
             }
         }
-        // Do NOT schedule an MC-only yield here — MC connecting only proves radio
-        // proximity (~10 m). The UWB gate in handleNIUpdate is what confirms the
-        // phones are actually pressed together.
+        // do NOT yield on MC connect, MC is ~10m radio proximity, UWB in handleNIUpdate is the actual touch gate
     }
 
     private func sendHandshake(to peer: MCPeerID) {
@@ -354,7 +303,6 @@ actor TouchTipsService {
         }
         log("data received from \(peer.displayName): roomID=\(payload["roomID"] != nil ? "YES" : "NO"), niToken=\(payload["niToken"] != nil ? "YES" : "NO")")
 
-        // Capture host's roomID if we didn't already have it from discoveryInfo.
         if (isJoiner || isLockedGuest),
            let uuidString = payload["roomID"],
            let roomID = UUID(uuidString: uuidString) {
@@ -368,7 +316,6 @@ actor TouchTipsService {
             return
         }
 
-        // Extract NI discovery token and start the NI session against it.
         guard let tokenB64 = payload["niToken"],
               let tokenData = Data(base64Encoded: tokenB64),
               let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
@@ -405,10 +352,6 @@ actor TouchTipsService {
         }.first
 
         guard let distance = match else {
-            // Token didn't match any of the nearby objects (peer disappeared, or the
-            // update is for a stale session). Don't penalize the counter — wait for the
-            // next real sample. But DO decay it back to 0 so momentary losses don't
-            // bank progress toward the gate.
             consecutiveCloseCount = 0
             if case .lockedGuest = role {
                 publishLockedSignalLoss(reason: "ni_update_without_distance")
@@ -429,8 +372,6 @@ actor TouchTipsService {
                 yieldIfStillWaiting(reason: "UWB <=\(ProximityConstants.touchThresholdMeters)m x\(consecutiveCloseCount)")
             }
         } else {
-            // Any reading above the threshold resets the streak. The user must hold
-            // the phones together long enough for two clean samples in a row.
             consecutiveCloseCount = 0
         }
     }
@@ -500,7 +441,6 @@ actor TouchTipsService {
 
     private func yieldIfStillWaiting(reason: String) {
         guard !didYield, case .joiner = role, let continuation else { return }
-        // Pick any room we've learned about. In practice there's only one peer at a time.
         guard let roomID = discoveredRoomID.values.first else { return }
         didYield = true
         continuation.yield(roomID)
@@ -563,9 +503,6 @@ actor TouchTipsService {
         }
     }
 
-    /// Routes through AppLogger.touchTips so the kill switch silences the
-    /// chatty proximity pairing trace. Level is `.info` — individual failure
-    /// sites use `.warning` / `.error` directly where they matter.
     private func log(_ message: String) {
         AppLogger.touchTips.info(message)
     }
@@ -627,17 +564,7 @@ private extension TouchTipsService {
     }
 }
 
-/// Drives the iOS Local Network permission prompt and resolves once the user
-/// has actually responded.
-///
-/// `NWBrowser.State.ready` only means the browser started. It can arrive before
-/// the Local Network alert is answered, so treating it as approval makes
-/// onboarding advance while the system alert is still visible.
-///
-/// To verify a real approval, this publishes a short-lived Bonjour probe and
-/// browses for that exact service. Seeing the probe means Bonjour traffic was
-/// allowed. Policy-denied browser/listener states are held until the prompt is
-/// dismissed, because they can also arrive while the alert is still pending.
+// NWBrowser.State.ready can arrive before the Local Network alert is answered, the Bonjour probe is what actually proves approval
 private final class LocalNetworkPermissionResolver: @unchecked Sendable {
     private let continuation: CheckedContinuation<Bool, Never>
     private let queue = DispatchQueue(label: "com.unplugged.local-network-permission")
@@ -724,9 +651,7 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
             queue: .main
         ) { [self] _ in
             self.queue.async {
-                // Only treat didBecomeActive as a dialog-dismissal signal
-                // if we previously saw willResignActive. Otherwise this is
-                // the launch-time activation and we ignore it.
+                // only treat didBecomeActive as dismissal if we saw willResignActive first, launch activation is not dismissal
                 guard self.didResignActive else { return }
                 self.log("Proximity permission prompt dismissed, waiting for probe")
                 self.scheduleDismissalResolution()
@@ -735,9 +660,6 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
         observers = [resignObserver, becomeActiveObserver]
 #endif
 
-        // Hard backstop: if nothing resolves within 30 s (e.g. no dialog was
-        // ever shown AND the browser stays in .waiting), call it denied so
-        // onboarding doesn't hang forever.
         queue.asyncAfter(deadline: .now() + Timing.backstopDelay) { [self] in
             guard !self.didFinish else { return }
             guard !self.didResignActive else {
@@ -760,9 +682,7 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
             case .ready:
                 self.log("Proximity browser ready, waiting for permission probe")
             case .failed(let error):
-                // .failed is terminal. Non-EPERM failures still prove the
-                // browser had permission to try — treat them as allowed so
-                // we don't flag the user for a transient Bonjour hiccup.
+                // non-EPERM failures prove the browser had permission, treat as allowed
                 self.log("Proximity browser failed: \(String(describing: error))")
                 if error.isLocalNetworkDenied {
                     self.observeDeniedState("Proximity browser failed with local-network denial")
@@ -770,10 +690,6 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
                     self.finish(true)
                 }
             case .waiting(let error):
-                // `.waiting(EPERM)` without an app lifecycle change means the
-                // system skipped the dialog (previously denied). Wait briefly
-                // to let willResignActive land if the dialog is actually
-                // about to appear, then treat it as denied.
                 if error.isLocalNetworkDenied {
                     self.observeDeniedState("Proximity browser waiting with local-network denial")
                 }
@@ -788,9 +704,7 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
     }
 
     private func finish(_ allowed: Bool) {
-        // Serialize on our queue so the multiple completion paths
-        // (stateUpdateHandler, lifecycle observers, backstop timer) can't
-        // race to resume the continuation twice.
+        // serialize on our queue, multiple completion paths must not race to resume the continuation twice
         queue.async { [self] in
             guard !self.didFinish else { return }
             self.didFinish = true
@@ -833,8 +747,6 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
         guard !didFinish else { return }
         guard didResignActive else { return }
 
-        // After the prompt is dismissed, give Bonjour a short window to find
-        // our probe. The result handler finishes with approval if it appears.
         promptDismissalCheckCount += 1
         log("Proximity permission polling attempt \(promptDismissalCheckCount)")
         if promptDismissalCheckCount >= Timing.promptDismissalMaxPolls {
@@ -847,9 +759,6 @@ private final class LocalNetworkPermissionResolver: @unchecked Sendable {
         }
     }
 
-    /// Routes through AppLogger.touchTips so the kill switch silences the
-    /// chatty proximity pairing trace. Level is `.info` — individual failure
-    /// sites use `.warning` / `.error` directly where they matter.
     private func log(_ message: String) {
         AppLogger.touchTips.info(message)
     }
@@ -861,8 +770,7 @@ private extension NWError {
         case .posix(let code):
             return code == .EPERM
         case .dns(let code):
-            // kDNSServiceErr_PolicyDenied. Use the numeric value to avoid
-            // depending on dns_sd.h availability in this target.
+            // kDNSServiceErr_PolicyDenied, numeric to avoid the dns_sd.h dependency
             return Int(code) == -65_570
         default:
             return false
@@ -878,11 +786,8 @@ private extension NWEndpoint {
 }
 
 // MARK: - Delegate bridge
-//
-// MultipeerConnectivity and NearbyInteraction delegates are @objc and called from
-// arbitrary queues, so they can't live on the actor. This bridge captures events and
-// forwards them into the actor via closures the actor sets in `wireBridge()`.
 
+// MC/NI delegates are @objc and called from arbitrary queues so they cannot live on the actor, bridge forwards events in
 private final class ProximityBridge:
     NSObject,
     MCSessionDelegate,
@@ -904,7 +809,6 @@ private final class ProximityBridge:
     var onNISuspended: ((NISession) -> Void)?
     var onNISuspensionEnded: ((NISession) -> Void)?
 
-    // MCNearbyServiceBrowserDelegate
     func browser(_ browser: MCNearbyServiceBrowser,
                  foundPeer peerID: MCPeerID,
                  withDiscoveryInfo info: [String: String]?) {
@@ -917,7 +821,6 @@ private final class ProximityBridge:
         onBrowserFailure?(browser, error)
     }
 
-    // MCNearbyServiceAdvertiserDelegate
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser,
                     didReceiveInvitationFromPeer peerID: MCPeerID,
                     withContext context: Data?,
@@ -928,7 +831,6 @@ private final class ProximityBridge:
         onAdvertiserFailure?(advertiser, error)
     }
 
-    // MCSessionDelegate
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         onSessionState?(session, peerID, state)
     }
@@ -939,7 +841,6 @@ private final class ProximityBridge:
     func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
 
-    // NISessionDelegate
     func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
         onNIUpdate?(session, nearbyObjects)
     }

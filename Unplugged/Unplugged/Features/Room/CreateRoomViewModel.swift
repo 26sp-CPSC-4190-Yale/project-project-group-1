@@ -7,9 +7,7 @@ import UnpluggedShared
 class CreateRoomViewModel {
     var duration = DurationValue(hours: 1, minutes: 0, isUnlimited: false)
 
-    // roomName lives here so the text field and create button can read it
-    // in isolated subviews, leaving CreateRoomView.body untouched on each
-    // keystroke. That prevents typing from invalidating the duration picker.
+    // lives here so subviews can read it without invalidating CreateRoomView.body on every keystroke, which was re-rendering the duration picker
     var roomName: String = ""
 
     var isCreating = false

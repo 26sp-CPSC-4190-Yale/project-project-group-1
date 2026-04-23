@@ -1,8 +1,3 @@
-//
-//  AddDeletedAtToUsers.swift
-//  UnpluggedServer.Database.Migrations
-//
-
 import Fluent
 
 struct AddDeletedAtToUsers: AsyncMigration {
