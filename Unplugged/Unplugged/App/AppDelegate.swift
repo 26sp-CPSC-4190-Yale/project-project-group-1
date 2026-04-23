@@ -12,7 +12,7 @@ import os
 /// Bridged into the SwiftUI app via `@UIApplicationDelegateAdaptor`. Handles APNs
 /// registration and silent-push routing into `SessionOrchestrator`, which acts as
 /// the fallback lock-engagement path when the WebSocket isn't connected.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     /// Set by `UnpluggedApp` at launch so silent-push handlers can reach into the
     /// session orchestrator without going through the SwiftUI environment. Always
     /// set and read on the main actor — UIApplicationDelegate callbacks run there.
@@ -39,6 +39,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Set the UNUserNotificationCenter delegate before launch finishes. If set
+        // later, a tap that launched the app from a notification is lost because the
+        // system has no one to deliver it to during app startup.
+        UNUserNotificationCenter.current().delegate = self
+
         // Don't prompt for notification permission at launch — onboarding has an
         // explicit step for it with user-facing rationale. Double-prompting on every
         // launch trains users to deny (permission fatigue) and creates a race with
@@ -103,6 +108,47 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     @objc private func appDidBecomeActive() {
         Task { await Self.syncDeviceToken() }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    /// Present visible pushes while the app is in the foreground. Without this,
+    /// iOS silently suppresses banners for alert payloads when the user is
+    /// already in the app, so they only ever see them if they happen to be on
+    /// the lock screen or home screen when the push arrives.
+    ///
+    /// Silent background payloads never flow through here — they hit
+    /// `didReceiveRemoteNotification` instead — so anything reaching this
+    /// method is an alert from `NotificationService.send()` that the user
+    /// should see.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound, .badge])
+    }
+
+    /// Fires when the user taps a notification from the lock screen, banner, or
+    /// notification center — regardless of whether the app was backgrounded,
+    /// suspended, or cold-launched by the tap. If the payload carries a known
+    /// session-lifecycle `type`, forward it to the orchestrator so shields
+    /// apply even on a cold launch; otherwise just let the tap open the app.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        guard let type = userInfo["type"] as? String,
+              Self.knownPayloadTypes.contains(type) else {
+            completionHandler()
+            return
+        }
+
+        Task { @MainActor in
+            _ = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
+                type: type,
+                userInfo: userInfo
+            )
+            completionHandler()
+        }
     }
 
     /// §72: retry device-token registration on failures. Called on every didBecomeActive

@@ -391,6 +391,25 @@ struct SessionController: RouteCollection {
 
         await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
 
+        // Backgrounded members aren't reached by the WebSocket, so fall back to
+        // a visible APNs push so the rest of the room finds out when someone
+        // bails. Framed as "Oh no!" rather than an error, since voluntarily
+        // leaving is expected behavior we still want the room to react to.
+        let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        for recipient in members where recipient.userID != userID && recipient.config != MemberModel.voluntaryExitConfig {
+            await NotificationService.send(
+                to: recipient.userID,
+                title: "Oh no!",
+                body: "\(username) left the session.",
+                type: NotificationService.NotificationType.sessionJailbreak,
+                on: req.db,
+                application: req.application
+            )
+        }
+
         return .noContent
     }
 
@@ -457,22 +476,29 @@ struct SessionController: RouteCollection {
             )
         }
 
-        let duration = room.durationSeconds ?? 0
-        let completionRate: Double
-        if participants.isEmpty {
-            completionRate = 0
-        } else {
-            let jbUsers = Set(jbRecords.map { $0.userID })
-            let finishers = participants.filter { !jbUsers.contains($0.userID) }.count
-            completionRate = Double(finishers) / Double(participants.count)
-        }
+        let planned = max(0, room.durationSeconds ?? 0)
+        // Actual time the room was locked in, clamped into [0, planned]. We
+        // intentionally ignore per-user jailbreak rows here — this metric
+        // describes the *room's* lifetime (host ending early shortens it),
+        // not any one participant's focus streak.
+        let actualFocusedSeconds = StatsService.focusedSeconds(
+            room: room,
+            earliestLeaveAt: nil
+        )
+        let endedEarly = planned > 0
+            && actualFocusedSeconds + StatsService.earlyLeaveToleranceSeconds < planned
+        let completionRate: Double = planned > 0
+            ? min(1.0, Double(actualFocusedSeconds) / Double(planned))
+            : 0
 
         return SessionRecapResponse(
             sessionID: roomID,
             title: room.title,
             startedAt: room.lockedAt ?? room.startTime,
             endedAt: room.endedAt,
-            durationSeconds: duration,
+            durationSeconds: planned,
+            actualFocusedSeconds: actualFocusedSeconds,
+            endedEarly: endedEarly,
             participants: participants,
             jailbreaks: jailbreaks,
             completionRate: completionRate
@@ -499,17 +525,25 @@ struct SessionController: RouteCollection {
             message: .jailbreakReported(userID: userID, reason: body.reason)
         )
 
-        if room.roomOwner != userID {
-            if let reporter = try await UserModel.find(userID, on: req.db) {
-                await NotificationService.send(
-                    to: room.roomOwner,
-                    title: "Shield broken",
-                    body: "\(reporter.username) left the shield during your session.",
-                    type: NotificationService.NotificationType.sessionJailbreak,
-                    on: req.db,
-                    application: req.application
-                )
-            }
+        // Notify everyone else in the room — not just the host. Members who
+        // already left via proximity or voluntary-exit are skipped so we don't
+        // spam them once they've detached.
+        let reporter = try await UserModel.find(userID, on: req.db)
+        let reporterName = reporter?.username ?? "A participant"
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        for recipient in members where recipient.userID != userID
+            && recipient.config != MemberModel.voluntaryExitConfig
+            && recipient.config != MemberModel.proximityExitConfig {
+            await NotificationService.send(
+                to: recipient.userID,
+                title: "Oh no!",
+                body: "\(reporterName) broke the shield during your session.",
+                type: NotificationService.NotificationType.sessionJailbreak,
+                on: req.db,
+                application: req.application
+            )
         }
 
         return .noContent
@@ -565,8 +599,8 @@ struct SessionController: RouteCollection {
         for recipient in members where recipient.userID != userID && recipient.config != MemberModel.proximityExitConfig {
             await NotificationService.send(
                 to: recipient.userID,
-                title: "Session update",
-                body: "\(username) left the session because they were too far away.",
+                title: "Oh no!",
+                body: "\(username) drifted too far from the group and left the session.",
                 type: NotificationService.NotificationType.sessionProximityExit,
                 on: req.db,
                 application: req.application

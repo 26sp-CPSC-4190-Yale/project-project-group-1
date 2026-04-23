@@ -247,10 +247,10 @@ struct ActiveRoomView: View {
             }
         case .ended:
             VStack(spacing: .spacingMd) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 72))
-                    .foregroundStyle(.green)
-                Text("Session Complete")
+                    .foregroundStyle(Color.tertiaryColor)
+                Text("Session Ended")
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
             }

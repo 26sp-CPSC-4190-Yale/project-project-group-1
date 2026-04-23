@@ -199,6 +199,7 @@ struct ProfileView: View {
     // MARK: - Settings
 
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @State private var isShowingAboutSheet = false
 
     private var settingsContent: some View {
         VStack(spacing: .spacingSm) {
@@ -228,11 +229,12 @@ struct ProfileView: View {
                     .foregroundStyle(Color.tertiaryColor.opacity(0.3))
             }
 
-            settingsRow(icon: "info.circle.fill", title: "About") {
-                Text("v1.0")
-                    .font(.caption)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+            Button {
+                isShowingAboutSheet = true
+            } label: {
+                settingsLabel(icon: "info.circle.fill", title: "About", trailing: "v1.0")
             }
+            .buttonStyle(.plain)
 
             Button(role: .destructive) {
                 authViewModel.signOut()
@@ -280,6 +282,9 @@ struct ProfileView: View {
         .sheet(isPresented: $viewModel.isShowingEmergencyAppsSheet) {
             EmergencyAppsSettingsSheet(screenTime: deps.screenTime)
         }
+        .sheet(isPresented: $isShowingAboutSheet) {
+            AboutSheet()
+        }
     }
 
     private func settingsLabel(icon: String, title: String, trailing: String) -> some View {
@@ -317,6 +322,62 @@ struct ProfileView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct AboutSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: .spacingMd) {
+                        Text("About Unplugged")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(Color.tertiaryColor)
+
+                        Text("Version 1.0")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+
+                        Text("Unplugged helps you reclaim your focus with friends. Start a session, put your phone down together, and build the muscle of being present. Real connection, one unplugged hour at a time.")
+                            .font(.body)
+                            .foregroundStyle(Color.tertiaryColor)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Every session you complete counts — toward your streak, your medals, and the people on the other side of the table. We built Unplugged because the best moments in our lives never happened through a screen.")
+                            .font(.body)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: .spacingSm) {
+                            Link("Terms of Service", destination: LegalFooter.termsURL)
+                            Text("·")
+                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                            Link("Privacy Policy", destination: LegalFooter.privacyURL)
+                        }
+                        .font(.footnote)
+                        .tint(Color.tertiaryColor.opacity(0.9))
+                        .padding(.top, .spacingSm)
+                    }
+                    .padding(.horizontal, .spacingLg)
+                    .padding(.vertical, .spacingLg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .navigationTitle("About")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
     }
 }
 

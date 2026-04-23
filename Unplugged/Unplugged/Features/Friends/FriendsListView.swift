@@ -10,6 +10,7 @@ import UnpluggedShared
 
 struct FriendsListView: View {
     @Environment(DependencyContainer.self) private var deps
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = FriendsListViewModel()
     @State private var selectedFriend: FriendResponse?
 
@@ -32,9 +33,9 @@ struct FriendsListView: View {
                         .padding(.bottom, .spacingSm)
 
                         // Incoming Requests Section
-                        if !viewModel.incomingRequests.isEmpty {
+                        if !viewModel.visibleIncomingRequests.isEmpty {
                             Section {
-                                ForEach(viewModel.incomingRequests) { request in
+                                ForEach(viewModel.visibleIncomingRequests) { request in
                                     incomingRow(request: request)
                                 }
                             } header: {
@@ -44,9 +45,9 @@ struct FriendsListView: View {
                         }
 
                         // Outgoing Pending Requests Section
-                        if !viewModel.outgoingRequests.isEmpty {
+                        if !viewModel.visibleOutgoingRequests.isEmpty {
                             Section {
-                                ForEach(viewModel.outgoingRequests) { request in
+                                ForEach(viewModel.visibleOutgoingRequests) { request in
                                     outgoingRow(request: request)
                                 }
                             } header: {
@@ -94,8 +95,8 @@ struct FriendsListView: View {
                                 .tint(.tertiaryColor)
                                 .padding(.top, 60)
                         } else if viewModel.friends.isEmpty
-                                    && viewModel.incomingRequests.isEmpty
-                                    && viewModel.outgoingRequests.isEmpty {
+                                    && viewModel.visibleIncomingRequests.isEmpty
+                                    && viewModel.visibleOutgoingRequests.isEmpty {
                             VStack(spacing: .spacingMd) {
                                 Image(systemName: "person.2")
                                     .font(.system(size: 48))
@@ -150,6 +151,16 @@ struct FriendsListView: View {
             }
             .task {
                 await viewModel.load(service: deps.friends)
+            }
+            .onAppear {
+                // Re-check pending/accepted state whenever the Friends tab
+                // becomes visible so an incoming accept on the other device
+                // clears the "Cancel" row here without a pull-to-refresh.
+                Task { await viewModel.load(service: deps.friends) }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await viewModel.load(service: deps.friends) }
             }
             .refreshable {
                 await viewModel.load(service: deps.friends)

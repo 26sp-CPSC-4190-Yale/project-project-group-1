@@ -134,6 +134,47 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let allowedWebDomains = emergencySelection.webDomains
         let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
+        // Set up the DeviceActivity monitor BEFORE we engage the shield. If
+        // monitoring can't be scheduled (intervalTooShort, etc.) we still want
+        // to fall back to an in-app timer to drop the shield, but we must not
+        // leave the shield engaged with no way to clear it.
+        let now = Date()
+        // Apple's DeviceActivitySchedule requires >= 15 minutes between start
+        // and end, or it rejects with intervalTooShort. Pad short sessions to
+        // 16 minutes so the scheduled auto-clear still runs; the app's normal
+        // unlock flow (session-ended WS / silent push / poll) clears the
+        // shield at the real endsAt well before the monitor fires.
+        let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
+        let calendar = Calendar.current
+        let start = calendar.dateComponents([.hour, .minute, .second], from: now)
+        let end = calendar.dateComponents([.hour, .minute, .second], from: scheduledEndsAt)
+        let schedule = DeviceActivitySchedule(
+            intervalStart: start,
+            intervalEnd: end,
+            repeats: false
+        )
+
+        center.stopMonitoring([activityName])
+        var monitoringFailed = false
+        do {
+            try center.startMonitoring(activityName, during: schedule)
+        } catch {
+            // Auto-clear won't run. The app still unlocks on session end via
+            // the normal flow; log loudly so a stuck shield on a killed app
+            // is triageable, but don't refuse to engage the shield — the
+            // user would otherwise get a "couldn't engage shield" alert even
+            // though we can still enforce the session while the app is alive.
+            monitoringFailed = true
+            AppLogger.screenTime.critical(
+                "DeviceActivityCenter.startMonitoring failed — shield will not auto-clear",
+                error: error,
+                context: [
+                    "endsAt": ISO8601DateFormatter().string(from: endsAt),
+                    "scheduledEndsAt": ISO8601DateFormatter().string(from: scheduledEndsAt)
+                ]
+            )
+        }
+
         // Apple's built-in apps aren't covered by ActivityCategoryPolicy.all(except:)
         // — their tokens can't be derived from a bundle ID, and many aren't in a
         // shieldable category. blockedApplications is the only API that can stop
@@ -153,30 +194,11 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
         store.webContent.blockedByFilter = .all(except: allowedWebDomains)
 
-        let calendar = Calendar.current
-        let start = calendar.dateComponents([.hour, .minute, .second], from: Date())
-        let end = calendar.dateComponents([.hour, .minute, .second], from: endsAt)
-        let schedule = DeviceActivitySchedule(
-            intervalStart: start,
-            intervalEnd: end,
-            repeats: false
+        AppLogger.breadcrumb(
+            .screenTime,
+            "lock_end",
+            context: ["monitoringFailed": monitoringFailed]
         )
-
-        center.stopMonitoring([activityName])
-        do {
-            try center.startMonitoring(activityName, during: schedule)
-        } catch {
-            // DeviceActivity monitoring failure means the shield won't
-            // auto-clear at endsAt even if lockApps otherwise succeeded.
-            // That strands the user past the session — log loudly.
-            AppLogger.screenTime.critical(
-                "DeviceActivityCenter.startMonitoring failed — shield will not auto-clear",
-                error: error,
-                context: ["endsAt": ISO8601DateFormatter().string(from: endsAt)]
-            )
-            throw error
-        }
-        AppLogger.breadcrumb(.screenTime, "lock_end")
         #endif
     }
 

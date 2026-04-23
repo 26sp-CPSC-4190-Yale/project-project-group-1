@@ -21,8 +21,23 @@ class FriendsListViewModel {
     var isLoading = false
     var error: String?
 
+    // Request IDs that the user has already resolved locally but whose server
+    // reconciliation might not have landed yet. The view filters them out of
+    // incomingRequests / outgoingRequests so a stale in-flight load() cannot
+    // re-surface an Accept or Cancel button the user just dismissed.
+    private(set) var resolvedIncomingIDs: Set<UUID> = []
+    private(set) var resolvedOutgoingIDs: Set<UUID> = []
+
     // Report flow state
     var reportTarget: FriendResponse?
+
+    var visibleIncomingRequests: [FriendResponse] {
+        incomingRequests.filter { !resolvedIncomingIDs.contains($0.id) }
+    }
+
+    var visibleOutgoingRequests: [FriendResponse] {
+        outgoingRequests.filter { !resolvedOutgoingIDs.contains($0.id) }
+    }
 
     var filteredFriends: [FriendResponse] {
         let base = searchText.isEmpty
@@ -52,9 +67,22 @@ class FriendsListViewModel {
             async let fetchIncoming = service.listIncoming()
             async let fetchOutgoing = service.listOutgoing()
 
-            self.friends = try await fetchFriends
-            self.incomingRequests = try await fetchIncoming
-            self.outgoingRequests = try await fetchOutgoing
+            let friendsList = try await fetchFriends
+            let incomingList = try await fetchIncoming
+            let outgoingList = try await fetchOutgoing
+
+            self.friends = friendsList
+            self.incomingRequests = incomingList
+            self.outgoingRequests = outgoingList
+
+            // Drop local overrides for any IDs the server has already reconciled
+            // (i.e., no longer returns as pending). Keep overrides for anything
+            // still pending so a stale fetch that completed after a tap doesn't
+            // re-surface the button the user just dismissed.
+            let incomingIDs = Set(incomingList.map(\.id))
+            resolvedIncomingIDs = resolvedIncomingIDs.intersection(incomingIDs)
+            let outgoingIDs = Set(outgoingList.map(\.id))
+            resolvedOutgoingIDs = resolvedOutgoingIDs.intersection(outgoingIDs)
         } catch is CancellationError {
             // View torn down or refresh superseded — not a user-facing error.
         } catch {
@@ -82,32 +110,57 @@ class FriendsListViewModel {
     }
 
     func acceptRequest(service: FriendAPIService, requestID: UUID) async {
+        // Flag the request as resolved so the view hides the Accept button
+        // immediately. We intentionally do NOT mutate incomingRequests here
+        // — an in-flight load() finishing after the tap would otherwise
+        // overwrite the removal with stale pre-accept data and re-surface
+        // the button. Drop a placeholder into friends so the row reappears
+        // there until the reconciling load() lands with the real record.
+        resolvedIncomingIDs.insert(requestID)
+        if let placeholder = incomingRequests.first(where: { $0.id == requestID }),
+           !friends.contains(where: { $0.id == placeholder.id }) {
+            friends.append(FriendResponse(
+                id: placeholder.id,
+                username: placeholder.username,
+                status: "accepted",
+                presence: placeholder.presence,
+                hoursUnplugged: placeholder.hoursUnplugged,
+                lastActiveAt: placeholder.lastActiveAt
+            ))
+        }
         do {
             _ = try await service.acceptRequest(friendID: requestID)
             await load(service: service)
         } catch {
+            // Server said no — unhide the row so the user can try again.
+            resolvedIncomingIDs.remove(requestID)
+            friends.removeAll { $0.id == requestID }
             self.error = "Failed to accept friend request"
+            await load(service: service)
         }
     }
 
     func rejectRequest(service: FriendAPIService, requestID: UUID) async {
+        resolvedIncomingIDs.insert(requestID)
         do {
             try await service.rejectRequest(friendID: requestID)
             await load(service: service)
         } catch {
+            resolvedIncomingIDs.remove(requestID)
             self.error = "Failed to reject friend request"
+            await load(service: service)
         }
     }
 
     /// Cancel an outgoing friend request. Uses the same reject endpoint on the
     /// server (which deletes pending rows regardless of direction once it matches).
     func cancelOutgoingRequest(service: FriendAPIService, targetID: UUID) async {
-        // Optimistically remove so the row disappears immediately.
-        outgoingRequests.removeAll { $0.id == targetID }
+        resolvedOutgoingIDs.insert(targetID)
         do {
             try await service.rejectRequest(friendID: targetID)
             await load(service: service)
         } catch {
+            resolvedOutgoingIDs.remove(targetID)
             self.error = "Failed to cancel request"
             await load(service: service)
         }
