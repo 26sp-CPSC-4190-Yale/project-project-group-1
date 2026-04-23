@@ -92,15 +92,27 @@ struct ScreenTimePermissionView: View {
 private struct EmergencyTileLabelStyle: LabelStyle {
     var iconSize: CGFloat = 22
     var spacing: CGFloat = 8
+    var iconTint: Color?
 
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: spacing) {
-            configuration.icon
+            tintedIcon(configuration.icon)
                 .font(.system(size: iconSize))
                 .frame(width: iconSize, height: iconSize)
             configuration.title
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+        }
+    }
+
+    @ViewBuilder
+    private func tintedIcon<Icon: View>(_ icon: Icon) -> some View {
+        if let iconTint {
+            icon
+                .saturation(0)
+                .colorMultiply(iconTint)
+        } else {
+            icon
         }
     }
 }
@@ -111,10 +123,11 @@ private extension View {
         colorScheme: ColorScheme,
         iconSize: CGFloat = 22,
         spacing: CGFloat = 8,
-        font: Font = .subheadline.weight(.medium)
+        font: Font = .subheadline.weight(.medium),
+        tokenIconTint: Color? = nil
     ) -> some View {
         return self
-            .labelStyle(EmergencyTileLabelStyle(iconSize: iconSize, spacing: spacing))
+            .labelStyle(EmergencyTileLabelStyle(iconSize: iconSize, spacing: spacing, iconTint: tokenIconTint))
             .font(font)
             .foregroundStyle(foreground)
             .tint(foreground)
@@ -144,19 +157,19 @@ private struct EmergencySelectionSummary: View {
                     }
 
                     ForEach(Array(viewModel.savedSelection.applicationTokens), id: \.self) { token in
-                        summaryChip {
+                        summaryChip(tokenIconTint: Color.tertiaryColor) {
                             Label(token)
                         }
                     }
 
                     ForEach(Array(viewModel.savedSelection.categoryTokens), id: \.self) { token in
-                        summaryChip {
+                        summaryChip(tokenIconTint: Color.tertiaryColor) {
                             Label(token)
                         }
                     }
 
                     ForEach(Array(viewModel.savedSelection.webDomainTokens), id: \.self) { token in
-                        summaryChip {
+                        summaryChip(tokenIconTint: Color.tertiaryColor) {
                             Label(token)
                         }
                     }
@@ -173,14 +186,18 @@ private struct EmergencySelectionSummary: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private func summaryChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func summaryChip<Content: View>(
+        tokenIconTint: Color? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         return content()
             .emergencyActivityLabelStyle(
                 foreground: Color.tertiaryColor,
                 colorScheme: .dark,
                 iconSize: 18,
                 spacing: 6,
-                font: .caption.weight(.semibold)
+                font: .caption.weight(.semibold),
+                tokenIconTint: tokenIconTint
             )
             .padding(.horizontal, 10)
             .frame(height: 34)
@@ -223,6 +240,7 @@ private struct EmergencySelectionSheet: View {
                         ForEach(Array(viewModel.selection.applicationTokens), id: \.self) { token in
                             emergencyTile(
                                 isSelected: true,
+                                isToken: true,
                                 action: { viewModel.selection.applicationTokens.remove(token) }
                             ) {
                                 Label(token)
@@ -232,6 +250,7 @@ private struct EmergencySelectionSheet: View {
                         ForEach(Array(viewModel.selection.categoryTokens), id: \.self) { token in
                             emergencyTile(
                                 isSelected: true,
+                                isToken: true,
                                 action: { viewModel.selection.categoryTokens.remove(token) }
                             ) {
                                 Label(token)
@@ -241,6 +260,7 @@ private struct EmergencySelectionSheet: View {
                         ForEach(Array(viewModel.selection.webDomainTokens), id: \.self) { token in
                             emergencyTile(
                                 isSelected: true,
+                                isToken: true,
                                 action: { viewModel.selection.webDomainTokens.remove(token) }
                             ) {
                                 Label(token)
@@ -317,18 +337,21 @@ private struct EmergencySelectionSheet: View {
 
     private func emergencyTile<Content: View>(
         isSelected: Bool,
+        isToken: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Content
     ) -> some View {
         let foreground = isSelected ? Color.primaryColor : Color.tertiaryColor
         let contentColorScheme: ColorScheme = isSelected ? .light : .dark
+        let tokenIconTint: Color? = isToken ? foreground : nil
 
         return Button(action: action) {
             HStack(spacing: 8) {
                 label()
                     .emergencyActivityLabelStyle(
                         foreground: foreground,
-                        colorScheme: contentColorScheme
+                        colorScheme: contentColorScheme,
+                        tokenIconTint: tokenIconTint
                     )
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

@@ -47,7 +47,8 @@ struct FriendsListView: View {
                             .padding(.bottom, .spacingMd)
                         }
 
-                        if !viewModel.friends.isEmpty {
+                        // Friends Section
+                        if !viewModel.visibleFriends.isEmpty {
                             Section {
                                 ForEach(viewModel.filteredFriends) { friend in
                                     Button {
@@ -80,11 +81,11 @@ struct FriendsListView: View {
                             }
                         }
 
-                        if viewModel.isLoading && viewModel.friends.isEmpty {
+                        if viewModel.isLoading && viewModel.visibleFriends.isEmpty {
                             ProgressView()
                                 .tint(.tertiaryColor)
                                 .padding(.top, 60)
-                        } else if viewModel.friends.isEmpty
+                        } else if viewModel.visibleFriends.isEmpty
                                     && viewModel.visibleIncomingRequests.isEmpty
                                     && viewModel.visibleOutgoingRequests.isEmpty {
                             VStack(spacing: .spacingMd) {
