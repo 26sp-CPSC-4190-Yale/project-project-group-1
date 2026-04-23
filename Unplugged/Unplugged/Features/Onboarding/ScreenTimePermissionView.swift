@@ -112,6 +112,23 @@ private struct EmergencyTileLabelStyle: LabelStyle {
     }
 }
 
+private extension View {
+    func emergencyActivityLabelStyle(
+        foreground: Color,
+        colorScheme: ColorScheme,
+        iconSize: CGFloat = 22,
+        spacing: CGFloat = 8,
+        font: Font = .subheadline.weight(.medium)
+    ) -> some View {
+        return self
+            .labelStyle(EmergencyTileLabelStyle(iconSize: iconSize, spacing: spacing))
+            .font(font)
+            .foregroundStyle(foreground)
+            .tint(foreground)
+            .environment(\.colorScheme, colorScheme)
+    }
+}
+
 private struct EmergencySelectionSummary: View {
     @Bindable var viewModel: ScreenTimePermissionViewModel
 
@@ -164,10 +181,14 @@ private struct EmergencySelectionSummary: View {
     }
 
     private func summaryChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .labelStyle(EmergencyTileLabelStyle(iconSize: 18, spacing: 6))
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.tertiaryColor)
+        return content()
+            .emergencyActivityLabelStyle(
+                foreground: Color.tertiaryColor,
+                colorScheme: .dark,
+                iconSize: 18,
+                spacing: 6,
+                font: .caption.weight(.semibold)
+            )
             .padding(.horizontal, 10)
             .frame(height: 34)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -259,6 +280,7 @@ private struct EmergencySelectionSheet: View {
                 }
             }
             .interactiveDismissDisabled()
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .sheet(isPresented: $showingFamilyPicker) {
                 NavigationStack {
                     FamilyActivityPicker(selection: $viewModel.selection)
@@ -271,18 +293,23 @@ private struct EmergencySelectionSheet: View {
                             }
                         }
                 }
+                .preferredColorScheme(.dark)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .tint(Color.primaryColor)
             }
         }
     }
 
     private var addMoreTile: some View {
-        Button {
+        return Button {
             showingFamilyPicker = true
         } label: {
             Label("Add More", systemImage: "plus.circle.fill")
-                .labelStyle(EmergencyTileLabelStyle())
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.tertiaryColor)
+                .emergencyActivityLabelStyle(
+                    foreground: Color.tertiaryColor,
+                    colorScheme: .dark,
+                    font: .subheadline.weight(.semibold)
+                )
                 .padding(.horizontal, 12)
                 .frame(height: 44)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,15 +327,21 @@ private struct EmergencySelectionSheet: View {
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Content
     ) -> some View {
-        Button(action: action) {
+        let foreground = isSelected ? Color.primaryColor : Color.tertiaryColor
+        let contentColorScheme: ColorScheme = isSelected ? .light : .dark
+
+        return Button(action: action) {
             HStack(spacing: 8) {
                 label()
-                    .labelStyle(EmergencyTileLabelStyle())
+                    .emergencyActivityLabelStyle(
+                        foreground: foreground,
+                        colorScheme: contentColorScheme
+                    )
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             }
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(isSelected ? Color.primaryColor : Color.tertiaryColor)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 12)
             .frame(height: 44)
             .frame(maxWidth: .infinity)

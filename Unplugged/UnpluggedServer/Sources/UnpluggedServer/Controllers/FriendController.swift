@@ -190,6 +190,13 @@ struct FriendController: RouteCollection {
         let visibleIncoming = incoming.filter {
             !hiddenIDs.contains($0.user1ID) && !acceptedIDs.contains($0.user1ID)
         }
+        if visibleIncoming.count != incoming.count {
+            req.logger.warning("incoming friend request list suppressed reconciled rows", metadata: [
+                "user_id": "\(userID)",
+                "incoming_count": "\(incoming.count)",
+                "visible_count": "\(visibleIncoming.count)"
+            ])
+        }
         let requesterIDs = visibleIncoming.map { $0.user1ID }
         guard !requesterIDs.isEmpty else { return [] }
 
@@ -233,6 +240,13 @@ struct FriendController: RouteCollection {
         let visibleOutgoing = outgoing.filter {
             !hiddenIDs.contains($0.user2ID) && !acceptedIDs.contains($0.user2ID)
         }
+        if visibleOutgoing.count != outgoing.count {
+            req.logger.warning("outgoing friend request list suppressed reconciled rows", metadata: [
+                "user_id": "\(userID)",
+                "outgoing_count": "\(outgoing.count)",
+                "visible_count": "\(visibleOutgoing.count)"
+            ])
+        }
         let targetIDs = visibleOutgoing.map { $0.user2ID }
         guard !targetIDs.isEmpty else { return [] }
 
@@ -267,6 +281,11 @@ struct FriendController: RouteCollection {
             throw Abort(.notFound)
         }
 
+        req.logger.info("friend accept by request id", metadata: [
+            "user_id": "\(userID)",
+            "request_id": "\(id)"
+        ])
+
         guard friendship.user2ID == userID else {
             throw Abort(.forbidden)
         }
@@ -275,6 +294,11 @@ struct FriendController: RouteCollection {
             ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
+            req.logger.warning("friend accept by request id was already accepted", metadata: [
+                "user_id": "\(userID)",
+                "request_id": "\(id)",
+                "other_user_id": "\(friendship.user1ID)"
+            ])
             return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
         }
 
@@ -285,6 +309,11 @@ struct FriendController: RouteCollection {
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
         try await Self.deletePendingFriendships(between: userID, and: friendship.user1ID, on: req.db)
+        req.logger.info("friend accept by request id applied", metadata: [
+            "user_id": "\(userID)",
+            "request_id": "\(id)",
+            "other_user_id": "\(friendship.user1ID)"
+        ])
 
         await NotificationService.send(
             to: friendship.user1ID,
@@ -339,6 +368,19 @@ struct FriendController: RouteCollection {
             .filter(\.$user2ID == userID)
             .all()
 
+        req.logger.info("friend accept by user id", metadata: [
+            "user_id": "\(userID)",
+            "requester_id": "\(requesterID)",
+            "matching_rows": "\(friendships.count)"
+        ])
+        if friendships.count > 1 {
+            req.logger.warning("multiple friendship rows found while accepting friend", metadata: [
+                "user_id": "\(userID)",
+                "requester_id": "\(requesterID)",
+                "matching_rows": "\(friendships.count)"
+            ])
+        }
+
         guard let friendship = friendships.first(where: { $0.status == "pending" })
             ?? friendships.first(where: { $0.status == "accepted" }) else {
             throw Abort(.notFound)
@@ -348,6 +390,10 @@ struct FriendController: RouteCollection {
             ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
+            req.logger.warning("friend accept by user id was already accepted", metadata: [
+                "user_id": "\(userID)",
+                "requester_id": "\(requesterID)"
+            ])
             return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
         }
 
@@ -358,6 +404,10 @@ struct FriendController: RouteCollection {
         friendship.status = "accepted"
         try await friendship.save(on: req.db)
         try await Self.deletePendingFriendships(between: userID, and: requesterID, on: req.db)
+        req.logger.info("friend accept by user id applied", metadata: [
+            "user_id": "\(userID)",
+            "requester_id": "\(requesterID)"
+        ])
 
         await NotificationService.send(
             to: requesterID,

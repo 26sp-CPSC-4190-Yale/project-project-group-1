@@ -136,7 +136,7 @@ struct FriendsListView: View {
             .sheet(isPresented: $viewModel.showAddFriend) {
                 AddFriendSheet(existingFriendIDs: viewModel.excludedAddFriendIDs) { username in
                     viewModel.addFriendUsername = username
-                    await viewModel.addFriend(service: deps.friends)
+                    return await viewModel.addFriend(service: deps.friends)
                 }
             }
             .sheet(item: $viewModel.reportTarget) { target in
@@ -152,15 +152,9 @@ struct FriendsListView: View {
             .task {
                 await viewModel.load(service: deps.friends)
             }
-            .onAppear {
-                // Re-check pending/accepted state whenever the Friends tab
-                // becomes visible so an incoming accept on the other device
-                // clears the "Cancel" row here without a pull-to-refresh.
-                Task { await viewModel.load(service: deps.friends) }
-            }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
-                Task { await viewModel.load(service: deps.friends) }
+                Task { await viewModel.load(service: deps.friends, force: true) }
             }
             .refreshable {
                 await viewModel.load(service: deps.friends)
@@ -181,27 +175,50 @@ struct FriendsListView: View {
             Button {
                 Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
             } label: {
-                Text("Accept")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.primaryColor)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.tertiaryColor)
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
+                Group {
+                    if viewModel.isAccepting(requestID: request.id) {
+                        ProgressView()
+                            .tint(.primaryColor)
+                            .frame(width: 44, height: 20)
+                    } else {
+                        Text("Accept")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.primaryColor)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.tertiaryColor)
+                .clipShape(Capsule())
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(
+                viewModel.isAccepting(requestID: request.id)
+                    || viewModel.isRejecting(requestID: request.id)
+            )
             Button {
                 Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
             } label: {
-                Image(systemName: "xmark")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                Group {
+                    if viewModel.isRejecting(requestID: request.id) {
+                        ProgressView()
+                            .tint(.tertiaryColor)
+                    } else {
+                        Image(systemName: "xmark")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(
+                viewModel.isAccepting(requestID: request.id)
+                    || viewModel.isRejecting(requestID: request.id)
+            )
         }
         .padding(.spacingMd)
         .background(Color.surfaceColor)
@@ -228,18 +245,27 @@ struct FriendsListView: View {
                     )
                 }
             } label: {
-                Text("Cancel")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.8))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .strokeBorder(Color.tertiaryColor.opacity(0.3), lineWidth: 1)
-                    )
-                    .contentShape(Capsule())
+                Group {
+                    if viewModel.isCancelling(requestID: request.id) {
+                        ProgressView()
+                            .tint(.tertiaryColor)
+                            .frame(width: 44, height: 20)
+                    } else {
+                        Text("Cancel")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.8))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .strokeBorder(Color.tertiaryColor.opacity(0.3), lineWidth: 1)
+                )
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(viewModel.isCancelling(requestID: request.id))
         }
         .padding(.spacingMd)
         .background(Color.surfaceColor)

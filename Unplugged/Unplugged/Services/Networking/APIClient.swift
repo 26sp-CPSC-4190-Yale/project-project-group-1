@@ -12,14 +12,6 @@ struct APIClient {
     private let baseURL = Config.baseURL
     private let cache: LocalCacheService
 
-    private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        return e
-    }()
-
-    private let decoder = APIClient.makeDecoder()
-
     private let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -38,6 +30,7 @@ struct APIClient {
         let request = try buildRequest(route)
         let (data, response) = try await performRequest(request, route: route)
         try validate(response, with: data, route: route)
+        let decoder = Self.makeDecoder()
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
@@ -111,6 +104,7 @@ struct APIClient {
         }
 
         if let body = route.body {
+            let encoder = Self.makeEncoder()
             do {
                 request.httpBody = try encoder.encode(AnyEncodable(body))
             } catch {
@@ -177,8 +171,20 @@ struct APIClient {
         return data.count > limit ? "\(text)…(\(data.count)B)" : text
     }
 
+    private static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let standard = ISO8601DateFormatter()
+        standard.formatOptions = [.withInternetDateTime]
+
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
 
@@ -187,14 +193,10 @@ struct APIClient {
             }
 
             let value = try container.decode(String.self)
-            let fractional = ISO8601DateFormatter()
-            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             if let date = fractional.date(from: value) {
                 return date
             }
 
-            let standard = ISO8601DateFormatter()
-            standard.formatOptions = [.withInternetDateTime]
             if let date = standard.date(from: value) {
                 return date
             }

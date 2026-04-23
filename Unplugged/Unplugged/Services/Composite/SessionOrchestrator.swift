@@ -545,8 +545,10 @@ final class SessionOrchestrator {
 
         var needsSignalRecovery: Bool {
             switch state {
-            case .noReading, .stale, .missingDistance:
+            case .noReading, .missingDistance:
                 return true
+            case .stale:
+                return (age ?? 0) >= LockedSessionProximityPolicy.staleRecoveryInterval
             case .withinThreshold, .outOfRange:
                 return false
             }
@@ -663,6 +665,11 @@ final class SessionOrchestrator {
                 AppLogger.proximity.info("distance recovered — \(assessment.logDescription)")
             }
             clearProximityWarning()
+        } else if assessment.isFreshOutOfRange {
+            if let sessionID = lockedProximitySessionID,
+               proximityCountdownTask == nil {
+                beginProximityWarningCountdown(sessionID: sessionID, initialAssessment: assessment)
+            }
         } else if reading.distanceMeters == nil, stateChanged {
             AppLogger.proximity.warning("no-distance reading recorded — \(assessment.logDescription)")
         }

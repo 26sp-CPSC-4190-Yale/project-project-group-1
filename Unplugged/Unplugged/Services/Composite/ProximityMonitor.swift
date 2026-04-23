@@ -13,7 +13,15 @@ enum LockedSessionProximityPolicy {
     static let checkIntervalNanoseconds: UInt64 = 30_000_000_000
     static let gracePeriodSeconds: Int = 10
     static let graceCheckIntervalNanoseconds: UInt64 = 1_000_000_000
-    static let staleReadingInterval: TimeInterval = 8
+    /// NearbyInteraction does not guarantee a new distance sample every second,
+    /// especially while the devices are stationary or the radio is reacquiring.
+    /// Keep this comfortably longer than the leave countdown so a single valid
+    /// out-of-range reading can carry the full warning window.
+    static let staleReadingInterval: TimeInterval = TimeInterval(gracePeriodSeconds + 8)
+    /// A stale-but-real distance sample is still better than tearing the entire
+    /// MC/NI stack down immediately. Give the transport a wider window before
+    /// forcing a full recovery.
+    static let staleRecoveryInterval: TimeInterval = 45
     static let recoveryCooldown: TimeInterval = 5
 }
 

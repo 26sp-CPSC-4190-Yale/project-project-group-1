@@ -129,7 +129,7 @@ actor TouchTipsService {
         browser.startBrowsingForPeers()
 
         log("locked monitor browsing for room \(roomID.uuidString) as \(peerID.displayName)")
-        emitLockedProximity(distanceMeters: nil, reason: "monitor_started")
+        publishLockedSignalLoss(reason: "monitor_started")
         return stream
     }
 
@@ -181,6 +181,7 @@ actor TouchTipsService {
     /// Used as a fallback if the handshake message arrives before we've parsed the payload,
     /// or if the host never sends a roomID for some reason.
     private var discoveredRoomID: [MCPeerID: UUID] = [:]
+    private var pendingPeerInvitations: Set<String> = []
 
     private var niSessions: [MCPeerID: NISession] = [:]
     private var peerDiscoveryTokens: [MCPeerID: NIDiscoveryToken] = [:]
@@ -194,51 +195,52 @@ actor TouchTipsService {
     // MARK: - Wire delegate callbacks
 
     private func wireBridge() {
-        bridge.onFoundPeer = { [weak self] peer, info in
-            Task { await self?.handleFoundPeer(peer: peer, info: info) }
+        bridge.onFoundPeer = { [weak self] browser, peer, info in
+            Task { await self?.handleFoundPeer(browser: browser, peer: peer, info: info) }
         }
-        bridge.onInvitation = { [weak self] peer, invitationHandler in
-            Task { await self?.handleInvitation(peer: peer, handler: invitationHandler) }
+        bridge.onInvitation = { [weak self] advertiser, peer, invitationHandler in
+            Task { await self?.handleInvitation(advertiser: advertiser, peer: peer, handler: invitationHandler) }
         }
-        bridge.onSessionState = { [weak self] peer, state in
-            Task { await self?.handleSessionState(peer: peer, state: state) }
+        bridge.onSessionState = { [weak self] session, peer, state in
+            Task { await self?.handleSessionState(session: session, peer: peer, state: state) }
         }
-        bridge.onDataReceived = { [weak self] peer, data in
-            Task { await self?.handleDataReceived(peer: peer, data: data) }
+        bridge.onDataReceived = { [weak self] session, peer, data in
+            Task { await self?.handleDataReceived(session: session, peer: peer, data: data) }
         }
-        bridge.onNIUpdate = { [weak self] objects in
-            Task { await self?.handleNIUpdate(objects: objects) }
+        bridge.onNIUpdate = { [weak self] session, objects in
+            Task { await self?.handleNIUpdate(session: session, objects: objects) }
         }
-        bridge.onNIRemoved = { [weak self] _ in
+        bridge.onNIRemoved = { [weak self] session, _ in
             // Peer moved out of range or session broke. Not fatal — keep MC alive so
             // they can approach again without re-pairing.
-            Task { await self?.handleNIRemoved() }
+            Task { await self?.handleNIRemoved(session: session) }
         }
-        bridge.onNIInvalidated = { [weak self] error in
-            Task { await self?.resetNI(reason: String(describing: error)) }
+        bridge.onNIInvalidated = { [weak self] session, error in
+            Task { await self?.resetNI(session: session, reason: String(describing: error)) }
         }
-        bridge.onLostPeer = { [weak self] peer in
-            Task { await self?.handleLostPeer(peer: peer) }
+        bridge.onLostPeer = { [weak self] browser, peer in
+            Task { await self?.handleLostPeer(browser: browser, peer: peer) }
         }
-        bridge.onBrowserFailure = { [weak self] error in
-            Task { await self?.handleBrowserFailure(error) }
+        bridge.onBrowserFailure = { [weak self] browser, error in
+            Task { await self?.handleBrowserFailure(browser: browser, error) }
         }
-        bridge.onAdvertiserFailure = { [weak self] error in
-            Task { await self?.handleAdvertiserFailure(error) }
+        bridge.onAdvertiserFailure = { [weak self] advertiser, error in
+            Task { await self?.handleAdvertiserFailure(advertiser: advertiser, error) }
         }
-        bridge.onNISuspended = { [weak self] in
-            Task { await self?.handleNISuspended() }
+        bridge.onNISuspended = { [weak self] session in
+            Task { await self?.handleNISuspended(session: session) }
         }
-        bridge.onNISuspensionEnded = { [weak self] in
-            Task { await self?.handleNISuspensionEnded() }
+        bridge.onNISuspensionEnded = { [weak self] session in
+            Task { await self?.handleNISuspensionEnded(session: session) }
         }
     }
 
     // MARK: - MC event handlers
 
-    private func handleFoundPeer(peer: MCPeerID, info: [String: String]?) {
+    private func handleFoundPeer(browser: MCNearbyServiceBrowser, peer: MCPeerID, info: [String: String]?) {
         guard let session = mcSession,
-              let browser = browser else {
+              let activeBrowser = self.browser,
+              browser === activeBrowser else {
             log("found peer \(peer.displayName) ignored: missing MC session/browser")
             return
         }
@@ -262,27 +264,46 @@ actor TouchTipsService {
             return
         }
 
+        if pendingPeerInvitations.contains(peer.displayName) {
+            log("ignoring duplicate invite attempt for \(peer.displayName)")
+            return
+        }
+        if session.connectedPeers.contains(where: { $0.displayName == peer.displayName }) {
+            log("ignoring already-connected peer \(peer.displayName)")
+            return
+        }
+
+        pendingPeerInvitations.insert(peer.displayName)
         log("inviting peer \(peer.displayName) for role \(roleLogDescription)")
         browser.invitePeer(peer, to: session, withContext: nil, timeout: 15)
     }
 
-    private func handleInvitation(peer: MCPeerID, handler: @escaping (Bool, MCSession?) -> Void) {
+    private func handleInvitation(advertiser: MCNearbyServiceAdvertiser, peer: MCPeerID, handler: @escaping (Bool, MCSession?) -> Void) {
+        guard advertiser === self.advertiser else {
+            handler(false, nil)
+            return
+        }
         // Auto-accept any inbound invite on our namespaced service — the service type
         // itself is the coarse gate; UWB is the fine gate.
         log("received invitation from \(peer.displayName), accepting: \(mcSession != nil ? "YES" : "NO_SESSION")")
         handler(true, mcSession)
     }
 
-    private func handleSessionState(peer: MCPeerID, state: MCSessionState) {
+    private func handleSessionState(session: MCSession, peer: MCPeerID, state: MCSessionState) {
+        guard session === mcSession else { return }
         log("MC session state for \(peer.displayName): \(state.logDescription) role: \(roleLogDescription)")
         if state == .connected {
+            pendingPeerInvitations.remove(peer.displayName)
             sendHandshake(to: peer)
         } else {
+            if state == .notConnected {
+                pendingPeerInvitations.remove(peer.displayName)
+            }
             niSessions[peer]?.invalidate()
             niSessions[peer] = nil
             peerDiscoveryTokens[peer] = nil
             if case .lockedGuest = role {
-                emitLockedProximity(distanceMeters: nil, reason: "mc_\(state.logDescription)")
+                publishLockedSignalLoss(reason: "mc_\(state.logDescription)")
             }
         }
         // Do NOT schedule an MC-only yield here — MC connecting only proves radio
@@ -317,12 +338,13 @@ actor TouchTipsService {
         } catch {
             AppLogger.touchTips.error("handshake send failed", error: error, context: ["peer": peer.displayName])
             if case .lockedGuest = role {
-                emitLockedProximity(distanceMeters: nil, reason: "handshake_send_failed")
+                publishLockedSignalLoss(reason: "handshake_send_failed")
             }
         }
     }
 
-    private func handleDataReceived(peer: MCPeerID, data: Data) {
+    private func handleDataReceived(session: MCSession, peer: MCPeerID, data: Data) {
+        guard session === mcSession else { return }
         let payload: [String: String]
         do {
             payload = try JSONDecoder().decode([String: String].self, from: data)
@@ -352,7 +374,7 @@ actor TouchTipsService {
               let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
             log("NI token missing/invalid from \(peer.displayName)")
             if case .lockedGuest = role {
-                emitLockedProximity(distanceMeters: nil, reason: "ni_token_missing")
+                publishLockedSignalLoss(reason: "ni_token_missing")
             }
             return
         }
@@ -364,7 +386,7 @@ actor TouchTipsService {
         guard let ni = makeNISession(for: peer) else {
             log("NI ranging skipped for \(peer.displayName): precise distance unsupported")
             if case .lockedGuest = role {
-                emitLockedProximity(distanceMeters: nil, reason: "uwb_unsupported")
+                publishLockedSignalLoss(reason: "uwb_unsupported")
             }
             return
         }
@@ -375,7 +397,8 @@ actor TouchTipsService {
 
     // MARK: - NI event handler
 
-    private func handleNIUpdate(objects: [NINearbyObject]) {
+    private func handleNIUpdate(session: NISession, objects: [NINearbyObject]) {
+        guard hasActiveNISession(session) else { return }
         let match = objects.compactMap { object -> Float? in
             guard let distance = object.distance else { return nil }
             return peerDiscoveryTokens.values.contains { $0 == object.discoveryToken } ? distance : nil
@@ -388,7 +411,7 @@ actor TouchTipsService {
             // bank progress toward the gate.
             consecutiveCloseCount = 0
             if case .lockedGuest = role {
-                emitLockedProximity(distanceMeters: nil, reason: "ni_update_without_distance")
+                publishLockedSignalLoss(reason: "ni_update_without_distance")
             }
             return
         }
@@ -412,15 +435,17 @@ actor TouchTipsService {
         }
     }
 
-    private func handleNIRemoved() {
+    private func handleNIRemoved(session: NISession) {
+        guard hasActiveNISession(session) else { return }
         consecutiveCloseCount = 0
         if case .lockedGuest = role {
             log("NI peer removed while locked monitor active")
-            emitLockedProximity(distanceMeters: nil, reason: "ni_peer_removed")
+            publishLockedSignalLoss(reason: "ni_peer_removed")
         }
     }
 
-    private func resetNI(reason: String) {
+    private func resetNI(session: NISession, reason: String) {
+        guard hasActiveNISession(session) else { return }
         log("NI reset for role \(roleLogDescription), reason: \(reason)")
         for session in niSessions.values {
             session.invalidate()
@@ -429,39 +454,45 @@ actor TouchTipsService {
         peerDiscoveryTokens.removeAll()
         consecutiveCloseCount = 0
         if case .lockedGuest = role {
-            emitLockedProximity(distanceMeters: nil, reason: "ni_invalidated")
+            publishLockedSignalLoss(reason: "ni_invalidated")
         }
     }
 
-    private func handleLostPeer(peer: MCPeerID) {
+    private func handleLostPeer(browser: MCNearbyServiceBrowser, peer: MCPeerID) {
+        guard browser === self.browser else { return }
         log("lost peer \(peer.displayName) for role \(roleLogDescription)")
+        pendingPeerInvitations.remove(peer.displayName)
         niSessions[peer]?.invalidate()
         niSessions[peer] = nil
         peerDiscoveryTokens[peer] = nil
         if case .lockedGuest = role {
-            emitLockedProximity(distanceMeters: nil, reason: "mc_lost_peer")
+            publishLockedSignalLoss(reason: "mc_lost_peer")
         }
     }
 
-    private func handleBrowserFailure(_ error: Error) {
+    private func handleBrowserFailure(browser: MCNearbyServiceBrowser, _ error: Error) {
+        guard browser === self.browser else { return }
         AppLogger.touchTips.error("MC browser failed", error: error, context: ["role": roleLogDescription])
         if case .lockedGuest = role {
-            emitLockedProximity(distanceMeters: nil, reason: "browser_failed")
+            publishLockedSignalLoss(reason: "browser_failed")
         }
     }
 
-    private func handleAdvertiserFailure(_ error: Error) {
+    private func handleAdvertiserFailure(advertiser: MCNearbyServiceAdvertiser, _ error: Error) {
+        guard advertiser === self.advertiser else { return }
         AppLogger.touchTips.error("MC advertiser failed", error: error, context: ["role": roleLogDescription])
     }
 
-    private func handleNISuspended() {
+    private func handleNISuspended(session: NISession) {
+        guard hasActiveNISession(session) else { return }
         log("NI suspended for role \(roleLogDescription)")
         if case .lockedGuest = role {
-            emitLockedProximity(distanceMeters: nil, reason: "ni_suspended")
+            publishLockedSignalLoss(reason: "ni_suspended")
         }
     }
 
-    private func handleNISuspensionEnded() {
+    private func handleNISuspensionEnded(session: NISession) {
+        guard hasActiveNISession(session) else { return }
         log("NI suspension ended for role \(roleLogDescription)")
     }
 
@@ -506,6 +537,19 @@ actor TouchTipsService {
         )
     }
 
+    private func hasActiveNISession(_ session: NISession) -> Bool {
+        niSessions.values.contains { $0 === session }
+    }
+
+    private func publishLockedSignalLoss(reason: String) {
+        guard case .lockedGuest = role else { return }
+        guard Self.shouldEmitLockedNoDistance(for: reason) else {
+            log("locked monitor observed transient signal gap, preserving last distance, reason: \(reason)")
+            return
+        }
+        emitLockedProximity(distanceMeters: nil, reason: reason)
+    }
+
     private var roleLogDescription: String {
         switch role {
         case .none:
@@ -547,6 +591,7 @@ actor TouchTipsService {
         niSessions.removeAll()
         peerDiscoveryTokens.removeAll()
         consecutiveCloseCount = 0
+        pendingPeerInvitations.removeAll()
 
         localPeerID = nil
         discoveredRoomID.removeAll()
@@ -558,6 +603,17 @@ actor TouchTipsService {
             lockedProximityContinuation?.finish()
             lockedProximityContinuation = nil
             didYield = false
+        }
+    }
+}
+
+extension TouchTipsService {
+    nonisolated static func shouldEmitLockedNoDistance(for reason: String) -> Bool {
+        switch reason {
+        case "monitor_started", "mc_connecting", "ni_update_without_distance":
+            return false
+        default:
+            return true
         }
     }
 }
@@ -835,30 +891,30 @@ private final class ProximityBridge:
     NISessionDelegate,
     @unchecked Sendable
 {
-    var onFoundPeer: ((MCPeerID, [String: String]?) -> Void)?
-    var onInvitation: ((MCPeerID, @escaping (Bool, MCSession?) -> Void) -> Void)?
-    var onSessionState: ((MCPeerID, MCSessionState) -> Void)?
-    var onDataReceived: ((MCPeerID, Data) -> Void)?
-    var onNIUpdate: (([NINearbyObject]) -> Void)?
-    var onNIRemoved: (([NINearbyObject]) -> Void)?
-    var onNIInvalidated: ((Error) -> Void)?
-    var onLostPeer: ((MCPeerID) -> Void)?
-    var onBrowserFailure: ((Error) -> Void)?
-    var onAdvertiserFailure: ((Error) -> Void)?
-    var onNISuspended: (() -> Void)?
-    var onNISuspensionEnded: (() -> Void)?
+    var onFoundPeer: ((MCNearbyServiceBrowser, MCPeerID, [String: String]?) -> Void)?
+    var onInvitation: ((MCNearbyServiceAdvertiser, MCPeerID, @escaping (Bool, MCSession?) -> Void) -> Void)?
+    var onSessionState: ((MCSession, MCPeerID, MCSessionState) -> Void)?
+    var onDataReceived: ((MCSession, MCPeerID, Data) -> Void)?
+    var onNIUpdate: ((NISession, [NINearbyObject]) -> Void)?
+    var onNIRemoved: ((NISession, [NINearbyObject]) -> Void)?
+    var onNIInvalidated: ((NISession, Error) -> Void)?
+    var onLostPeer: ((MCNearbyServiceBrowser, MCPeerID) -> Void)?
+    var onBrowserFailure: ((MCNearbyServiceBrowser, Error) -> Void)?
+    var onAdvertiserFailure: ((MCNearbyServiceAdvertiser, Error) -> Void)?
+    var onNISuspended: ((NISession) -> Void)?
+    var onNISuspensionEnded: ((NISession) -> Void)?
 
     // MCNearbyServiceBrowserDelegate
     func browser(_ browser: MCNearbyServiceBrowser,
                  foundPeer peerID: MCPeerID,
                  withDiscoveryInfo info: [String: String]?) {
-        onFoundPeer?(peerID, info)
+        onFoundPeer?(browser, peerID, info)
     }
     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        onLostPeer?(peerID)
+        onLostPeer?(browser, peerID)
     }
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
-        onBrowserFailure?(error)
+        onBrowserFailure?(browser, error)
     }
 
     // MCNearbyServiceAdvertiserDelegate
@@ -866,18 +922,18 @@ private final class ProximityBridge:
                     didReceiveInvitationFromPeer peerID: MCPeerID,
                     withContext context: Data?,
                     invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        onInvitation?(peerID, invitationHandler)
+        onInvitation?(advertiser, peerID, invitationHandler)
     }
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
-        onAdvertiserFailure?(error)
+        onAdvertiserFailure?(advertiser, error)
     }
 
     // MCSessionDelegate
     func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        onSessionState?(peerID, state)
+        onSessionState?(session, peerID, state)
     }
     func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        onDataReceived?(peerID, data)
+        onDataReceived?(session, peerID, data)
     }
     func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
     func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
@@ -885,19 +941,19 @@ private final class ProximityBridge:
 
     // NISessionDelegate
     func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
-        onNIUpdate?(nearbyObjects)
+        onNIUpdate?(session, nearbyObjects)
     }
     func session(_ session: NISession, didRemove nearbyObjects: [NINearbyObject], reason: NINearbyObject.RemovalReason) {
-        onNIRemoved?(nearbyObjects)
+        onNIRemoved?(session, nearbyObjects)
     }
     func sessionWasSuspended(_ session: NISession) {
-        onNISuspended?()
+        onNISuspended?(session)
     }
     func sessionSuspensionEnded(_ session: NISession) {
-        onNISuspensionEnded?()
+        onNISuspensionEnded?(session)
     }
     func session(_ session: NISession, didInvalidateWith error: Error) {
-        onNIInvalidated?(error)
+        onNIInvalidated?(session, error)
     }
 }
 

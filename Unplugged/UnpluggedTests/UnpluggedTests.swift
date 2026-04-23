@@ -11,6 +11,20 @@ import Testing
 
 struct UnpluggedTests {
 
+    @Test func lockedProximityTransitionReasonsPreserveLastDistance() async throws {
+        #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "monitor_started"))
+        #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "mc_connecting"))
+        #expect(!TouchTipsService.shouldEmitLockedNoDistance(for: "ni_update_without_distance"))
+
+        #expect(TouchTipsService.shouldEmitLockedNoDistance(for: "mc_notConnected"))
+        #expect(TouchTipsService.shouldEmitLockedNoDistance(for: "ni_invalidated"))
+    }
+
+    @Test func lockedProximityStaleWindowOutlastsLeaveCountdown() async throws {
+        #expect(LockedSessionProximityPolicy.staleReadingInterval > TimeInterval(LockedSessionProximityPolicy.gracePeriodSeconds))
+        #expect(LockedSessionProximityPolicy.staleRecoveryInterval > LockedSessionProximityPolicy.staleReadingInterval)
+    }
+
     @MainActor
     @Test func onboardingAgeGateRemovalMigration() async throws {
         let defaults = UserDefaults.standard
