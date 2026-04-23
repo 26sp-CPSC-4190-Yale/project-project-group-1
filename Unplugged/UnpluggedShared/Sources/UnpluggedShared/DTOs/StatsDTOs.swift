@@ -41,6 +41,22 @@ public struct UserStatsResponse: Codable, Sendable {
         self.earlyLeaveCount = earlyLeaveCount
         self.points = points
     }
+    
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hoursUnplugged = try c.decode(Int.self, forKey: .hoursUnplugged)
+        rank = try c.decode(Int.self, forKey: .rank)
+        totalSessions = try c.decode(Int.self, forKey: .totalSessions)
+        longestStreak = try c.decode(Int.self, forKey: .longestStreak)
+        currentStreak = try c.decode(Int.self, forKey: .currentStreak)
+        avgSessionLengthMinutes = try c.decode(Double.self, forKey: .avgSessionLengthMinutes)
+        friendsCount = try c.decode(Int.self, forKey: .friendsCount)
+        totalMinutes = try c.decode(Int.self, forKey: .totalMinutes)
+        plannedMinutes = try c.decodeIfPresent(Int.self, forKey: .plannedMinutes) ?? 0
+        avgPlannedMinutes = try c.decodeIfPresent(Double.self, forKey: .avgPlannedMinutes) ?? 0
+        earlyLeaveCount = try c.decodeIfPresent(Int.self, forKey: .earlyLeaveCount) ?? 0
+        points = try c.decodeIfPresent(Int.self, forKey: .points) ?? 0
+    }
 }
 
 public struct LeaderboardEntryResponse: Codable, Sendable, Identifiable, Hashable {

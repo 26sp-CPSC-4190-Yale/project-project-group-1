@@ -87,35 +87,34 @@ struct ProfileView: View {
     }
 
     private var statsGrid: some View {
-        VStack(spacing: .spacingMd) {
-            HStack(spacing: .spacingMd) {
-                StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused")
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: .spacingMd), count: 3),
+            spacing: .spacingMd
+        ) {
+            StatBadge(value: "\(viewModel.hoursUnplugged)", label: "Hours Focused", valueSize: 28)
 
-                NavigationLink {
-                    LeaderboardView()
-                } label: {
-                    StatBadge(value: viewModel.rank, label: "Among Friends")
-                        .overlay(alignment: .topTrailing) {
-                            Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(Color.tertiaryColor.opacity(0.4))
-                                .padding(8)
-                        }
-                }
-                .buttonStyle(.plain)
+            NavigationLink {
+                LeaderboardView()
+            } label: {
+                StatBadge(value: viewModel.rank, label: "Among Friends", valueSize: 28)
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Color.tertiaryColor.opacity(0.4))
+                            .padding(8)
+                    }
             }
+            .buttonStyle(.plain)
 
-            HStack(spacing: .spacingMd) {
-                StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 32)
-                StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 32)
-                StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 32)
-            }
+            StatBadge(value: "\(viewModel.points)", label: "Points", valueSize: 28)
 
-            HStack(spacing: .spacingMd) {
-                StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
-                StatBadge(value: viewModel.avgFocusedSessionLabel, label: "Avg Session", valueSize: 28)
-                StatBadge(value: "\(viewModel.earlyLeaveCount)", label: "Left Early", valueSize: 28)
-            }
+            StatBadge(value: "\(viewModel.totalSessions)", label: "Sessions", valueSize: 28)
+            StatBadge(value: "\(viewModel.longestStreak)", label: "Best Streak", valueSize: 28)
+            StatBadge(value: "\(viewModel.friendsCount)", label: "Friends", valueSize: 28)
+
+            StatBadge(value: "\(viewModel.currentStreak)", label: "Current Streak", valueSize: 28)
+            StatBadge(value: viewModel.avgFocusedSessionLabel, label: "Avg Session", valueSize: 28)
+            StatBadge(value: "\(viewModel.earlyLeaveCount)", label: "Left Early", valueSize: 28)
         }
     }
 

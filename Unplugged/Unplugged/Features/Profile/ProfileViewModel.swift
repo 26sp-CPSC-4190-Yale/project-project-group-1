@@ -26,6 +26,7 @@ class ProfileViewModel {
     var friendsCount: Int { stats?.friendsCount ?? 0 }
     var currentStreak: Int { stats?.currentStreak ?? 0 }
     var earlyLeaveCount: Int { stats?.earlyLeaveCount ?? 0 }
+    var points: Int { stats?.points ?? 0 }
 
     var avgFocusedSessionLabel: String {
         guard let mins = stats?.avgSessionLengthMinutes, mins > 0 else { return "0m" }
