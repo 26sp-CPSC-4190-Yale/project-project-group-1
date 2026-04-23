@@ -133,6 +133,8 @@ struct StatsService {
             on: db
         )
 
+        let user = try await UserModel.find(userID, on: db)
+
         return UserStatsResponse(
             hoursUnplugged: totalMinutes / 60,
             rank: rank,
@@ -144,7 +146,8 @@ struct StatsService {
             totalMinutes: totalMinutes,
             plannedMinutes: plannedMinutes,
             avgPlannedMinutes: avgPlannedMinutes,
-            earlyLeaveCount: earlyLeaveCount
+            earlyLeaveCount: earlyLeaveCount,
+            points: user?.points ?? 0
         )
     }
 

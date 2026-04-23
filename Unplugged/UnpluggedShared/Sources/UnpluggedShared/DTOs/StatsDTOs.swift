@@ -12,6 +12,7 @@ public struct UserStatsResponse: Codable, Sendable {
     public let plannedMinutes: Int
     public let avgPlannedMinutes: Double
     public let earlyLeaveCount: Int
+    public let points: Int
 
     public init(
         hoursUnplugged: Int,
@@ -24,7 +25,8 @@ public struct UserStatsResponse: Codable, Sendable {
         totalMinutes: Int,
         plannedMinutes: Int = 0,
         avgPlannedMinutes: Double = 0,
-        earlyLeaveCount: Int = 0
+        earlyLeaveCount: Int = 0,
+        points: Int = 0
     ) {
         self.hoursUnplugged = hoursUnplugged
         self.rank = rank
@@ -37,6 +39,7 @@ public struct UserStatsResponse: Codable, Sendable {
         self.plannedMinutes = plannedMinutes
         self.avgPlannedMinutes = avgPlannedMinutes
         self.earlyLeaveCount = earlyLeaveCount
+        self.points = points
     }
 }
 

@@ -18,12 +18,6 @@
 	<true/>
 	<key>com.apple.developer.nearbyinteraction.dltdoa</key>
 	<true/>
-	<key>com.apple.developer.nfc.readersession.formats</key>
-	<array>
-		<string>TAG</string>
-		<string>PACE</string>
-		<string>NDEF</string>
-	</array>
 	<key>com.apple.developer.weatherkit</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>

@@ -153,11 +153,17 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
                 .map { Application(bundleIdentifier: $0.bundleIdentifier) }
         )
 
+        // yield between FamilyControls writes to keep the main thread responsive during the IPC burst
         store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
+        await Task.yield()
         store.shield.applications = nil
+        await Task.yield()
         store.shield.webDomains = nil
+        await Task.yield()
         store.shield.applicationCategories = .all(except: allowedAppTokens)
+        await Task.yield()
         store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
+        await Task.yield()
         store.webContent.blockedByFilter = .all(except: allowedWebDomains)
 
         AppLogger.breadcrumb(
@@ -171,12 +177,19 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
     func unlockApps() async throws {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable else { return }
+
         store.application.blockedApplications = nil
+        await Task.yield()
         store.shield.applications = nil
+        await Task.yield()
         store.shield.applicationCategories = nil
+        await Task.yield()
         store.shield.webDomains = nil
+        await Task.yield()
         store.shield.webDomainCategories = nil
+        await Task.yield()
         store.webContent.blockedByFilter = nil
+        await Task.yield()
         center.stopMonitoring([activityName])
         #endif
     }

@@ -21,6 +21,7 @@ class JoinRoomViewModel {
     var error: String?
 
     private var listenTask: Task<Void, Never>?
+    private let tapFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     var canJoinManually: Bool {
         InputValidation.isValidSessionCode(manualCode) && !isJoining
@@ -30,6 +31,7 @@ class JoinRoomViewModel {
         guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
+        tapFeedback.prepare()
 
         listenTask?.cancel()
         listenTask = Task { [weak self] in
@@ -38,7 +40,8 @@ class JoinRoomViewModel {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
                 #if canImport(UIKit)
-                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                self.tapFeedback.impactOccurred()
+                self.tapFeedback.prepare()
                 #endif
                 await self.joinRoom(id: roomID, sessions: sessions)
             }

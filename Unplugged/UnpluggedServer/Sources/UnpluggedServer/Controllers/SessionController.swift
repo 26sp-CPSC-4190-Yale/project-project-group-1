@@ -1,4 +1,5 @@
 import Fluent
+import SQLKit
 import UnpluggedShared
 import Vapor
 
@@ -44,7 +45,6 @@ struct SessionController: RouteCollection {
         let code = try await Self.generateRoomCode(on: req.db)
         let room = RoomModel(
             roomOwner: userID,
-            isActive: true,
             code: code,
             title: body.title,
             durationSeconds: body.durationSeconds,
@@ -207,7 +207,7 @@ struct SessionController: RouteCollection {
         let userID = try payload.userID
         let room = try await requireRoom(req: req)
 
-        guard room.isActive, room.endedAt == nil else {
+        guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Room is no longer active")
         }
         guard room.lockedAt == nil else {
@@ -264,7 +264,6 @@ struct SessionController: RouteCollection {
         let now = Date()
         let endsAt = now.addingTimeInterval(TimeInterval(duration))
         room.lockedAt = now
-        room.endsAt = endsAt
         try await room.save(on: req.db)
 
         let roomID = try room.requireID()
@@ -301,11 +300,42 @@ struct SessionController: RouteCollection {
             throw Abort(.gone, reason: "Session already ended.")
         }
 
-        room.endedAt = Date()
-        room.isActive = false
-        try await room.save(on: req.db)
-
+        let now = Date()
         let roomID = try room.requireID()
+        let lockedAt = room.lockedAt
+
+        // Stamping endedAt, leftAt on remaining members, and awarding points must
+        // be atomic — if any step fails, the session stays open so we can retry.
+        try await req.db.transaction { db in
+            room.endedAt = now
+            try await room.save(on: db)
+
+            let members = try await MemberModel.query(on: db)
+                .filter(\.$roomID == roomID)
+                .all()
+
+            for member in members {
+                // Stamp leftAt for anyone who hadn't already exited. Leave
+                // leftEarly alone — proximity-exit / future /leave flows set it,
+                // a clean session end means the user stayed.
+                if member.leftAt == nil {
+                    member.leftAt = now
+                    try await member.save(on: db)
+                }
+                // Points only count from when the session actually locked;
+                // lobby time is free.
+                if let lockedAt {
+                    try await awardPoints(
+                        to: member.userID,
+                        from: lockedAt,
+                        to: member.leftAt ?? now,
+                        on: db,
+                        logger: req.logger
+                    )
+                }
+            }
+        }
+
         await req.sessionHub.broadcast(roomID: roomID, message: .sessionEnded)
 
         let members = try await MemberModel.query(on: req.db)
@@ -351,9 +381,31 @@ struct SessionController: RouteCollection {
             throw Abort(.forbidden)
         }
 
-        if member.config != MemberModel.voluntaryExitConfig {
-            member.config = MemberModel.voluntaryExitConfig
-            try await member.save(on: req.db)
+        let now = Date()
+        let alreadyExited = member.config == MemberModel.voluntaryExitConfig
+            || member.config == MemberModel.proximityExitConfig
+
+        // Flag the member, stamp their exit, and credit time-served atomically.
+        // Skipped if already marked so a double-tap doesn't double-award points.
+        if !alreadyExited {
+            try await req.db.transaction { db in
+                member.config = MemberModel.voluntaryExitConfig
+                if member.leftAt == nil {
+                    member.leftAt = now
+                    member.leftEarly = true
+                }
+                try await member.save(on: db)
+
+                if let lockedAt = room.lockedAt {
+                    try await awardPoints(
+                        to: userID,
+                        from: lockedAt,
+                        to: now,
+                        on: db,
+                        logger: req.logger
+                    )
+                }
+            }
         }
 
         // recap and history read left-early from JailbreakModel rows, skip on duplicate so a double-tap does not double-count
@@ -365,7 +417,7 @@ struct SessionController: RouteCollection {
             .first()
         if existingReport == nil {
             let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-            record.detectedAt = Date()
+            record.detectedAt = now
             try await record.save(on: req.db)
         }
 
@@ -529,7 +581,7 @@ struct SessionController: RouteCollection {
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard room.lockedAt != nil else {
+        guard let lockedAt = room.lockedAt else {
             throw Abort(.badRequest, reason: "Proximity exits only apply to locked sessions.")
         }
 
@@ -540,9 +592,30 @@ struct SessionController: RouteCollection {
             throw Abort(.forbidden)
         }
 
-        if member.config != MemberModel.proximityExitConfig {
-            member.config = MemberModel.proximityExitConfig
-            try await member.save(on: req.db)
+        let now = Date()
+        let alreadyExited = member.config == MemberModel.proximityExitConfig
+            || member.config == MemberModel.voluntaryExitConfig
+
+        // Flag the member, stamp their exit, and credit time-served atomically.
+        // Skipped if the user already exited (either path) so a retried request
+        // or a voluntary-then-proximity sequence doesn't double-award points.
+        if !alreadyExited {
+            try await req.db.transaction { db in
+                member.config = MemberModel.proximityExitConfig
+                if member.leftAt == nil {
+                    member.leftAt = now
+                    member.leftEarly = true
+                }
+                try await member.save(on: db)
+
+                try await awardPoints(
+                    to: userID,
+                    from: lockedAt,
+                    to: now,
+                    on: db,
+                    logger: req.logger
+                )
+            }
         }
 
         let reason = "left_due_to_proximity"
@@ -553,7 +626,7 @@ struct SessionController: RouteCollection {
             .first()
         if existingReport == nil {
             let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-            record.detectedAt = Date()
+            record.detectedAt = now
             try await record.save(on: req.db)
         }
 
@@ -595,7 +668,6 @@ struct SessionController: RouteCollection {
             if InputValidation.isValidSessionCode(normalizedCode) {
                 if let room = try await RoomModel.query(on: req.db)
                     .filter(\.$code == normalizedCode)
-                    .filter(\.$isActive == true)
                     .filter(\.$endedAt == nil)
                     .first() {
                     return room
@@ -682,6 +754,43 @@ struct SessionController: RouteCollection {
             .filter { $0.isLetter || $0.isNumber }
             .prefix(InputValidation.sessionCodeLength))
             .uppercased()
+    }
+
+    // MARK: - Point awarding
+
+    /// Awards points like tax brackets:
+    ///   - first 60 min           → ×1
+    ///   - minutes 60–180         → ×2
+    ///   - minutes beyond 180     → ×3
+    ///
+    /// Uses an atomic SQL increment rather than read-modify-write so concurrent
+    /// session ends for the same user can't lose an update.
+    private func awardPoints(
+        to userID: UUID,
+        from start: Date,
+        to end: Date,
+        on db: Database,
+        logger: Logger
+    ) async throws {
+        let minutes = Int(end.timeIntervalSince(start) / 60)
+        guard minutes > 0 else {
+            logger.info("[Stats] Skipped award for user \(userID): duration < 1 minute")
+            return
+        }
+
+        let tier1 = min(minutes, 60)
+        let tier2 = max(0, min(minutes, 180) - 60)
+        let tier3 = max(0, minutes - 180)
+        let points = tier1 + (tier2 * 2) + (tier3 * 3)
+
+        guard let sql = db as? SQLDatabase else {
+            logger.error("[Stats] Database is not SQL-backed; cannot atomically award points to user \(userID)")
+            throw Abort(.internalServerError, reason: "Points ledger unavailable")
+        }
+        try await sql.raw("""
+            UPDATE users SET points = points + \(bind: points) WHERE id = \(bind: userID)
+            """).run()
+        logger.info("[Stats] Awarded \(points) points to user \(userID) for \(minutes) min (t1=\(tier1), t2=\(tier2), t3=\(tier3))")
     }
 }
 

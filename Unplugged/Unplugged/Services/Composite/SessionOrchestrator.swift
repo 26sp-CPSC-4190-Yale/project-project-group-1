@@ -271,7 +271,7 @@ final class SessionOrchestrator {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.reconcileSession(sessionID: sessionID)
-                let delay = await self.sessionSyncDelayNanos()
+                let delay = self.sessionSyncDelayNanos()
                 try? await Task.sleep(nanoseconds: delay)
             }
         }
@@ -670,7 +670,7 @@ final class SessionOrchestrator {
 
                 try? await Task.sleep(nanoseconds: LockedSessionProximityPolicy.graceCheckIntervalNanoseconds)
                 remaining -= 1
-                await self.setProximityWarningSeconds(remaining)
+                self.setProximityWarningSeconds(remaining)
             }
 
             guard !Task.isCancelled, let self else { return }
