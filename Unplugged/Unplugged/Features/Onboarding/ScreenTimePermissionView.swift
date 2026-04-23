@@ -180,46 +180,28 @@ private struct EmergencySelectionSheet: View {
     @Bindable var viewModel: ScreenTimePermissionViewModel
     var onCancel: () -> Void
     var onSave: () -> Void
-    @State private var mode: Mode = .appleApps
+    @State private var showingFamilyPicker = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 150), spacing: 10)
     ]
 
-    private enum Mode: String, CaseIterable, Identifiable {
-        case appleApps = "Apple Apps"
-        case otherApps = "Other Apps"
-
-        var id: String { rawValue }
+    private var hasOtherSelections: Bool {
+        !viewModel.selection.applicationTokens.isEmpty
+            || !viewModel.selection.categoryTokens.isEmpty
+            || !viewModel.selection.webDomainTokens.isEmpty
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("", selection: $mode) {
-                    ForEach(Mode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: .spacingLg) {
+                    appleAppsSection
+                    otherAppsSection
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, .spacingLg)
-                .padding(.top, .spacingMd)
-
-                Group {
-                    switch mode {
-                    case .appleApps:
-                        ScrollView {
-                            appleAppsContent
-                                .padding(.spacingLg)
-                        }
-                    case .otherApps:
-                        FamilyActivityPicker(selection: $viewModel.selection)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, .spacingMd)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.spacingLg)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.primaryColor.ignoresSafeArea())
             .navigationTitle("Emergency Apps")
             .navigationBarTitleDisplayMode(.inline)
@@ -242,47 +224,88 @@ private struct EmergencySelectionSheet: View {
                 }
             }
             .interactiveDismissDisabled()
+            .sheet(isPresented: $showingFamilyPicker) {
+                NavigationStack {
+                    FamilyActivityPicker(selection: $viewModel.selection)
+                        .navigationTitle("Other Apps & Websites")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingFamilyPicker = false }
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                }
+            }
         }
     }
 
-    private var appleAppsContent: some View {
-        VStack(alignment: .leading, spacing: .spacingLg) {
-            VStack(alignment: .leading, spacing: .spacingMd) {
-                Text("Apple Apps")
-                    .font(.headline)
-                    .foregroundStyle(Color.tertiaryColor)
+    private var appleAppsSection: some View {
+        VStack(alignment: .leading, spacing: .spacingMd) {
+            Text("Apple Apps")
+                .font(.headline)
+                .foregroundStyle(Color.tertiaryColor)
 
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(EmergencySystemApplication.allCases) { application in
-                        systemApplicationButton(application)
-                    }
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(EmergencySystemApplication.allCases) { application in
+                    systemApplicationButton(application)
                 }
             }
+        }
+    }
 
-            VStack(alignment: .leading, spacing: .spacingMd) {
-                Text("Other Apps and Websites")
+    private var otherAppsSection: some View {
+        VStack(alignment: .leading, spacing: .spacingMd) {
+            HStack {
+                Text("Other Apps & Websites")
                     .font(.headline)
                     .foregroundStyle(Color.tertiaryColor)
-
+                Spacer()
                 Button {
-                    mode = .otherApps
+                    showingFamilyPicker = true
                 } label: {
-                    HStack {
-                        Image(systemName: "square.grid.2x2")
-                        Text("Open App Picker")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.primaryColor)
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.tertiaryColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    Label(hasOtherSelections ? "Edit" : "Add", systemImage: "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.tertiaryColor)
                 }
                 .buttonStyle(.plain)
+            }
+
+            if hasOtherSelections {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(Array(viewModel.selection.applicationTokens), id: \.self) { token in
+                        selectedTokenTile {
+                            Label(token)
+                        } onRemove: {
+                            viewModel.selection.applicationTokens.remove(token)
+                        }
+                    }
+
+                    ForEach(Array(viewModel.selection.categoryTokens), id: \.self) { token in
+                        selectedTokenTile {
+                            Label(token)
+                        } onRemove: {
+                            viewModel.selection.categoryTokens.remove(token)
+                        }
+                    }
+
+                    ForEach(Array(viewModel.selection.webDomainTokens), id: \.self) { token in
+                        selectedTokenTile {
+                            Label(token)
+                        } onRemove: {
+                            viewModel.selection.webDomainTokens.remove(token)
+                        }
+                    }
+                }
+            } else {
+                Text("Tap Add to include other apps, categories, or websites.")
+                    .font(.footnote)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .background(Color.tertiaryColor.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
     }
@@ -308,6 +331,30 @@ private struct EmergencySelectionSheet: View {
             .frame(height: 44)
             .frame(maxWidth: .infinity)
             .background(isAllowed ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func selectedTokenTile<Content: View>(
+        @ViewBuilder label: () -> Content,
+        onRemove: @escaping () -> Void
+    ) -> some View {
+        Button(action: onRemove) {
+            HStack(spacing: 8) {
+                label()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark.circle.fill")
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Color.primaryColor)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity)
+            .background(Color.tertiaryColor)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }

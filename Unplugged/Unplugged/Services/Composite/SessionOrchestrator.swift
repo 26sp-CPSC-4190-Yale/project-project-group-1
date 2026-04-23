@@ -8,6 +8,9 @@
 import Foundation
 import Observation
 import UnpluggedShared
+#if canImport(AudioToolbox)
+import AudioToolbox
+#endif
 
 /// Top-level coordinator that owns the "currently active" session on this device.
 ///
@@ -118,6 +121,56 @@ final class SessionOrchestrator {
             AppLogger.session.error("hostEnd failed", error: error, context: ["id": session.session.id.uuidString])
             errorMessage = "Couldn't end the session."
         }
+    }
+
+    /// Non-host. Voluntarily leave a session — drops the Screen Time shield
+    /// locally, tells the server to mark the participant as left so the host
+    /// (and other members) see them removed, and tears down the orchestrator
+    /// so the device returns to idle. The shield is dropped even if the
+    /// server call fails; otherwise a network blip would strand the user
+    /// behind the lock with no way out short of waiting for the timer.
+    func participantLeave() async {
+        guard let session = currentSession else {
+            AppLogger.session.warning("participantLeave called with no currentSession")
+            return
+        }
+        let sessionID = session.session.id
+
+        do {
+            try await sessions.leaveSession(id: sessionID)
+        } catch {
+            AppLogger.session.error(
+                "leaveSession failed — proceeding with local unlock anyway",
+                error: error,
+                context: ["id": sessionID.uuidString]
+            )
+        }
+
+        do {
+            try await screenTime.unlockApps()
+        } catch {
+            AppLogger.shield.critical(
+                "unlockApps failed during participant leave — shield may be stuck",
+                error: error,
+                context: ["id": sessionID.uuidString]
+            )
+            errorMessage = "Couldn't unlock apps. Check Screen Time permission in Settings."
+        }
+
+        stopJailbreakWatchdog()
+        stopSessionSync()
+        stopLockedProximityEnforcement()
+        listenerTask?.cancel()
+        listenerTask = nil
+        await webSocket.disconnect()
+        await touchTips.stop()
+        resetShieldTracking()
+
+        phase = .idle
+        currentSession = nil
+        participants = []
+        countdownEndsAt = nil
+        lastRecap = nil
     }
 
     /// Called from `AppDelegate` when a silent APNs push arrives. Silent push is the
@@ -660,6 +713,10 @@ final class SessionOrchestrator {
                     await self.requestLockedProximityRecovery(sessionID: sessionID, reason: assessment.recoveryReason)
                     return
                 }
+
+                #if canImport(AudioToolbox)
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                #endif
 
                 try? await Task.sleep(nanoseconds: LockedSessionProximityPolicy.graceCheckIntervalNanoseconds)
                 remaining -= 1

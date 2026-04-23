@@ -12,6 +12,7 @@ import Vapor
 final class MemberModel: Model, @unchecked Sendable {
     static let schema = "member_info"
     static let proximityExitConfig = "proximity_exit"
+    static let voluntaryExitConfig = "voluntary_exit"
 
     @ID(key: .id)
     var id: UUID?
@@ -35,6 +36,11 @@ final class MemberModel: Model, @unchecked Sendable {
     }
 
     var participantStatus: ParticipantStatus {
-        config == Self.proximityExitConfig ? .left : .active
+        switch config {
+        case Self.proximityExitConfig, Self.voluntaryExitConfig:
+            return .left
+        default:
+            return .active
+        }
     }
 }

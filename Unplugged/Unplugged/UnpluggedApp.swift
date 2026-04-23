@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct UnpluggedApp: App {
@@ -47,6 +48,7 @@ struct UnpluggedApp: App {
         WindowGroup {
             ContentView()
                 .environment(container)
+                .onOpenURL { GIDSignIn.sharedInstance.handle($0) }
         }
     }
 }

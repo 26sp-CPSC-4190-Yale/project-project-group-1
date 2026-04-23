@@ -81,6 +81,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddRoomCodeToRooms())
     app.migrations.add(AddPerformanceIndexes())
     app.migrations.add(SeedMedals())
+    app.migrations.add(SeedMoreMedals())
 
     try await app.autoMigrate()
 

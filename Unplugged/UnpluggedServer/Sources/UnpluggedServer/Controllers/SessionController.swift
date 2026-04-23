@@ -30,6 +30,7 @@ struct SessionController: RouteCollection {
         sessions.post(":sessionID", "join", use: join)
         sessions.post(":sessionID", "start", use: start)
         sessions.post(":sessionID", "end", use: end)
+        sessions.post(":sessionID", "leave", use: leave)
         sessions.post(":sessionID", "proximity-exit", use: reportProximityExit)
         sessions.get(":sessionID", "recap", use: recap)
         sessions.post(":sessionID", "jailbreaks", use: reportJailbreak)
@@ -343,6 +344,54 @@ struct SessionController: RouteCollection {
         }
 
         return try await buildSessionResponse(room: room, db: req.db)
+    }
+
+    @Sendable
+    func leave(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        let room = try await requireRoom(req: req)
+        let roomID = try room.requireID()
+
+        guard room.endedAt == nil else {
+            throw Abort(.gone, reason: "Session already ended.")
+        }
+        // Hosts end the session for everyone via /end; routing host leaves
+        // through here would silently drop the room without telling members.
+        guard room.roomOwner != userID else {
+            throw Abort(.forbidden, reason: "Hosts must end the session instead of leaving.")
+        }
+
+        guard let member = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .filter(\.$userID == userID)
+            .first() else {
+            throw Abort(.forbidden)
+        }
+
+        if member.config != MemberModel.voluntaryExitConfig {
+            member.config = MemberModel.voluntaryExitConfig
+            try await member.save(on: req.db)
+        }
+
+        // Recap and history determine "left early" from JailbreakModel rows.
+        // Skip if a leave reason is already recorded so a double-tap doesn't
+        // double-count.
+        let reason = "left_voluntarily"
+        let existingReport = try await JailbreakModel.query(on: req.db)
+            .filter(\.$sessionID == roomID)
+            .filter(\.$userID == userID)
+            .filter(\.$reason == reason)
+            .first()
+        if existingReport == nil {
+            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+            record.detectedAt = Date()
+            try await record.save(on: req.db)
+        }
+
+        await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
+
+        return .noContent
     }
 
     // MARK: - Recap

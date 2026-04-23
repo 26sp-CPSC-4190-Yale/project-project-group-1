@@ -77,7 +77,7 @@ struct ActiveRoomView: View {
             }
         }
         .onChange(of: orchestrator.participants.count) { oldCount, newCount in
-            guard isHost, newCount > oldCount else { return }
+            guard newCount > oldCount else { return }
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
         .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
@@ -129,14 +129,15 @@ struct ActiveRoomView: View {
         }
         .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
             Button("Leave Room", role: .destructive) {
-                onClose()
-                dismiss()
+                Task {
+                    await orchestrator.participantLeave()
+                    onClose()
+                    dismiss()
+                }
             }
             Button("Stay", role: .cancel) {}
         } message: {
-            // Screen Time shield is enforced by the OS until the countdown ends,
-            // so leaving the view doesn't unlock the phone — just exits the room UI.
-            Text("Your phone stays locked until the session ends. You'll lose the countdown and member list.")
+            Text("Leaving unlocks your apps right away. The session will keep running for everyone else.")
         }
         .sheet(item: $reportTarget) { target in
             ReportUserSheet(username: target.username) { reason, details in

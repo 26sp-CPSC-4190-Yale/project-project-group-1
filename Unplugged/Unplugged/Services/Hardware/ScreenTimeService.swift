@@ -132,12 +132,21 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let emergencySelection = allowlist.selection
         let allowedAppTokens = emergencySelection.applicationTokens
         let allowedWebDomains = emergencySelection.webDomains
+        let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
-        // Do not use ApplicationSettings.blockedApplications for session locking.
-        // That API hides apps from the Home Screen and iOS can restore them in a
-        // different order afterward. Shield settings block access without mutating
-        // the user's Home Screen layout.
-        store.application.blockedApplications = nil
+        // Apple's built-in apps aren't covered by ActivityCategoryPolicy.all(except:)
+        // — their tokens can't be derived from a bundle ID, and many aren't in a
+        // shieldable category. blockedApplications is the only API that can stop
+        // them from launching, and it accepts Application(bundleIdentifier:). The
+        // home-screen-reorder side effect is acceptable; letting Apple apps through
+        // defeats the session lock.
+        let blockedSystemApplications: Set<Application> = Set(
+            EmergencySystemApplication.allCases
+                .filter { !allowedSystemBundleIDs.contains($0.bundleIdentifier) }
+                .map { Application(bundleIdentifier: $0.bundleIdentifier) }
+        )
+
+        store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
         store.shield.applications = nil
         store.shield.webDomains = nil
         store.shield.applicationCategories = .all(except: allowedAppTokens)

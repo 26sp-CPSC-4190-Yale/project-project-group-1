@@ -54,6 +54,10 @@ struct SessionAPIService {
         try await client.send(.endSession(id: id))
     }
 
+    func leaveSession(id: UUID) async throws {
+        try await client.sendVoid(.leaveSession(id: id))
+    }
+
     func reportJailbreak(id: UUID, reason: String, detectedAt: Date = Date()) async throws {
         let body = ReportJailbreakRequest(reason: reason, detectedAt: detectedAt)
         try await client.sendVoid(.reportJailbreak(id: id, body: body))
