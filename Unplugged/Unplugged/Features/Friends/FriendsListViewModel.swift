@@ -131,8 +131,6 @@ class FriendsListViewModel {
         guard acceptingRequestIDs.insert(requestID).inserted else { return }
         defer { acceptingRequestIDs.remove(requestID) }
 
-        incomingRequests.removeAll { $0.id == requestID }
-
         do {
             _ = try await service.acceptRequest(friendID: requestID)
         } catch {
@@ -144,8 +142,6 @@ class FriendsListViewModel {
     func rejectRequest(service: FriendAPIService, requestID: UUID) async {
         guard rejectingRequestIDs.insert(requestID).inserted else { return }
         defer { rejectingRequestIDs.remove(requestID) }
-
-        incomingRequests.removeAll { $0.id == requestID }
 
         do {
             try await service.rejectRequest(friendID: requestID)
@@ -160,8 +156,6 @@ class FriendsListViewModel {
     func cancelOutgoingRequest(service: FriendAPIService, targetID: UUID) async {
         guard cancellingRequestIDs.insert(targetID).inserted else { return }
         defer { cancellingRequestIDs.remove(targetID) }
-
-        outgoingRequests.removeAll { $0.id == targetID }
 
         do {
             try await service.rejectRequest(friendID: targetID)

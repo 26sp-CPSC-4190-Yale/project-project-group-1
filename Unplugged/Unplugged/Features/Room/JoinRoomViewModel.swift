@@ -8,20 +8,16 @@ import UIKit
 class JoinRoomViewModel {
     var isListening = false
     var hasFoundRoom = false
-    var manualCode = "" {
-        didSet {
-            let normalized = Self.normalizedRoomCode(manualCode)
-            if manualCode != normalized {
-                manualCode = normalized
-            }
-        }
-    }
+    // normalization happens at the binding boundary (see JoinRoomView), not in didSet,
+    // so we never re-publish on the same observation tick and SwiftUI re-renders once per keystroke
+    var manualCode = ""
     var isJoining = false
     var joinedSession: SessionResponse?
     var error: String?
 
     private var listenTask: Task<Void, Never>?
-    private let tapFeedback = UIImpactFeedbackGenerator(style: .medium)
+    // CHHapticEngine setup runs on first allocation; defer until proximity listening actually starts
+    private var tapFeedback: UIImpactFeedbackGenerator?
 
     var canJoinManually: Bool {
         InputValidation.isValidSessionCode(manualCode) && !isJoining
@@ -31,7 +27,9 @@ class JoinRoomViewModel {
         guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
-        tapFeedback.prepare()
+        let feedback = tapFeedback ?? UIImpactFeedbackGenerator(style: .medium)
+        tapFeedback = feedback
+        feedback.prepare()
 
         listenTask?.cancel()
         listenTask = Task { [weak self] in
@@ -40,8 +38,8 @@ class JoinRoomViewModel {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
                 #if canImport(UIKit)
-                self.tapFeedback.impactOccurred()
-                self.tapFeedback.prepare()
+                self.tapFeedback?.impactOccurred()
+                self.tapFeedback?.prepare()
                 #endif
                 await self.joinRoom(id: roomID, sessions: sessions)
             }
@@ -113,7 +111,7 @@ class JoinRoomViewModel {
         }
     }
 
-    private static func normalizedRoomCode(_ code: String) -> String {
+    static func normalizedRoomCode(_ code: String) -> String {
         String(code
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .filter { $0.isLetter || $0.isNumber }

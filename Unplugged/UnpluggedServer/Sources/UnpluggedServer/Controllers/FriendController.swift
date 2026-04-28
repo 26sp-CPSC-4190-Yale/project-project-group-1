@@ -71,6 +71,22 @@ struct FriendController: RouteCollection {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
                 try await Self.deletePendingFriendships(between: userID, and: targetID, on: req.db)
+                guard let sender = try await UserModel.find(userID, on: req.db) else {
+                    throw Abort(.internalServerError)
+                }
+                await NotificationService.send(
+                    to: targetID,
+                    title: "Friend Request Accepted",
+                    body: "\(sender.username) accepted your friend request.",
+                    type: NotificationService.NotificationType.friendAccepted,
+                    on: req.db,
+                    application: req.application
+                )
+                await Self.sendFriendshipUpdate(
+                    to: targetID,
+                    on: req.db,
+                    application: req.application
+                )
                 return try await Self.buildFriendResponse(user: target, status: "accepted", db: req.db)
             }
             throw Abort(.conflict, reason: "Friend request already exists.")
@@ -93,6 +109,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: targetID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: target, status: "pending", db: req.db)
     }
@@ -107,7 +128,7 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        try await FriendshipModel.query(on: req.db)
+        let friendships = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
                     g.filter(\.$user1ID == userID)
@@ -118,7 +139,19 @@ struct FriendController: RouteCollection {
                     g.filter(\.$user2ID == userID)
                 }
             }
-            .delete()
+            .all()
+
+        for friendship in friendships {
+            try await friendship.delete(on: req.db)
+        }
+
+        if !friendships.isEmpty {
+            await Self.sendFriendshipUpdate(
+                to: friendID,
+                on: req.db,
+                application: req.application
+            )
+        }
         return .noContent
     }
 
@@ -307,6 +340,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: friendship.user1ID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
@@ -333,6 +371,11 @@ struct FriendController: RouteCollection {
         }
 
         try await friendship.delete(on: req.db)
+        await Self.sendFriendshipUpdate(
+            to: friendship.user1ID,
+            on: req.db,
+            application: req.application
+        )
         return .noContent
     }
 
@@ -399,6 +442,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: requesterID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
@@ -413,7 +461,7 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        try await FriendshipModel.query(on: req.db)
+        let friendships = try await FriendshipModel.query(on: req.db)
             .filter(\.$status == "pending")
             .group(.or) { group in
                 group.group(.and) { g in
@@ -425,7 +473,19 @@ struct FriendController: RouteCollection {
                     g.filter(\.$user2ID == otherID)
                 }
             }
-            .delete()
+            .all()
+
+        for friendship in friendships {
+            try await friendship.delete(on: req.db)
+        }
+
+        if !friendships.isEmpty {
+            await Self.sendFriendshipUpdate(
+                to: otherID,
+                on: req.db,
+                application: req.application
+            )
+        }
 
         return .noContent
     }
@@ -589,6 +649,19 @@ struct FriendController: RouteCollection {
             presence: presence,
             hoursUnplugged: stats.hoursUnplugged,
             lastActiveAt: user.lastSeenAt
+        )
+    }
+
+    static func sendFriendshipUpdate(
+        to userID: UUID,
+        on db: Database,
+        application: Application
+    ) async {
+        await NotificationService.sendSilent(
+            to: userID,
+            type: NotificationService.NotificationType.friendshipUpdated,
+            on: db,
+            application: application
         )
     }
 

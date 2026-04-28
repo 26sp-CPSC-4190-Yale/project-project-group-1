@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UnpluggedShared
 
@@ -145,6 +146,9 @@ struct FriendsListView: View {
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
+                Task { await viewModel.load(service: deps.friends, force: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .unpluggedFriendsDidChange)) { _ in
                 Task { await viewModel.load(service: deps.friends, force: true) }
             }
             .refreshable {

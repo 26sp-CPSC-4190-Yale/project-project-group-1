@@ -10,6 +10,7 @@ struct NotificationService {
         static let nudge = "nudge"
         static let friendRequest = "friend_request"
         static let friendAccepted = "friend_accepted"
+        static let friendshipUpdated = "friendship_updated"
         static let friendVerified = "friend_verified"
         static let sessionStartingSoon = "session_starting_soon"
         static let sessionLocked = "session_locked"
@@ -60,6 +61,39 @@ struct NotificationService {
     }
 
     // silent content-available push, the WebSocket fallback that applies the shield when the client is backgrounded
+    static func sendSilent(
+        to userID: UUID,
+        type: String,
+        on db: Database,
+        application: Application
+    ) async {
+        guard application.isAPNSConfigured,
+              let user = try? await UserModel.find(userID, on: db),
+              let token = user.deviceToken
+        else { return }
+
+        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+
+        struct SilentPayload: Codable & Sendable {
+            let type: String
+        }
+
+        let notification = APNSBackgroundNotification(
+            expiration: .immediately,
+            topic: bundleID,
+            payload: SilentPayload(type: type)
+        )
+
+        do {
+            try await application.apns.client(.default).sendBackgroundNotification(
+                notification,
+                deviceToken: token
+            )
+        } catch {
+            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type)): \(error)")
+        }
+    }
+
     static func sendSilent(
         to userID: UUID,
         type: String,

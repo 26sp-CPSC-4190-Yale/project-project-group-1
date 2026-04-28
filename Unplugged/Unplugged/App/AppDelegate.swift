@@ -12,8 +12,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         static let registeredToken = "apns.registeredToken"
     }
 
-    // silent push type is user controlled, only dispatch values we actually handle
-    private static let knownPayloadTypes: Set<String> = ["session_locked", "session_ended"]
+    // remote notification type is user controlled, only dispatch values we actually handle
+    private static let sessionPayloadTypes: Set<String> = ["session_locked", "session_ended"]
+    private static let friendPayloadTypes: Set<String> = [
+        "friend_request",
+        "friend_accepted",
+        "friendship_updated"
+    ]
+    private static let knownPayloadTypes = sessionPayloadTypes.union(friendPayloadTypes)
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -59,6 +65,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         Task { @MainActor in
+            if Self.friendPayloadTypes.contains(type) {
+                Self.postFriendsDidChange()
+                completionHandler(.newData)
+                return
+            }
+
             let handled = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
                 type: type,
                 userInfo: userInfo
@@ -78,6 +90,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Self.handleFriendNotification(userInfo: notification.request.content.userInfo)
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -92,6 +105,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         Task { @MainActor in
+            if Self.friendPayloadTypes.contains(type) {
+                Self.postFriendsDidChange()
+                completionHandler()
+                return
+            }
+
             _ = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
                 type: type,
                 userInfo: userInfo
@@ -119,4 +138,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             AppLogger.push.warning("device token upload failed; will retry on next foreground", error: error)
         }
     }
+
+    private static func handleFriendNotification(userInfo: [AnyHashable: Any]) {
+        guard let type = userInfo["type"] as? String,
+              friendPayloadTypes.contains(type) else { return }
+        Task { @MainActor in
+            postFriendsDidChange()
+        }
+    }
+
+    @MainActor
+    private static func postFriendsDidChange() {
+        NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let unpluggedFriendsDidChange = Notification.Name("com.unplugged.app.friends.didChange")
 }
