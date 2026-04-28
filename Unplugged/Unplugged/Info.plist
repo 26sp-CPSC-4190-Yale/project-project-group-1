@@ -22,6 +22,8 @@
 	<string>Unplugged uses Bluetooth to find friends nearby when you're joining a session.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>GIDClientID</key>
 	<string>248747113550-5htme10p43snu6kdi7dr4h0pgtmddta4.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>

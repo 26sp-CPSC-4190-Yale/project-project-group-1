@@ -243,13 +243,32 @@ struct UserController: RouteCollection {
         let userID = try payload.userID
 
         let body = try req.content.decode(DeviceTokenRequest.self)
+        guard let normalizedToken = Self.normalizedAPNsToken(body.deviceToken) else {
+            throw Abort(.badRequest, reason: "Invalid APNs device token.")
+        }
 
         guard let user = try await UserModel.find(userID, on: req.db) else {
             throw Abort(.notFound)
         }
 
-        user.deviceToken = body.deviceToken
+        user.deviceToken = normalizedToken
         try await user.save(on: req.db)
         return .noContent
+    }
+}
+
+private extension UserController {
+    static func normalizedAPNsToken(_ raw: String) -> String? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let isHex = normalized.unicodeScalars.allSatisfy {
+            CharacterSet(charactersIn: "0123456789abcdef").contains($0)
+        }
+
+        guard normalized.count == 64, isHex else {
+            return nil
+        }
+        return normalized
     }
 }

@@ -27,6 +27,7 @@ final class SessionOrchestrator {
     private let sessions: SessionAPIService
     private let recap: RecapAPIService
     private let screenTime: any ScreenTimeProviding
+    private let liveActivity: LiveActivityService
     private let cache: LocalCacheService
     private let webSocket: WebSocketClient
     private let touchTips: TouchTipsService
@@ -52,12 +53,14 @@ final class SessionOrchestrator {
     init(sessions: SessionAPIService,
          recap: RecapAPIService,
          screenTime: any ScreenTimeProviding,
+         liveActivity: LiveActivityService,
          cache: LocalCacheService,
          webSocket: WebSocketClient,
          touchTips: TouchTipsService) {
         self.sessions = sessions
         self.recap = recap
         self.screenTime = screenTime
+        self.liveActivity = liveActivity
         self.cache = cache
         self.webSocket = webSocket
         self.touchTips = touchTips
@@ -130,6 +133,7 @@ final class SessionOrchestrator {
             )
             errorMessage = "Couldn't unlock apps. Check Screen Time permission in Settings."
         }
+        await liveActivity.end(sessionID: sessionID)
 
         stopJailbreakWatchdog()
         stopSessionSync()
@@ -182,6 +186,7 @@ final class SessionOrchestrator {
         } catch {
             AppLogger.shield.critical("unlockApps failed during teardown — shield may be stuck", error: error)
         }
+        await liveActivity.end(sessionID: currentSession?.session.id)
         phase = .idle
         currentSession = nil
         participants = []
@@ -325,6 +330,11 @@ final class SessionOrchestrator {
         } else if response.session.lockedAt != nil {
             self.phase = .locked
             if let endsAt = response.session.endsAt {
+                await liveActivity.startOrUpdate(
+                    sessionID: response.session.id,
+                    roomTitle: response.session.title,
+                    endsAt: endsAt
+                )
                 await engageShield(endsAt: endsAt)
             } else {
                 AppLogger.session.critical(
@@ -337,12 +347,18 @@ final class SessionOrchestrator {
         } else {
             self.phase = .lobby
             stopLockedProximityEnforcement()
+            await liveActivity.end(sessionID: response.session.id)
         }
     }
 
     private func applyLocked(endsAt: Date) async {
         self.countdownEndsAt = endsAt
         self.phase = .locked
+        await liveActivity.startOrUpdate(
+            sessionID: currentSession?.session.id,
+            roomTitle: currentSession?.session.title,
+            endsAt: endsAt
+        )
         await engageShield(endsAt: endsAt)
         await startLockedProximityEnforcementIfNeeded()
     }
@@ -444,6 +460,7 @@ final class SessionOrchestrator {
                 error: error
             )
         }
+        await liveActivity.end(sessionID: currentSession?.session.id)
         await touchTips.stop()
         resetShieldTracking()
         self.phase = .ended

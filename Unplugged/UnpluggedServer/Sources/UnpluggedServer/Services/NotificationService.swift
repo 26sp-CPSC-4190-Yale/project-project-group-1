@@ -6,6 +6,7 @@ import Vapor
 import VaporAPNS
 
 struct NotificationService {
+    private static let defaultBundleID = "com.unplugged"
     enum NotificationType {
         static let nudge = "nudge"
         static let friendRequest = "friend_request"
@@ -33,7 +34,7 @@ struct NotificationService {
               let token = user.deviceToken
         else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        let bundleID = apnsBundleID()
 
         struct NotificationPayload: Codable & Sendable {
             let type: String
@@ -72,7 +73,7 @@ struct NotificationService {
               let token = user.deviceToken
         else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        let bundleID = apnsBundleID()
 
         struct SilentPayload: Codable & Sendable {
             let type: String
@@ -107,7 +108,7 @@ struct NotificationService {
               let token = user.deviceToken
         else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        let bundleID = apnsBundleID()
 
         struct SilentPayload: Codable & Sendable {
             let type: String
@@ -131,6 +132,14 @@ struct NotificationService {
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
         }
+    }
+
+    private static func apnsBundleID() -> String {
+        let trimmed = Environment.get("APNS_BUNDLE_ID")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            return trimmed
+        }
+        return defaultBundleID
     }
 }
 
