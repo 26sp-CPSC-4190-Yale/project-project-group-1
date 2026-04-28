@@ -5,8 +5,10 @@ import UnpluggedShared
 struct FriendsListView: View {
     @Environment(DependencyContainer.self) private var deps
     @Environment(\.scenePhase) private var scenePhase
+    let refreshToken: Int
     @State private var viewModel = FriendsListViewModel()
     @State private var selectedFriend: FriendResponse?
+    @State private var isVisible = false
 
     var body: some View {
         NavigationStack {
@@ -59,6 +61,28 @@ struct FriendsListView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .contextMenu {
+                                        Button {
+                                            Task {
+                                                await viewModel.nudge(
+                                                    service: deps.friends,
+                                                    friendID: friend.id
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Nudge", systemImage: "bell.badge.fill")
+                                        }
+                                        .disabled(viewModel.isNudging(friendID: friend.id))
+                                        Button(role: .destructive) {
+                                            Task {
+                                                await viewModel.removeFriend(
+                                                    service: deps.friends,
+                                                    friend: friend
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Remove Friend", systemImage: "person.badge.minus")
+                                        }
+                                        .disabled(viewModel.isRemovingFriend(friendID: friend.id))
                                         Button {
                                             viewModel.reportTarget = friend
                                         } label: {
@@ -144,6 +168,25 @@ struct FriendsListView: View {
             .task {
                 await viewModel.load(service: deps.friends)
             }
+            .task(id: refreshToken) {
+                guard refreshToken > 0 else { return }
+                await viewModel.load(service: deps.friends, force: true)
+            }
+            .task(id: shouldPoll) {
+                guard shouldPoll else { return }
+                // Friends state should not depend on APNs to become consistent.
+                while !Task.isCancelled {
+                    await viewModel.load(service: deps.friends)
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+            .onAppear {
+                isVisible = true
+                Task { await viewModel.load(service: deps.friends, force: true) }
+            }
+            .onDisappear {
+                isVisible = false
+            }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
                 Task { await viewModel.load(service: deps.friends, force: true) }
@@ -156,6 +199,10 @@ struct FriendsListView: View {
             }
             .errorAlert($viewModel.error)
         }
+    }
+
+    private var shouldPoll: Bool {
+        isVisible && scenePhase == .active
     }
 
     // MARK: - Rows
@@ -324,6 +371,6 @@ struct FriendsListView: View {
 }
 
 #Preview {
-    FriendsListView()
+    FriendsListView(refreshToken: 0)
         .environment(DependencyContainer())
 }

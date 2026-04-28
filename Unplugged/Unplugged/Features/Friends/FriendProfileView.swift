@@ -6,6 +6,8 @@ import UnpluggedShared
 final class FriendProfileViewModel {
     var profile: FriendProfileResponse?
     var isLoading = false
+    var isSendingNudge = false
+    var isRemovingFriend = false
     var error: String?
 
     func load(service: FriendAPIService, friendID: UUID) async {
@@ -19,13 +21,43 @@ final class FriendProfileViewModel {
         }
         isLoading = false
     }
+
+    func sendNudge(service: FriendAPIService, friendID: UUID) async {
+        guard !isSendingNudge else { return }
+
+        isSendingNudge = true
+        defer { isSendingNudge = false }
+
+        do {
+            try await service.nudge(friendID: friendID)
+        } catch {
+            self.error = "Could not send nudge"
+        }
+    }
+
+    func removeFriend(service: FriendAPIService, friendID: UUID) async -> Bool {
+        guard !isRemovingFriend else { return false }
+
+        isRemovingFriend = true
+        defer { isRemovingFriend = false }
+
+        do {
+            try await service.removeFriend(id: friendID)
+            return true
+        } catch {
+            self.error = "Could not remove friend"
+            return false
+        }
+    }
 }
 
 struct FriendProfileView: View {
     let friend: FriendResponse
 
     @Environment(DependencyContainer.self) private var deps
+    @Environment(\.dismiss) private var dismiss
     @State private var viewModel = FriendProfileViewModel()
+    @State private var confirmRemoveFriend = false
 
     var body: some View {
         ZStack {
@@ -67,6 +99,27 @@ struct FriendProfileView: View {
         .refreshable {
             await viewModel.load(service: deps.friends, friendID: friend.id)
         }
+        .confirmationDialog(
+            "Remove this friend?",
+            isPresented: $confirmRemoveFriend,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Friend", role: .destructive) {
+                Task {
+                    let removed = await viewModel.removeFriend(
+                        service: deps.friends,
+                        friendID: friend.id
+                    )
+                    guard removed else { return }
+                    NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove \(friend.username) from your friends list.")
+        }
+        .errorAlert($viewModel.error)
     }
 
     private var header: some View {
@@ -85,6 +138,31 @@ struct FriendProfileView: View {
                 Text(presenceLabel)
                     .font(.subheadline)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+            }
+
+            if friend.status == "accepted" {
+                Button {
+                    Task {
+                        await viewModel.sendNudge(service: deps.friends, friendID: friend.id)
+                    }
+                } label: {
+                    Group {
+                        if viewModel.isSendingNudge {
+                            ProgressView()
+                                .tint(.primaryColor)
+                        } else {
+                            Label("Nudge", systemImage: "bell.badge.fill")
+                        }
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.top, .spacingSm)
+
+                Button("Remove Friend", role: .destructive) {
+                    confirmRemoveFriend = true
+                }
+                .buttonStyle(DestructiveButtonStyle())
+                .disabled(viewModel.isRemovingFriend)
             }
         }
     }

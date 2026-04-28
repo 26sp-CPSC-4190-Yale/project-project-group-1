@@ -262,11 +262,15 @@ private extension UserController {
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+            .filter { !$0.isWhitespace && $0 != "<" && $0 != ">" }
         let isHex = normalized.unicodeScalars.allSatisfy {
             CharacterSet(charactersIn: "0123456789abcdef").contains($0)
         }
 
-        guard normalized.count == 64, isHex else {
+        // APNs tokens are opaque and not guaranteed to stay fixed at 32 bytes.
+        guard normalized.count >= 32,
+              normalized.count.isMultiple(of: 2),
+              isHex else {
             return nil
         }
         return normalized

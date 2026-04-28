@@ -31,6 +31,7 @@ struct ContentView: View {
 struct MainTabView: View {
     var authViewModel: AuthViewModel
     @State private var selectedTab: MainTab = .home
+    @State private var friendsRefreshToken = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -38,7 +39,7 @@ struct MainTabView: View {
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(MainTab.home)
 
-            FriendsListView()
+            FriendsListView(refreshToken: friendsRefreshToken)
                 .tabItem { Label("Friends", systemImage: "person.2.fill") }
                 .tag(MainTab.friends)
 
@@ -47,6 +48,10 @@ struct MainTabView: View {
                 .tag(MainTab.profile)
         }
         .tint(.tertiaryColor)
+        .onChange(of: selectedTab) { _, newTab in
+            guard newTab == .friends else { return }
+            friendsRefreshToken += 1
+        }
     }
 
     private enum MainTab: Hashable {

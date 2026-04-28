@@ -24,6 +24,8 @@ class FriendsListViewModel {
     private(set) var acceptingRequestIDs: Set<UUID> = []
     private(set) var rejectingRequestIDs: Set<UUID> = []
     private(set) var cancellingRequestIDs: Set<UUID> = []
+    private(set) var nudgingFriendIDs: Set<UUID> = []
+    private(set) var removingFriendIDs: Set<UUID> = []
     private var loadToken = 0
 
     // Report flow state
@@ -33,8 +35,15 @@ class FriendsListViewModel {
     // view stays untouched. A fresh reload after every mutation is the single
     // source of truth — no optimistic dictionary to get out of sync with it.
     var visibleFriends: [FriendResponse] { friends }
-    var visibleIncomingRequests: [FriendResponse] { incomingRequests }
-    var visibleOutgoingRequests: [FriendResponse] { outgoingRequests }
+    var visibleIncomingRequests: [FriendResponse] {
+        incomingRequests.filter {
+            !acceptingRequestIDs.contains($0.id)
+                && !rejectingRequestIDs.contains($0.id)
+        }
+    }
+    var visibleOutgoingRequests: [FriendResponse] {
+        outgoingRequests.filter { !cancellingRequestIDs.contains($0.id) }
+    }
 
     var excludedAddFriendIDs: Set<UUID> {
         Set(friends.map(\.id))
@@ -71,6 +80,14 @@ class FriendsListViewModel {
 
     func isCancelling(requestID: UUID) -> Bool {
         cancellingRequestIDs.contains(requestID)
+    }
+
+    func isNudging(friendID: UUID) -> Bool {
+        nudgingFriendIDs.contains(friendID)
+    }
+
+    func isRemovingFriend(friendID: UUID) -> Bool {
+        removingFriendIDs.contains(friendID)
     }
 
     @discardableResult
@@ -131,8 +148,11 @@ class FriendsListViewModel {
         guard acceptingRequestIDs.insert(requestID).inserted else { return }
         defer { acceptingRequestIDs.remove(requestID) }
 
+        let pendingRequest = incomingRequests.first { $0.id == requestID }
+
         do {
-            _ = try await service.acceptRequest(friendID: requestID)
+            let acceptedFriend = try await service.acceptRequest(friendID: requestID)
+            applyAcceptedRequestLocally(acceptedFriend, fallbackRequest: pendingRequest)
         } catch {
             self.error = "Failed to accept friend request"
         }
@@ -143,8 +163,15 @@ class FriendsListViewModel {
         guard rejectingRequestIDs.insert(requestID).inserted else { return }
         defer { rejectingRequestIDs.remove(requestID) }
 
+        let pendingRequest = incomingRequests.first { $0.id == requestID }
+
         do {
             try await service.rejectRequest(friendID: requestID)
+            if let pendingRequest {
+                removeIncomingRequest(matching: pendingRequest)
+            } else {
+                incomingRequests.removeAll { $0.id == requestID }
+            }
         } catch {
             self.error = "Failed to reject friend request"
         }
@@ -157,11 +184,45 @@ class FriendsListViewModel {
         guard cancellingRequestIDs.insert(targetID).inserted else { return }
         defer { cancellingRequestIDs.remove(targetID) }
 
+        let outgoingRequest = outgoingRequests.first { $0.id == targetID }
+
         do {
             try await service.rejectRequest(friendID: targetID)
+            if let outgoingRequest {
+                removeOutgoingRequest(matching: outgoingRequest)
+            } else {
+                outgoingRequests.removeAll { $0.id == targetID }
+            }
         } catch {
             self.error = "Failed to cancel request"
         }
+        await load(service: service, force: true)
+    }
+
+    func nudge(service: FriendAPIService, friendID: UUID) async {
+        guard nudgingFriendIDs.insert(friendID).inserted else { return }
+        defer { nudgingFriendIDs.remove(friendID) }
+
+        do {
+            try await service.nudge(friendID: friendID)
+        } catch {
+            self.error = "Failed to send nudge"
+        }
+    }
+
+    func removeFriend(service: FriendAPIService, friend: FriendResponse) async {
+        guard removingFriendIDs.insert(friend.id).inserted else { return }
+        defer { removingFriendIDs.remove(friend.id) }
+
+        do {
+            try await service.removeFriend(id: friend.id)
+            removePendingRequests(matching: friend)
+            friends.removeAll { matches($0, friend) }
+            NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
+        } catch {
+            self.error = "Failed to remove friend"
+        }
+
         await load(service: service, force: true)
     }
 
@@ -195,23 +256,67 @@ class FriendsListViewModel {
         incoming incomingList: [FriendResponse],
         outgoing outgoingList: [FriendResponse]
     ) {
-        let acceptedFriends = uniquedByID(friendsList.map { $0.withStatus("accepted") })
-        let acceptedIDs = Set(acceptedFriends.map(\.id))
+        let acceptedFriends = uniquedByIdentity(friendsList.map { $0.withStatus("accepted") })
 
         friends = acceptedFriends
-        incomingRequests = uniquedByID(incomingList)
-            .filter { !acceptedIDs.contains($0.id) }
-        outgoingRequests = uniquedByID(outgoingList)
-            .filter { !acceptedIDs.contains($0.id) }
+        incomingRequests = uniquedByIdentity(incomingList)
+        outgoingRequests = uniquedByIdentity(outgoingList)
     }
 
-    private func uniquedByID(_ responses: [FriendResponse]) -> [FriendResponse] {
-        var seen: Set<UUID> = []
+    private func applyAcceptedRequestLocally(
+        _ acceptedFriend: FriendResponse,
+        fallbackRequest: FriendResponse?
+    ) {
+        let accepted = acceptedFriend.withStatus("accepted")
+        friends = mergeFriend(accepted, into: friends)
+        removePendingRequests(matching: accepted)
+        if let fallbackRequest {
+            removePendingRequests(matching: fallbackRequest)
+        }
+    }
+
+    private func removePendingRequests(matching response: FriendResponse) {
+        removeIncomingRequest(matching: response)
+        removeOutgoingRequest(matching: response)
+    }
+
+    private func removeIncomingRequest(matching response: FriendResponse) {
+        incomingRequests.removeAll { matches($0, response) }
+    }
+
+    private func removeOutgoingRequest(matching response: FriendResponse) {
+        outgoingRequests.removeAll { matches($0, response) }
+    }
+
+    private func mergeFriend(_ friend: FriendResponse, into currentFriends: [FriendResponse]) -> [FriendResponse] {
+        var updatedFriends = currentFriends.filter { !matches($0, friend) }
+        updatedFriends.append(friend.withStatus("accepted"))
+        return updatedFriends
+    }
+
+    private func uniquedByIdentity(_ responses: [FriendResponse]) -> [FriendResponse] {
+        var seenIDs: Set<UUID> = []
+        var seenUsernames: Set<String> = []
         var unique: [FriendResponse] = []
-        for response in responses where seen.insert(response.id).inserted {
+        for response in responses {
+            let username = normalizedUsername(response.username)
+            guard !seenIDs.contains(response.id),
+                  !seenUsernames.contains(username) else {
+                continue
+            }
+            seenIDs.insert(response.id)
+            seenUsernames.insert(username)
             unique.append(response)
         }
         return unique
+    }
+
+    private func matches(_ lhs: FriendResponse, _ rhs: FriendResponse) -> Bool {
+        lhs.id == rhs.id || normalizedUsername(lhs.username) == normalizedUsername(rhs.username)
+    }
+
+    private func normalizedUsername(_ username: String) -> String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
