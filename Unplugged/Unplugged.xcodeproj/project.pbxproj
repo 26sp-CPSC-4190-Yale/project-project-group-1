@@ -13,20 +13,6 @@
 		A1B2C3D42FABC00100000001 /* UnpluggedLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		A1B2C3D52FABC00100000001 /* Embed App Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				A1B2C3D42FABC00100000001 /* UnpluggedLiveActivityExtension.appex in Embed App Extensions */,
-			);
-			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXContainerItemProxy section */
 		A1B2C3D62FABC00100000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -50,6 +36,20 @@
 			remoteInfo = Unplugged;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3D52FABC00100000001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D42FABC00100000001 /* UnpluggedLiveActivityExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnpluggedLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -224,8 +224,8 @@
 				A1B2C3DF2FABC00100000001 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				FF5125B42F63055A00B3F774 /* Unplugged */,
 				A1B2C3DA2FABC00100000001 /* UnpluggedLiveActivityShared */,
+				FF5125B42F63055A00B3F774 /* Unplugged */,
 			);
 			name = Unplugged;
 			packageProductDependencies = (

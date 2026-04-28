@@ -35,7 +35,7 @@ struct FriendController: RouteCollection {
         let body = try req.content.decode(AddFriendRequest.self)
 
         guard let target = try await UserModel.query(on: req.db)
-            .filter(\.$username, .custom("ILIKE"), body.username)
+            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), body.username)
             .first()
         else {
             throw Abort(.notFound, reason: "User not found.")

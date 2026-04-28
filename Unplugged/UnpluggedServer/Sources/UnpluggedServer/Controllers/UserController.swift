@@ -42,7 +42,7 @@ struct UserController: RouteCollection {
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
 
         let users = try await UserModel.query(on: req.db)
-            .filter(\.$username, .custom("ILIKE"), "%\(query)%")
+            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), "%\(query)%")
             .filter(\.$id != userID)
             .limit(20)
             .all()

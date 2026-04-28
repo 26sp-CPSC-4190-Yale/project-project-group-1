@@ -40,7 +40,9 @@ final class UserModel: Model, @unchecked Sendable {
 
     var isDeleted: Bool { deletedAt != nil }
 
-    init() {}
+    init() {
+        self.points = 0
+    }
 
     init(id: UUID? = nil, username: String, passwordHash: String) {
         self.id = id

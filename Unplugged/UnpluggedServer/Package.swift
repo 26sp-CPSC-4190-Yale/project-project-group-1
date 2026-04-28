@@ -11,6 +11,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.0"),
         .package(url: "https://github.com/vapor/fluent.git", from: "4.11.0"),
         .package(url: "https://github.com/vapor/fluent-postgres-driver.git", from: "2.9.0"),
+        .package(url: "https://github.com/vapor/fluent-sqlite-driver.git", from: "4.8.0"),
         .package(url: "https://github.com/vapor/jwt.git", from: "5.1.0"),
         .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
         // APNSwift provides APNSCore types not re-exported by vapor/apns
@@ -35,6 +36,7 @@ let package = Package(
             dependencies: [
                 .target(name: "UnpluggedServer"),
                 .product(name: "XCTVapor", package: "vapor"),
+                .product(name: "FluentSQLiteDriver", package: "fluent-sqlite-driver"),
             ]
         )
     ]
