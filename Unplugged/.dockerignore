@@ -5,6 +5,12 @@
 **/*.xcworkspace
 **/xcuserdata
 **/.DS_Store
+.git
+.env
+Docker/.env
+*.p8
+issues.html
+issues.md
 Unplugged/
 UnpluggedTests/
 UnpluggedUITests/

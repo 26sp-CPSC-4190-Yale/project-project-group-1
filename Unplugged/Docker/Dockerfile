@@ -1,17 +1,22 @@
 FROM swift:6.0
 WORKDIR /app
 
-# Copy shared package (dependency)
-COPY UnpluggedShared/ ./UnpluggedShared/
-
-# Resolve dependencies first (cached unless Package.swift/resolved change)
+# Resolve and prebuild dependencies first. This layer is reused unless package
+# manifests change, so normal source edits do not recompile Vapor/APNs/etc.
+COPY UnpluggedShared/Package.swift ./UnpluggedShared/
 COPY UnpluggedServer/Package.swift UnpluggedServer/Package.resolved* ./UnpluggedServer/
+RUN mkdir -p UnpluggedShared/Sources/UnpluggedShared \
+    && mkdir -p UnpluggedServer/Sources/UnpluggedServer \
+    && printf 'public enum DependencyWarmup {}\n' > UnpluggedShared/Sources/UnpluggedShared/DependencyWarmup.swift \
+    && printf '@main\nstruct DependencyWarmup { static func main() {} }\n' > UnpluggedServer/Sources/UnpluggedServer/main.swift
 WORKDIR /app/UnpluggedServer
 RUN swift package resolve
+RUN swift build -c release --product UnpluggedServer
 
-# Now copy source and tests, then build
+# Now copy real source and build only the server product.
+RUN rm -rf Sources ../UnpluggedShared/Sources
+COPY UnpluggedShared/Sources/ ../UnpluggedShared/Sources/
 COPY UnpluggedServer/Sources/ ./Sources/
-COPY UnpluggedServer/Tests/ ./Tests/
-RUN swift build -c release
+RUN swift build -c release --product UnpluggedServer
 
 CMD [".build/release/UnpluggedServer", "serve", "--hostname", "0.0.0.0", "--port", "8080"]
