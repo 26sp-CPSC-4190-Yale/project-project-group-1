@@ -20,7 +20,7 @@ struct NotificationService {
         static let sessionProximityExit = "session_proximity_exit"
     }
 
-    // silently no-ops if the user has no device token or APNs is not configured
+    // alert push; logs every skip/send path so notification delivery failures are diagnosable
     static func send(
         to userID: UUID,
         title: String,
@@ -29,10 +29,13 @@ struct NotificationService {
         on db: Database,
         application: Application
     ) async {
-        guard application.isAPNSConfigured,
-              let user = try? await UserModel.find(userID, on: db),
-              let token = user.deviceToken
-        else { return }
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "alert",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
 
         let bundleID = apnsBundleID()
 
@@ -52,10 +55,22 @@ struct NotificationService {
         )
 
         do {
+            application.logger.info("APNs alert push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
             try await application.apns.client(.default).sendAlertNotification(
                 notification,
                 deviceToken: token
             )
+            application.logger.info("APNs alert push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
         } catch {
             application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
         }
@@ -68,10 +83,13 @@ struct NotificationService {
         on db: Database,
         application: Application
     ) async {
-        guard application.isAPNSConfigured,
-              let user = try? await UserModel.find(userID, on: db),
-              let token = user.deviceToken
-        else { return }
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "silent",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
 
         let bundleID = apnsBundleID()
 
@@ -86,10 +104,22 @@ struct NotificationService {
         )
 
         do {
+            application.logger.info("APNs silent push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
             try await application.apns.client(.default).sendBackgroundNotification(
                 notification,
                 deviceToken: token
             )
+            application.logger.info("APNs silent push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type)): \(error)")
         }
@@ -103,10 +133,13 @@ struct NotificationService {
         on db: Database,
         application: Application
     ) async {
-        guard application.isAPNSConfigured,
-              let user = try? await UserModel.find(userID, on: db),
-              let token = user.deviceToken
-        else { return }
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "silent",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
 
         let bundleID = apnsBundleID()
 
@@ -125,21 +158,76 @@ struct NotificationService {
         )
 
         do {
+            application.logger.info("APNs silent push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "session_id": "\(sessionID)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
             try await application.apns.client(.default).sendBackgroundNotification(
                 notification,
                 deviceToken: token
             )
+            application.logger.info("APNs silent push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "session_id": "\(sessionID)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
         }
     }
 
-    private static func apnsBundleID() -> String {
+    private static func deviceToken(
+        for userID: UUID,
+        channel: String,
+        type: String,
+        on db: Database,
+        application: Application
+    ) async -> String? {
+        guard application.isAPNSConfigured else {
+            application.logger.warning("APNs \(channel) push skipped: APNs not configured", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)"
+            ])
+            return nil
+        }
+
+        do {
+            guard let user = try await UserModel.find(userID, on: db) else {
+                application.logger.warning("APNs \(channel) push skipped: recipient user not found", metadata: [
+                    "user_id": "\(userID)",
+                    "type": "\(type)"
+                ])
+                return nil
+            }
+            guard let token = user.deviceToken, !token.isEmpty else {
+                application.logger.warning("APNs \(channel) push skipped: recipient has no device token", metadata: [
+                    "user_id": "\(userID)",
+                    "type": "\(type)"
+                ])
+                return nil
+            }
+            return token
+        } catch {
+            application.logger.error("APNs \(channel) push skipped: recipient lookup failed for user \(userID) (type=\(type)): \(error)")
+            return nil
+        }
+    }
+
+    static func apnsBundleID() -> String {
         let trimmed = Environment.get("APNS_BUNDLE_ID")?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmed, !trimmed.isEmpty {
             return trimmed
         }
         return defaultBundleID
+    }
+
+    private static func tokenSuffix(_ token: String) -> String {
+        String(token.suffix(8))
     }
 }
 
@@ -158,7 +246,7 @@ extension Application {
     // call from configure.swift, any missing APNs env var skips setup so local dev runs without credentials
     func configureAPNS() throws {
         guard
-            let privateKey = Environment.get("APNS_PRIVATE_KEY"),
+            let rawPrivateKey = Environment.get("APNS_PRIVATE_KEY"),
             let keyID = Environment.get("APNS_KEY_ID"),
             let teamID = Environment.get("APNS_TEAM_ID")
         else {
@@ -166,9 +254,18 @@ extension Application {
             return
         }
 
-        let apnsEnv: APNSEnvironment = Environment.get("APNS_ENVIRONMENT") == "production"
-            ? APNSEnvironment.production
-            : APNSEnvironment.development
+        let privateKey = rawPrivateKey.replacingOccurrences(of: "\\n", with: "\n")
+        let rawEnvironment = Environment.get("APNS_ENVIRONMENT")?.lowercased()
+        let useProduction: Bool
+        switch rawEnvironment {
+        case "production":
+            useProduction = true
+        case "development", "sandbox":
+            useProduction = false
+        default:
+            useProduction = environment == .production
+        }
+        let apnsEnv: APNSEnvironment = useProduction ? .production : .development
 
         apns.containers.use(
             APNSClientConfiguration(
@@ -186,7 +283,9 @@ extension Application {
         )
 
         isAPNSConfigured = true
-        let envName = Environment.get("APNS_ENVIRONMENT") == "production" ? "production" : "development"
-        logger.info("[APNs] Configured for \(envName).")
+        let envName = useProduction ? "production" : "development"
+        logger.info("[APNs] Configured for \(envName).", metadata: [
+            "topic": "\(NotificationService.apnsBundleID())"
+        ])
     }
 }

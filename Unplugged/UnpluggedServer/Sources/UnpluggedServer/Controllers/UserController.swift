@@ -251,8 +251,24 @@ struct UserController: RouteCollection {
             throw Abort(.notFound)
         }
 
+        let duplicateUsers = try await UserModel.query(on: req.db)
+            .filter(\.$deviceToken == normalizedToken)
+            .all()
+        var clearedDuplicateCount = 0
+        for duplicateUser in duplicateUsers {
+            guard try duplicateUser.requireID() != userID else { continue }
+            duplicateUser.deviceToken = nil
+            try await duplicateUser.save(on: req.db)
+            clearedDuplicateCount += 1
+        }
+
         user.deviceToken = normalizedToken
         try await user.save(on: req.db)
+        req.logger.info("device token registered", metadata: [
+            "user_id": "\(userID)",
+            "token_suffix": "\(normalizedToken.suffix(8))",
+            "cleared_duplicate_users": "\(clearedDuplicateCount)"
+        ])
         return .noContent
     }
 }

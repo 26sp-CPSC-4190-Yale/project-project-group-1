@@ -142,6 +142,91 @@ final class NetworkingAndViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testFriendsListLoadDropsPendingRequestsForAcceptedFriends() async throws {
+        let friendID = UUID()
+        let acceptedFriend = FriendResponse(id: friendID, username: "Casey", status: "accepted")
+        let staleIncoming = FriendResponse(id: friendID, username: "Casey", status: "pending")
+        let staleOutgoing = FriendResponse(id: UUID(), username: "casey", status: "pending")
+        let session = StubSession { request in
+            switch request.url?.path {
+            case "/friends":
+                return (try Self.encodeJSON([acceptedFriend]), Self.httpResponse(url: request.url!, status: 200))
+            case "/friends/requests/incoming":
+                return (try Self.encodeJSON([staleIncoming]), Self.httpResponse(url: request.url!, status: 200))
+            case "/friends/requests/outgoing":
+                return (try Self.encodeJSON([staleOutgoing]), Self.httpResponse(url: request.url!, status: 200))
+            default:
+                XCTFail("Unexpected path \(request.url?.path ?? "<nil>")")
+                throw URLError(.badURL)
+            }
+        }
+        let service = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: session
+        ))
+        let viewModel = FriendsListViewModel()
+
+        let loaded = await viewModel.load(service: service, force: true)
+
+        XCTAssertTrue(loaded)
+        XCTAssertEqual(viewModel.friends.map(\.username), ["Casey"])
+        XCTAssertTrue(viewModel.incomingRequests.isEmpty)
+        XCTAssertTrue(viewModel.outgoingRequests.isEmpty)
+        XCTAssertTrue(viewModel.visibleIncomingRequests.isEmpty)
+        XCTAssertTrue(viewModel.visibleOutgoingRequests.isEmpty)
+    }
+
+    @MainActor
+    func testFriendsListVisiblePendingControlsCannotShowForAcceptedFriends() async throws {
+        let acceptedFriend = FriendResponse(id: UUID(), username: "Casey", status: "accepted")
+        let staleIncoming = FriendResponse(id: UUID(), username: "casey", status: "pending")
+        let staleOutgoing = FriendResponse(id: UUID(), username: "CASEY", status: "pending")
+        let unrelatedIncoming = FriendResponse(id: UUID(), username: "Riley", status: "pending")
+        let unrelatedOutgoing = FriendResponse(id: UUID(), username: "Morgan", status: "pending")
+        let viewModel = FriendsListViewModel()
+
+        viewModel.friends = [acceptedFriend]
+        viewModel.incomingRequests = [staleIncoming, unrelatedIncoming]
+        viewModel.outgoingRequests = [staleOutgoing, unrelatedOutgoing]
+
+        XCTAssertEqual(viewModel.visibleFriends, [acceptedFriend])
+        XCTAssertEqual(viewModel.visibleIncomingRequests, [unrelatedIncoming])
+        XCTAssertEqual(viewModel.visibleOutgoingRequests, [unrelatedOutgoing])
+    }
+
+    @MainActor
+    func testFriendsListAddFriendShowsOutgoingRequestImmediately() async throws {
+        let pendingFriend = FriendResponse(id: UUID(), username: "Morgan", status: "pending")
+        let service = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: StubSession { request in
+                switch (request.httpMethod, request.url?.path) {
+                case ("POST", "/friends"):
+                    return (try Self.encodeJSON(pendingFriend), Self.httpResponse(url: request.url!, status: 200))
+                case ("GET", "/friends"), ("GET", "/friends/requests/incoming"):
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: request.url!, status: 200))
+                case ("GET", "/friends/requests/outgoing"):
+                    return (try Self.encodeJSON([pendingFriend]), Self.httpResponse(url: request.url!, status: 200))
+                default:
+                    XCTFail("Unexpected request \(request.httpMethod ?? "<nil>") \(request.url?.path ?? "<nil>")")
+                    throw URLError(.badURL)
+                }
+            }
+        ))
+        let viewModel = FriendsListViewModel()
+        viewModel.addFriendUsername = "Morgan"
+
+        let added = await viewModel.addFriend(service: service)
+
+        XCTAssertTrue(added)
+        XCTAssertFalse(viewModel.showAddFriend)
+        XCTAssertEqual(viewModel.outgoingRequests, [pendingFriend])
+        XCTAssertEqual(viewModel.visibleOutgoingRequests, [pendingFriend])
+    }
+
+    @MainActor
     func testFriendsListAcceptRequestMovesUserIntoFriendsAndClearsIncoming() async throws {
         let request = FriendResponse(id: UUID(), username: "Casey", status: "pending")
 
@@ -190,6 +275,136 @@ final class NetworkingAndViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.friends.map(\.username), ["Casey"])
         XCTAssertEqual(viewModel.friends.first?.status, "accepted")
         XCTAssertFalse(viewModel.isAccepting(requestID: request.id))
+    }
+
+    @MainActor
+    func testFriendsListAcceptedRequestSurvivesStalePendingReload() async throws {
+        let request = FriendResponse(id: UUID(), username: "Casey", status: "pending")
+        let acceptedFriend = FriendResponse(id: request.id, username: request.username, status: "accepted")
+        let acceptService = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: StubSession { requestURL in
+                switch (requestURL.httpMethod, requestURL.url?.path) {
+                case ("POST", "/friends/\(request.id)/accept"):
+                    return (try Self.encodeJSON(acceptedFriend), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends"):
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends/requests/incoming"):
+                    return (try Self.encodeJSON([request]), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends/requests/outgoing"):
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                default:
+                    XCTFail("Unexpected request \(requestURL.httpMethod ?? "<nil>") \(requestURL.url?.path ?? "<nil>")")
+                    throw URLError(.badURL)
+                }
+            }
+        ))
+        let staleLoadService = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: StubSession { requestURL in
+                switch requestURL.url?.path {
+                case "/friends":
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                case "/friends/requests/incoming":
+                    return (try Self.encodeJSON([request]), Self.httpResponse(url: requestURL.url!, status: 200))
+                case "/friends/requests/outgoing":
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                default:
+                    XCTFail("Unexpected path \(requestURL.url?.path ?? "<nil>")")
+                    throw URLError(.badURL)
+                }
+            }
+        ))
+
+        let viewModel = FriendsListViewModel()
+        viewModel.incomingRequests = [request]
+
+        await viewModel.acceptRequest(service: acceptService, requestID: request.id)
+        _ = await viewModel.load(service: staleLoadService, force: true)
+
+        XCTAssertEqual(viewModel.incomingRequests, [])
+        XCTAssertEqual(viewModel.friends.map(\.username), ["Casey"])
+        XCTAssertEqual(viewModel.friends.first?.status, "accepted")
+        XCTAssertTrue(viewModel.visibleIncomingRequests.isEmpty)
+    }
+
+    @MainActor
+    func testFriendsListAcceptRequestFallsBackToRequestIDEndpoint() async throws {
+        let requestID = UUID()
+        let requesterID = UUID()
+        let request = FriendResponse(id: requestID, username: "Casey", status: "pending")
+        let acceptedFriend = FriendResponse(id: requesterID, username: request.username, status: "accepted")
+        var postPaths: [String] = []
+        let acceptService = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: StubSession { requestURL in
+                if requestURL.httpMethod == "POST" {
+                    postPaths.append(requestURL.url?.path ?? "<nil>")
+                }
+                switch (requestURL.httpMethod, requestURL.url?.path) {
+                case ("POST", "/friends/\(requestID)/accept"):
+                    return (
+                        Data(#"{"error":true,"reason":"Not Found"}"#.utf8),
+                        Self.httpResponse(url: requestURL.url!, status: 404)
+                    )
+                case ("POST", "/friends/requests/\(requestID)/accept"):
+                    return (try Self.encodeJSON(acceptedFriend), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends"):
+                    return (try Self.encodeJSON([acceptedFriend]), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends/requests/incoming"):
+                    return (try Self.encodeJSON([request]), Self.httpResponse(url: requestURL.url!, status: 200))
+                case ("GET", "/friends/requests/outgoing"):
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                default:
+                    XCTFail("Unexpected request \(requestURL.httpMethod ?? "<nil>") \(requestURL.url?.path ?? "<nil>")")
+                    throw URLError(.badURL)
+                }
+            }
+        ))
+        let viewModel = FriendsListViewModel()
+        viewModel.incomingRequests = [request]
+
+        await viewModel.acceptRequest(service: acceptService, requestID: requestID)
+
+        XCTAssertEqual(postPaths, ["/friends/\(requestID)/accept", "/friends/requests/\(requestID)/accept"])
+        XCTAssertEqual(viewModel.visibleIncomingRequests, [])
+        XCTAssertEqual(viewModel.friends, [acceptedFriend])
+    }
+
+    @MainActor
+    func testFriendsListRejectIncomingUsesRequestIDEndpointFirst() async throws {
+        let requestID = UUID()
+        let request = FriendResponse(id: requestID, username: "Casey", status: "pending")
+        var postPaths: [String] = []
+        let service = FriendAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: StubSession { requestURL in
+                if requestURL.httpMethod == "POST" {
+                    postPaths.append(requestURL.url?.path ?? "<nil>")
+                }
+                switch (requestURL.httpMethod, requestURL.url?.path) {
+                case ("POST", "/friends/requests/\(requestID)/reject"):
+                    return (Data(), Self.httpResponse(url: requestURL.url!, status: 204))
+                case ("GET", "/friends"), ("GET", "/friends/requests/incoming"), ("GET", "/friends/requests/outgoing"):
+                    return (try Self.encodeJSON([FriendResponse]()), Self.httpResponse(url: requestURL.url!, status: 200))
+                default:
+                    XCTFail("Unexpected request \(requestURL.httpMethod ?? "<nil>") \(requestURL.url?.path ?? "<nil>")")
+                    throw URLError(.badURL)
+                }
+            }
+        ))
+        let viewModel = FriendsListViewModel()
+        viewModel.incomingRequests = [request]
+
+        await viewModel.rejectRequest(service: service, requestID: requestID)
+
+        XCTAssertEqual(postPaths, ["/friends/requests/\(requestID)/reject"])
+        XCTAssertEqual(viewModel.incomingRequests, [])
+        XCTAssertTrue(viewModel.visibleIncomingRequests.isEmpty)
     }
 
     @MainActor

@@ -17,7 +17,7 @@ struct FriendsListView: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    LazyVStack(spacing: .spacingSm) {
+                    VStack(spacing: .spacingSm) {
                         HStack {
                             Text("Friends")
                                 .font(.largeTitle.bold())
@@ -176,7 +176,7 @@ struct FriendsListView: View {
                 guard shouldPoll else { return }
                 // Friends state should not depend on APNs to become consistent.
                 while !Task.isCancelled {
-                    await viewModel.load(service: deps.friends)
+                    await viewModel.load(service: deps.friends, force: true)
                     try? await Task.sleep(for: .seconds(2))
                 }
             }
@@ -208,59 +208,35 @@ struct FriendsListView: View {
     // MARK: - Rows
 
     private func incomingRow(request: FriendResponse) -> some View {
-        HStack(spacing: .spacingMd) {
+        let isAccepting = viewModel.isAccepting(requestID: request.id)
+        let isRejecting = viewModel.isRejecting(requestID: request.id)
+        let isBusy = isAccepting || isRejecting
+
+        return HStack(spacing: .spacingMd) {
             ParticipantAvatar(name: request.username, size: 40)
             Text(request.username)
                 .font(.body)
                 .foregroundStyle(Color.tertiaryColor)
-            Spacer()
-            Button {
-                Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
-            } label: {
-                Group {
-                    if viewModel.isAccepting(requestID: request.id) {
-                        ProgressView()
-                            .tint(.primaryColor)
-                            .frame(width: 44, height: 20)
-                    } else {
-                        Text("Accept")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.primaryColor)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: .spacingSm)
+            HStack(spacing: .spacingSm) {
+                Button {
+                    Task { await viewModel.acceptRequest(service: deps.friends, requestID: request.id) }
+                } label: {
+                    acceptButtonLabel(isLoading: isAccepting)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.tertiaryColor)
-                .clipShape(Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(
-                viewModel.isAccepting(requestID: request.id)
-                    || viewModel.isRejecting(requestID: request.id)
-            )
-            Button {
-                Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
-            } label: {
-                Group {
-                    if viewModel.isRejecting(requestID: request.id) {
-                        ProgressView()
-                            .tint(.tertiaryColor)
-                    } else {
-                        Image(systemName: "xmark")
-                            .font(.subheadline)
-                            .foregroundStyle(Color.tertiaryColor.opacity(0.5))
-                    }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                Button {
+                    Task { await viewModel.rejectRequest(service: deps.friends, requestID: request.id) }
+                } label: {
+                    rejectButtonLabel(isLoading: isRejecting)
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .disabled(isBusy)
             }
-            .buttonStyle(.plain)
-            .disabled(
-                viewModel.isAccepting(requestID: request.id)
-                    || viewModel.isRejecting(requestID: request.id)
-            )
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.spacingMd)
         .background(Color.surfaceColor)
@@ -268,17 +244,21 @@ struct FriendsListView: View {
     }
 
     private func outgoingRow(request: FriendResponse) -> some View {
-        HStack(spacing: .spacingMd) {
+        let isCancelling = viewModel.isCancelling(requestID: request.id)
+
+        return HStack(spacing: .spacingMd) {
             ParticipantAvatar(name: request.username, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(request.username)
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text("Request sent")
                     .font(.caption)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.5))
             }
-            Spacer()
+            Spacer(minLength: .spacingSm)
             Button {
                 Task {
                     await viewModel.cancelOutgoingRequest(
@@ -287,31 +267,83 @@ struct FriendsListView: View {
                     )
                 }
             } label: {
-                Group {
-                    if viewModel.isCancelling(requestID: request.id) {
-                        ProgressView()
-                            .tint(.tertiaryColor)
-                            .frame(width: 44, height: 20)
-                    } else {
-                        Text("Cancel")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.tertiaryColor.opacity(0.8))
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule()
-                        .strokeBorder(Color.tertiaryColor.opacity(0.3), lineWidth: 1)
-                )
-                .contentShape(Capsule())
+                cancelButtonLabel(isLoading: isCancelling)
             }
             .buttonStyle(.plain)
-            .disabled(viewModel.isCancelling(requestID: request.id))
+            .disabled(isCancelling)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func acceptButtonLabel(isLoading: Bool) -> some View {
+        ZStack {
+            Text("Accept")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.primaryColor)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .opacity(isLoading ? 0 : 1)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(.primaryColor)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(minWidth: 54, minHeight: 20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.tertiaryColor)
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .animation(.easeInOut(duration: 0.15), value: isLoading)
+        .accessibilityLabel(isLoading ? "Accepting" : "Accept")
+    }
+
+    private func rejectButtonLabel(isLoading: Bool) -> some View {
+        ZStack {
+            Image(systemName: "xmark")
+                .font(.subheadline)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                .opacity(isLoading ? 0 : 1)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(.tertiaryColor)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .animation(.easeInOut(duration: 0.15), value: isLoading)
+        .accessibilityLabel(isLoading ? "Rejecting" : "Reject")
+    }
+
+    private func cancelButtonLabel(isLoading: Bool) -> some View {
+        ZStack {
+            Text("Cancel")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.tertiaryColor.opacity(0.8))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .opacity(isLoading ? 0 : 1)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(.tertiaryColor)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(minWidth: 54, minHeight: 20)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .strokeBorder(Color.tertiaryColor.opacity(0.3), lineWidth: 1)
+        )
+        .contentShape(Capsule())
+        .animation(.easeInOut(duration: 0.15), value: isLoading)
+        .accessibilityLabel(isLoading ? "Cancelling" : "Cancel")
     }
 
     private func friendRow(friend: FriendResponse) -> some View {

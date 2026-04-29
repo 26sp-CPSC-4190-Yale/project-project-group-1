@@ -27,6 +27,9 @@ class FriendsListViewModel {
     private(set) var nudgingFriendIDs: Set<UUID> = []
     private(set) var removingFriendIDs: Set<UUID> = []
     private var loadToken = 0
+    private var locallyAcceptedFriends: [UUID: FriendResponse] = [:]
+    private var locallyOutgoingRequests: [UUID: LocalFriendState] = [:]
+    private let localOutgoingTTL: TimeInterval = 10
 
     // Report flow state
     var reportTarget: FriendResponse?
@@ -39,10 +42,14 @@ class FriendsListViewModel {
         incomingRequests.filter {
             !acceptingRequestIDs.contains($0.id)
                 && !rejectingRequestIDs.contains($0.id)
+                && !hasAcceptedFriend(matching: $0)
         }
     }
     var visibleOutgoingRequests: [FriendResponse] {
-        outgoingRequests.filter { !cancellingRequestIDs.contains($0.id) }
+        outgoingRequests.filter {
+            !cancellingRequestIDs.contains($0.id)
+                && !hasAcceptedFriend(matching: $0)
+        }
     }
 
     var excludedAddFriendIDs: Set<UUID> {
@@ -52,14 +59,21 @@ class FriendsListViewModel {
     }
 
     var filteredFriends: [FriendResponse] {
-        let base = searchText.isEmpty
-            ? friends
-            : friends.filter { $0.username.localizedCaseInsensitiveContains(searchText) }
-        return base.sorted { a, b in
-            let lhs = sortRecency(for: a)
-            let rhs = sortRecency(for: b)
-            if lhs != rhs { return lhs > rhs }
-            return a.username.localizedCaseInsensitiveCompare(b.username) == .orderedAscending
+        AppLogger.measureMainThreadWork(
+            "FriendsListViewModel.filteredFriends",
+            category: .ui,
+            context: ["friends": friends.count, "query_len": searchText.count],
+            warnAfter: 0.02
+        ) {
+            let base = searchText.isEmpty
+                ? friends
+                : friends.filter { $0.username.localizedCaseInsensitiveContains(searchText) }
+            return base.sorted { a, b in
+                let lhs = sortRecency(for: a)
+                let rhs = sortRecency(for: b)
+                if lhs != rhs { return lhs > rhs }
+                return a.username.localizedCaseInsensitiveCompare(b.username) == .orderedAscending
+            }
         }
     }
 
@@ -121,7 +135,9 @@ class FriendsListViewModel {
                 if token == loadToken { isLoading = false }
                 return false
             }
-            self.error = "Could not load friends"
+            if friends.isEmpty && incomingRequests.isEmpty && outgoingRequests.isEmpty {
+                self.error = "Could not load friends"
+            }
         }
 
         if token == loadToken { isLoading = false }
@@ -133,7 +149,8 @@ class FriendsListViewModel {
         guard !trimmed.isEmpty else { return false }
 
         do {
-            _ = try await service.addFriend(username: trimmed)
+            let response = try await service.addFriend(username: trimmed)
+            applyAddedFriendLocally(response)
             addFriendUsername = ""
             showAddFriend = false
             await load(service: service, force: true)
@@ -153,10 +170,10 @@ class FriendsListViewModel {
         do {
             let acceptedFriend = try await service.acceptRequest(friendID: requestID)
             applyAcceptedRequestLocally(acceptedFriend, fallbackRequest: pendingRequest)
+            await load(service: service, force: true)
         } catch {
             self.error = "Failed to accept friend request"
         }
-        await load(service: service, force: true)
     }
 
     func rejectRequest(service: FriendAPIService, requestID: UUID) async {
@@ -166,16 +183,16 @@ class FriendsListViewModel {
         let pendingRequest = incomingRequests.first { $0.id == requestID }
 
         do {
-            try await service.rejectRequest(friendID: requestID)
+            try await service.rejectIncomingRequest(requestID: requestID)
             if let pendingRequest {
                 removeIncomingRequest(matching: pendingRequest)
             } else {
                 incomingRequests.removeAll { $0.id == requestID }
             }
+            await load(service: service, force: true)
         } catch {
             self.error = "Failed to reject friend request"
         }
-        await load(service: service, force: true)
     }
 
     /// Cancel an outgoing friend request. Uses the same reject endpoint on the
@@ -187,16 +204,16 @@ class FriendsListViewModel {
         let outgoingRequest = outgoingRequests.first { $0.id == targetID }
 
         do {
-            try await service.rejectRequest(friendID: targetID)
+            try await service.cancelOutgoingRequest(targetID: targetID)
             if let outgoingRequest {
                 removeOutgoingRequest(matching: outgoingRequest)
             } else {
                 outgoingRequests.removeAll { $0.id == targetID }
             }
+            await load(service: service, force: true)
         } catch {
             self.error = "Failed to cancel request"
         }
-        await load(service: service, force: true)
     }
 
     func nudge(service: FriendAPIService, friendID: UUID) async {
@@ -217,6 +234,7 @@ class FriendsListViewModel {
         do {
             try await service.removeFriend(id: friend.id)
             removePendingRequests(matching: friend)
+            removeLocalState(matching: friend)
             friends.removeAll { matches($0, friend) }
             NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
         } catch {
@@ -256,11 +274,45 @@ class FriendsListViewModel {
         incoming incomingList: [FriendResponse],
         outgoing outgoingList: [FriendResponse]
     ) {
-        let acceptedFriends = uniquedByIdentity(friendsList.map { $0.withStatus("accepted") })
+        let trace = AppLogger.beginMainThreadWork(
+            "FriendsListViewModel.applySnapshot",
+            category: .ui,
+            context: [
+                "friends": friendsList.count,
+                "incoming": incomingList.count,
+                "outgoing": outgoingList.count
+            ],
+            warnAfter: 0.03
+        )
+        defer { trace.end() }
+
+        pruneExpiredLocalOutgoingRequests()
+
+        let serverAcceptedFriends = uniquedByIdentity(friendsList.map { $0.withStatus("accepted") })
+        let acceptedFriends = uniquedByIdentity(
+            serverAcceptedFriends + locallyAcceptedFriends.values.map { $0.withStatus("accepted") }
+        )
+        let pendingIncoming = pendingRequests(incomingList, excluding: acceptedFriends)
+        let pendingOutgoing = pendingRequests(
+            outgoingList + locallyOutgoingRequests.values.map(\.friend),
+            excluding: acceptedFriends
+        )
 
         friends = acceptedFriends
-        incomingRequests = uniquedByIdentity(incomingList)
-        outgoingRequests = uniquedByIdentity(outgoingList)
+        incomingRequests = pendingIncoming
+        outgoingRequests = pendingOutgoing
+
+        pruneLocalState(serverAcceptedFriends: serverAcceptedFriends, serverOutgoingRequests: outgoingList)
+    }
+
+    private func applyAddedFriendLocally(_ response: FriendResponse) {
+        if normalizedStatus(response.status) == "accepted" {
+            applyAcceptedRequestLocally(response, fallbackRequest: response)
+        } else {
+            let pending = response.withStatus("pending")
+            outgoingRequests = mergeResponse(pending, into: outgoingRequests)
+            locallyOutgoingRequests[pending.id] = LocalFriendState(friend: pending, createdAt: Date())
+        }
     }
 
     private func applyAcceptedRequestLocally(
@@ -268,6 +320,8 @@ class FriendsListViewModel {
         fallbackRequest: FriendResponse?
     ) {
         let accepted = acceptedFriend.withStatus("accepted")
+        locallyAcceptedFriends[accepted.id] = accepted
+        locallyOutgoingRequests.removeValue(forKey: accepted.id)
         friends = mergeFriend(accepted, into: friends)
         removePendingRequests(matching: accepted)
         if let fallbackRequest {
@@ -286,12 +340,17 @@ class FriendsListViewModel {
 
     private func removeOutgoingRequest(matching response: FriendResponse) {
         outgoingRequests.removeAll { matches($0, response) }
+        locallyOutgoingRequests = locallyOutgoingRequests.filter { !matches($0.value.friend, response) }
     }
 
     private func mergeFriend(_ friend: FriendResponse, into currentFriends: [FriendResponse]) -> [FriendResponse] {
-        var updatedFriends = currentFriends.filter { !matches($0, friend) }
-        updatedFriends.append(friend.withStatus("accepted"))
-        return updatedFriends
+        mergeResponse(friend.withStatus("accepted"), into: currentFriends)
+    }
+
+    private func mergeResponse(_ response: FriendResponse, into currentResponses: [FriendResponse]) -> [FriendResponse] {
+        var updatedResponses = currentResponses.filter { !matches($0, response) }
+        updatedResponses.append(response)
+        return updatedResponses
     }
 
     private func uniquedByIdentity(_ responses: [FriendResponse]) -> [FriendResponse] {
@@ -311,6 +370,45 @@ class FriendsListViewModel {
         return unique
     }
 
+    private func pendingRequests(
+        _ requests: [FriendResponse],
+        excluding acceptedFriends: [FriendResponse]
+    ) -> [FriendResponse] {
+        uniquedByIdentity(requests).filter { request in
+            normalizedStatus(request.status) != "accepted"
+                && !acceptedFriends.contains { matches($0, request) }
+        }
+    }
+
+    private func hasAcceptedFriend(matching response: FriendResponse) -> Bool {
+        friends.contains { matches($0, response) }
+    }
+
+    private func pruneLocalState(
+        serverAcceptedFriends: [FriendResponse],
+        serverOutgoingRequests: [FriendResponse]
+    ) {
+        locallyAcceptedFriends = locallyAcceptedFriends.filter { _, local in
+            !serverAcceptedFriends.contains { matches($0, local) }
+        }
+        locallyOutgoingRequests = locallyOutgoingRequests.filter { _, local in
+            !serverAcceptedFriends.contains { matches($0, local.friend) }
+                && !serverOutgoingRequests.contains { matches($0, local.friend) }
+        }
+    }
+
+    private func pruneExpiredLocalOutgoingRequests() {
+        let now = Date()
+        locallyOutgoingRequests = locallyOutgoingRequests.filter {
+            now.timeIntervalSince($0.value.createdAt) < localOutgoingTTL
+        }
+    }
+
+    private func removeLocalState(matching response: FriendResponse) {
+        locallyAcceptedFriends = locallyAcceptedFriends.filter { !matches($0.value, response) }
+        locallyOutgoingRequests = locallyOutgoingRequests.filter { !matches($0.value.friend, response) }
+    }
+
     private func matches(_ lhs: FriendResponse, _ rhs: FriendResponse) -> Bool {
         lhs.id == rhs.id || normalizedUsername(lhs.username) == normalizedUsername(rhs.username)
     }
@@ -318,6 +416,15 @@ class FriendsListViewModel {
     private func normalizedUsername(_ username: String) -> String {
         username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
+
+    private func normalizedStatus(_ status: String?) -> String? {
+        status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+private struct LocalFriendState {
+    let friend: FriendResponse
+    let createdAt: Date
 }
 
 private extension FriendResponse {

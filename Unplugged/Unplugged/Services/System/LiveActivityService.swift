@@ -10,12 +10,26 @@ final class LiveActivityService {
         #if canImport(ActivityKit)
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
-        let state = LockedSessionActivityAttributes.ContentState(
-            roomTitle: Self.normalizedTitle(roomTitle),
-            endsAt: endsAt
-        )
+        let state = AppLogger.measureMainThreadWork(
+            "LiveActivityService.makeContentState",
+            category: .ui,
+            warnAfter: 0.02
+        ) {
+            LockedSessionActivityAttributes.ContentState(
+                roomTitle: Self.normalizedTitle(roomTitle),
+                endsAt: endsAt
+            )
+        }
 
-        if let existing = preferredActivity(for: sessionID) {
+        let existingActivity = AppLogger.measureMainThreadWork(
+            "LiveActivityService.findExistingActivity",
+            category: .ui,
+            warnAfter: 0.02
+        ) {
+            preferredActivity(for: sessionID)
+        }
+
+        if let existing = existingActivity {
             if existing.content.state == state {
                 return
             }
@@ -23,16 +37,31 @@ final class LiveActivityService {
             return
         }
 
-        for activity in Activity<LockedSessionActivityAttributes>.activities {
+        let activities = AppLogger.measureMainThreadWork(
+            "LiveActivityService.listActivitiesForReplacement",
+            category: .ui,
+            warnAfter: 0.02
+        ) {
+            Array(Activity<LockedSessionActivityAttributes>.activities)
+        }
+
+        for activity in activities {
             await activity.end(activity.content, dismissalPolicy: .immediate)
         }
 
         do {
-            _ = try Activity.request(
-                attributes: LockedSessionActivityAttributes(sessionID: sessionID?.uuidString ?? "unknown"),
-                content: ActivityContent(state: state, staleDate: endsAt),
-                pushType: nil
-            )
+            try AppLogger.measureMainThreadWork(
+                "LiveActivityService.requestActivity",
+                category: .ui,
+                context: ["session": sessionID?.uuidString ?? "unknown"],
+                warnAfter: 0.03
+            ) {
+                _ = try Activity.request(
+                    attributes: LockedSessionActivityAttributes(sessionID: sessionID?.uuidString ?? "unknown"),
+                    content: ActivityContent(state: state, staleDate: endsAt),
+                    pushType: nil
+                )
+            }
         } catch {
             AppLogger.ui.warning(
                 "Live Activity request failed",
@@ -44,13 +73,18 @@ final class LiveActivityService {
 
     func end(sessionID: UUID?) async {
         #if canImport(ActivityKit)
-        let activities: [Activity<LockedSessionActivityAttributes>]
-        if let sessionID {
-            activities = Activity<LockedSessionActivityAttributes>.activities.filter {
-                $0.attributes.sessionID == sessionID.uuidString
+        let activities = AppLogger.measureMainThreadWork(
+            "LiveActivityService.listActivitiesForEnd",
+            category: .ui,
+            context: ["session": sessionID?.uuidString ?? "all"],
+            warnAfter: 0.02
+        ) {
+            if let sessionID {
+                return Activity<LockedSessionActivityAttributes>.activities.filter {
+                    $0.attributes.sessionID == sessionID.uuidString
+                }
             }
-        } else {
-            activities = Array(Activity<LockedSessionActivityAttributes>.activities)
+            return Array(Activity<LockedSessionActivityAttributes>.activities)
         }
 
         for activity in activities {

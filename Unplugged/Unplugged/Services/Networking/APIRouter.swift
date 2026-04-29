@@ -48,6 +48,8 @@ enum APIRouter {
     case removeFriend(id: UUID)
     case acceptFriend(id: UUID)
     case rejectFriend(id: UUID)
+    case acceptFriendRequest(id: UUID)
+    case rejectFriendRequest(id: UUID)
     case nudgeFriend(id: UUID)
     case incomingFriendRequests
     case outgoingFriendRequests
@@ -106,6 +108,8 @@ enum APIRouter {
         case .removeFriend(let id):     return "/friends/\(id)"
         case .acceptFriend(let id):     return "/friends/\(id)/accept"
         case .rejectFriend(let id):     return "/friends/\(id)/reject"
+        case .acceptFriendRequest(let id): return "/friends/requests/\(id)/accept"
+        case .rejectFriendRequest(let id): return "/friends/requests/\(id)/reject"
         case .nudgeFriend(let id):      return "/friends/\(id)/nudge"
         case .incomingFriendRequests:   return "/friends/requests/incoming"
         case .outgoingFriendRequests:   return "/friends/requests/outgoing"
@@ -122,7 +126,8 @@ enum APIRouter {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
-             .leaveSession, .reportProximityExit, .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
+             .leaveSession, .reportProximityExit, .reportJailbreak,
+             .acceptFriend, .rejectFriend, .acceptFriendRequest, .rejectFriendRequest, .nudgeFriend,
              .createGroup, .addGroupMember, .blockUser, .reportUser:
             return .post
         case .registerDeviceToken:

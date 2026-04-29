@@ -258,7 +258,14 @@ final class SessionOrchestrator {
             }
         case .participantLeftDueToProximity(let userID, let username):
             participants.removeAll { $0.userID == userID }
-            if userID == cache.readUser()?.id {
+            let currentUserID = AppLogger.measureMainThreadWork(
+                "SessionOrchestrator.readUserForProximityMessage",
+                category: .cache,
+                warnAfter: 0.02
+            ) {
+                cache.readUser()?.id
+            }
+            if userID == currentUserID {
                 await completeLocalProximityExit()
             } else {
                 errorMessage = "\(username) left the session because they were too far away."
@@ -315,11 +322,19 @@ final class SessionOrchestrator {
     }
 
     private func applySessionSnapshot(_ response: SessionResponse) async {
-        self.currentSession = response
-        self.participants = response.participants.filter { $0.status == .active }
-        self.countdownEndsAt = response.session.endsAt
+        let currentUserID = AppLogger.measureMainThreadWork(
+            "SessionOrchestrator.applySessionSnapshot.sync",
+            category: .session,
+            context: ["participants": response.participants.count],
+            warnAfter: 0.03
+        ) {
+            self.currentSession = response
+            self.participants = response.participants.filter { $0.status == .active }
+            self.countdownEndsAt = response.session.endsAt
+            return cache.readUser()?.id
+        }
 
-        if let userID = cache.readUser()?.id,
+        if let userID = currentUserID,
            response.participants.contains(where: { $0.userID == userID && $0.status == .left }) {
             await completeLocalProximityExit()
             return
@@ -544,7 +559,15 @@ final class SessionOrchestrator {
             return
         }
 
-        guard let userID = cache.readUser()?.id else {
+        let currentUserID = AppLogger.measureMainThreadWork(
+            "SessionOrchestrator.readUserForProximityStart",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            cache.readUser()?.id
+        }
+
+        guard let userID = currentUserID else {
             AppLogger.proximity.warning("enforcement start skipped — no cached user")
             stopLockedProximityEnforcement()
             return

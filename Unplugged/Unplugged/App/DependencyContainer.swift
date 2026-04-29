@@ -20,6 +20,13 @@ class DependencyContainer {
     let sessionOrchestrator: SessionOrchestrator
 
     init() {
+        let trace = AppLogger.beginMainThreadWork(
+            "DependencyContainer.init",
+            category: .launch,
+            warnAfter: 0.05
+        )
+        defer { trace.end() }
+
         let cache = LocalCacheService()
         // SecItemCopyMatching can block hundreds of ms on a cold keychain, pre-warm off the main actor
         cache.prewarmToken()

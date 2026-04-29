@@ -17,15 +17,18 @@ enum FailureDiagnostics {
     static func stop() {
         MainThreadWatchdog.shared.stop()
         MemoryDiagnostics.shared.stop()
+        MainRunLoopActivityTracker.shared.stop()
     }
 
     private static func applyCurrentEnabledState() {
         if AppLogger.isEnabled {
+            MainRunLoopActivityTracker.shared.start()
             MainThreadWatchdog.shared.start()
             MemoryDiagnostics.shared.start()
         } else {
             MainThreadWatchdog.shared.stop()
             MemoryDiagnostics.shared.stop()
+            MainRunLoopActivityTracker.shared.stop()
         }
     }
 
@@ -94,10 +97,22 @@ final class MainThreadWatchdog: @unchecked Sendable {
             let elapsed = now.uptimeNanoseconds - pendingPingStartedAt.uptimeNanoseconds
             if elapsed >= thresholdNanos, !didLogCurrentStall {
                 let elapsedMs = Double(elapsed) / 1_000_000
+                let runLoopSnapshot = MainRunLoopActivityTracker.shared.snapshot()
+                let activitySnapshot = MainThreadActivityTracker.shared.snapshot()
+                var context: [String: Any] = [
+                    "threshold_ms": Int(threshold * 1000),
+                    "runloop_activity": runLoopSnapshot.activity,
+                    "runloop_activity_age_ms": String(format: "%.1f", runLoopSnapshot.ageMs),
+                    "active_traced_work": activitySnapshot.activeCount
+                ]
+                if let oldestActiveMs = activitySnapshot.oldestActiveMs {
+                    context["oldest_traced_work_ms"] = String(format: "%.1f", oldestActiveMs)
+                }
                 AppLogger.hang.warning(
                     "main thread stalled for \(String(format: "%.0f", elapsedMs)) ms",
-                    context: ["threshold_ms": Int(threshold * 1000)]
+                    context: context
                 )
+                MainThreadActivityTracker.shared.logSnapshot(reason: "stall", snapshot: activitySnapshot)
                 AppLogger.dumpRecent("hang", limit: 30)
                 didLogCurrentStall = true
             }
@@ -113,7 +128,14 @@ final class MainThreadWatchdog: @unchecked Sendable {
                       self.pendingPingStartedAt?.uptimeNanoseconds == pingStartedAt.uptimeNanoseconds else { return }
                 if self.didLogCurrentStall {
                     let elapsedMs = Double(completedAt.uptimeNanoseconds - pingStartedAt.uptimeNanoseconds) / 1_000_000
-                    AppLogger.hang.warning("main thread recovered after \(String(format: "%.0f", elapsedMs)) ms")
+                    let runLoopSnapshot = MainRunLoopActivityTracker.shared.snapshot()
+                    AppLogger.hang.warning(
+                        "main thread recovered after \(String(format: "%.0f", elapsedMs)) ms",
+                        context: [
+                            "runloop_activity": runLoopSnapshot.activity,
+                            "runloop_activity_age_ms": String(format: "%.1f", runLoopSnapshot.ageMs)
+                        ]
+                    )
                 }
                 self.pendingPingStartedAt = nil
                 self.didLogCurrentStall = false

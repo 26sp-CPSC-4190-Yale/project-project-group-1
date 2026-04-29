@@ -27,9 +27,16 @@ class JoinRoomViewModel {
         guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
-        let feedback = tapFeedback ?? UIImpactFeedbackGenerator(style: .medium)
-        tapFeedback = feedback
-        feedback.prepare()
+        _ = AppLogger.measureMainThreadWork(
+            "JoinRoomViewModel.prepareHaptics",
+            category: .ui,
+            warnAfter: 0.02
+        ) {
+            let feedback = tapFeedback ?? UIImpactFeedbackGenerator(style: .medium)
+            tapFeedback = feedback
+            feedback.prepare()
+            return feedback
+        }
 
         listenTask?.cancel()
         listenTask = Task { [weak self] in
@@ -38,8 +45,14 @@ class JoinRoomViewModel {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
                 #if canImport(UIKit)
-                self.tapFeedback?.impactOccurred()
-                self.tapFeedback?.prepare()
+                AppLogger.measureMainThreadWork(
+                    "JoinRoomViewModel.fireHaptic",
+                    category: .ui,
+                    warnAfter: 0.02
+                ) {
+                    self.tapFeedback?.impactOccurred()
+                    self.tapFeedback?.prepare()
+                }
                 #endif
                 await self.joinRoom(id: roomID, sessions: sessions)
             }

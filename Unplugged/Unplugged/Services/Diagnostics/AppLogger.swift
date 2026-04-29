@@ -70,14 +70,14 @@ enum AppLogger {
 
     // MARK: - Helpers
 
-    fileprivate static func formatContext(_ context: [String: Any]) -> String {
+    nonisolated static func formatContext(_ context: [String: Any]) -> String {
         context
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\(Self.stringify($0.value))" }
             .joined(separator: " ")
     }
 
-    fileprivate static func stringify(_ value: Any) -> String {
+    nonisolated private static func stringify(_ value: Any) -> String {
         switch value {
         case let s as String: return s
         case let e as Error:  return String(describing: e)

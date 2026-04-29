@@ -29,6 +29,10 @@ final class ServerTests: XCTestCase {
         try await withApp { app, tester in
             let alpha = try await TestAppFactory.seedUser(on: app, username: "AlphaUser")
             let searcher = try await TestAppFactory.seedUser(on: app, username: "Searcher")
+            let staleTokenOwnerRecord = try await UserModel.find(searcher.id, on: app.db)
+            let staleTokenOwner = try XCTUnwrap(staleTokenOwnerRecord)
+            staleTokenOwner.deviceToken = "aabbccddeeff00112233445566778899"
+            try await staleTokenOwner.save(on: app.db)
 
             let updateResponse = try await TestAppFactory.sendRequest(
                 with: tester,
@@ -62,6 +66,8 @@ final class ServerTests: XCTestCase {
             let found = try TestAppFactory.decode([User].self, from: searchResponse)
             let storedUserRecord = try await UserModel.find(alpha.id, on: app.db)
             let storedUser = try XCTUnwrap(storedUserRecord)
+            let staleTokenOwnerAfterRecord = try await UserModel.find(searcher.id, on: app.db)
+            let staleTokenOwnerAfter = try XCTUnwrap(staleTokenOwnerAfterRecord)
 
             XCTAssertEqual(updateResponse.status, .ok)
             XCTAssertEqual(updated.username, "RenamedAlpha")
@@ -69,6 +75,7 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(validTokenResponse.status, .noContent)
             XCTAssertEqual(found.map(\.id), [alpha.id])
             XCTAssertEqual(storedUser.deviceToken, "aabbccddeeff00112233445566778899")
+            XCTAssertNil(staleTokenOwnerAfter.deviceToken)
         }
     }
 
@@ -230,6 +237,33 @@ final class ServerTests: XCTestCase {
             XCTAssertTrue(bobFriends.isEmpty)
             XCTAssertTrue(aliceSearch.isEmpty)
             XCTAssertTrue(bobSearch.isEmpty)
+        }
+    }
+
+    func testNudgeRequiresAcceptedFriendshipAndReturnsSentStatus() async throws {
+        try await withApp { app, tester in
+            let alice = try await TestAppFactory.seedUser(on: app, username: "NudgeAlice")
+            let bob = try await TestAppFactory.seedUser(on: app, username: "NudgeBob")
+
+            let forbiddenResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/friends/\(bob.id)/nudge",
+                token: alice.token
+            )
+
+            try await TestAppFactory.seedAcceptedFriendship(on: app, between: alice, and: bob)
+            let sentResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/friends/\(bob.id)/nudge",
+                token: alice.token
+            )
+            let sent = try TestAppFactory.decode(NudgeResponse.self, from: sentResponse)
+
+            XCTAssertEqual(forbiddenResponse.status, .forbidden)
+            XCTAssertEqual(sentResponse.status, .ok)
+            XCTAssertEqual(sent.status, "nudge sent")
         }
     }
 
