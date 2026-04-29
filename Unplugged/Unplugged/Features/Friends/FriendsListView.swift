@@ -354,9 +354,9 @@ struct FriendsListView: View {
                 Text(friend.username)
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor)
-                Text(statusLabel(for: friend))
+                Text(FriendPresenceDisplay.label(for: friend))
                     .font(.caption)
-                    .foregroundStyle(statusColor(for: friend))
+                    .foregroundStyle(FriendPresenceDisplay.color(for: friend))
             }
 
             Spacer()
@@ -381,10 +381,20 @@ struct FriendsListView: View {
             .padding(.bottom, 4)
     }
 
-    private func statusLabel(for friend: FriendResponse) -> String {
+}
+
+#Preview {
+    FriendsListView(refreshToken: 0)
+        .environment(DependencyContainer())
+}
+
+enum FriendPresenceDisplay {
+    static func label(for friend: FriendResponse) -> String {
         switch friend.presence {
-        case .unplugged: return "Currently unplugged"
-        case .online:    return "Online"
+        case .unplugged:
+            return "Currently unplugged"
+        case .online:
+            return "Online"
         case .offline:
             if let last = friend.lastActiveAt {
                 return "Seen \(last.toRelativeTime())"
@@ -393,16 +403,14 @@ struct FriendsListView: View {
         }
     }
 
-    private func statusColor(for friend: FriendResponse) -> Color {
+    static func color(for friend: FriendResponse) -> Color {
         switch friend.presence {
-        case .unplugged: return .green
-        case .online:    return .tertiaryColor.opacity(0.6)
-        case .offline:   return .tertiaryColor.opacity(0.4)
+        case .online:
+            return .green
+        case .unplugged:
+            return .orange
+        case .offline:
+            return .tertiaryColor.opacity(0.4)
         }
     }
-}
-
-#Preview {
-    FriendsListView(refreshToken: 0)
-        .environment(DependencyContainer())
 }

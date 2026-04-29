@@ -9,6 +9,7 @@ struct UserController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let users = routes.grouped("users")
         users.get("me", use: getMe)
+        users.post("me", "presence", use: reportPresence)
         users.get("search", use: searchUsers)
         users.patch("me", use: updateMe)
         users.put("device-token", use: registerDeviceToken)
@@ -28,6 +29,20 @@ struct UserController: RouteCollection {
             throw Abort(.notFound)
         }
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
+    }
+
+    @Sendable
+    func reportPresence(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        guard let user = try await UserModel.find(userID, on: req.db) else {
+            throw Abort(.notFound)
+        }
+
+        user.lastSeenAt = Date()
+        try await user.save(on: req.db)
+        return .noContent
     }
 
     @Sendable

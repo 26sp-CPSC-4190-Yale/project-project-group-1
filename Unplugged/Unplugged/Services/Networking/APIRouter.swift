@@ -16,6 +16,7 @@ enum APIRouter {
     case signInWithGoogle(GoogleSignInRequest)
 
     case getMe
+    case reportPresence
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
@@ -70,6 +71,7 @@ enum APIRouter {
         case .signInWithApple:          return "/auth/apple"
         case .signInWithGoogle:         return "/auth/google"
         case .getMe, .updateMe, .deleteMe: return "/users/me"
+        case .reportPresence:           return "/users/me/presence"
         case .searchUsers(let q):       return "/users/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         case .registerDeviceToken:      return "/users/device-token"
         case .listBlocks:               return "/users/blocks"
@@ -128,7 +130,7 @@ enum APIRouter {
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
              .leaveSession, .reportProximityExit, .reportJailbreak,
              .acceptFriend, .rejectFriend, .acceptFriendRequest, .rejectFriendRequest, .nudgeFriend,
-             .createGroup, .addGroupMember, .blockUser, .reportUser:
+             .createGroup, .addGroupMember, .blockUser, .reportUser, .reportPresence:
             return .post
         case .registerDeviceToken:
             return .put

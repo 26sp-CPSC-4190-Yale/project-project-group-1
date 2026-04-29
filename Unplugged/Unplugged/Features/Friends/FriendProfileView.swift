@@ -215,23 +215,11 @@ struct FriendProfileView: View {
     }
 
     private var presenceColor: Color {
-        switch friend.presence {
-        case .online:    return .green
-        case .unplugged: return .orange
-        case .offline:   return .gray
-        }
+        FriendPresenceDisplay.color(for: friend)
     }
 
     private var presenceLabel: String {
-        switch friend.presence {
-        case .online:    return "Online"
-        case .unplugged: return "Currently unplugged"
-        case .offline:
-            if let last = friend.lastActiveAt {
-                return "Seen \(last.toRelativeTime())"
-            }
-            return "Offline"
-        }
+        FriendPresenceDisplay.label(for: friend)
     }
 }
 

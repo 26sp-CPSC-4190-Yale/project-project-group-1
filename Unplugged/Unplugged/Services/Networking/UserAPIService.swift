@@ -8,6 +8,10 @@ struct UserAPIService {
         try await client.send(.getMe)
     }
 
+    func reportPresence() async throws {
+        try await client.sendVoid(.reportPresence)
+    }
+
     func searchUsers(query: String) async throws -> [User] {
         try await client.send(.searchUsers(query: query))
     }

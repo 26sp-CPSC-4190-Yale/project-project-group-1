@@ -8,6 +8,8 @@ extension FriendProfileResponse: @retroactive Content {}
 extension LeaderboardEntryResponse: @retroactive Content {}
 
 struct FriendController: RouteCollection {
+    private static let onlinePresenceTTL: TimeInterval = 90
+
     func boot(routes: RoutesBuilder) throws {
         let friends = routes.grouped("friends")
         // POST sends, or accepts if a reciprocal pending request already exists
@@ -665,28 +667,32 @@ struct FriendController: RouteCollection {
         )
     }
 
-    // unplugged if in an active locked room, online if last_seen within 5 minutes, else offline
+    // unplugged if actively participating in a locked, unexpired room; online only after a recent foreground heartbeat
     private static func computePresence(for userID: UUID, lastSeenAt: Date?, db: Database) async throws -> PresenceStatus {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
         let roomIDs = memberships
-            .filter { $0.config != MemberModel.proximityExitConfig }
+            .filter { $0.participantStatus == .active }
             .map { $0.roomID }
 
         if !roomIDs.isEmpty {
-            let lockedActive = try await RoomModel.query(on: db)
+            let now = Date()
+            let lockedRooms = try await RoomModel.query(on: db)
                 .filter(\.$id ~~ roomIDs)
                 .filter(\.$lockedAt != nil)
                 .filter(\.$endedAt == nil)
-                .count()
-            if lockedActive > 0 {
+                .all()
+            if lockedRooms.contains(where: { room in
+                guard let endsAt = room.endsAt else { return false }
+                return endsAt > now
+            }) {
                 return .unplugged
             }
         }
 
         if let lastSeen = lastSeenAt,
-           Date().timeIntervalSince(lastSeen) < 5 * 60 {
+           Date().timeIntervalSince(lastSeen) < onlinePresenceTTL {
             return .online
         }
         return .offline

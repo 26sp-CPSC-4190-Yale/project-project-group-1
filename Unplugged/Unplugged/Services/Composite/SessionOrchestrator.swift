@@ -241,11 +241,13 @@ final class SessionOrchestrator {
     private func handle(message: WSServerMessage) async {
         switch message {
         case .participantJoined(let p):
-            if !participants.contains(where: { $0.id == p.id }) {
+            if let index = participants.firstIndex(where: { $0.id == p.id || $0.userID == p.userID }) {
+                participants[index] = p
+            } else {
                 participants.append(p)
             }
         case .participantLeft(let userID):
-            participants.removeAll { $0.userID == userID }
+            updateParticipantStatus(userID: userID, status: .left)
         case .sessionStarted(let endsAt), .sessionLocked(let endsAt):
             await applyLocked(endsAt: endsAt)
         case .sessionEnded:
@@ -254,10 +256,12 @@ final class SessionOrchestrator {
             await applySessionSnapshot(response)
         case .jailbreakReported(let userID, let reason):
             if reason == "left_due_to_proximity" {
-                participants.removeAll { $0.userID == userID }
+                updateParticipantStatus(userID: userID, status: .left)
+            } else {
+                updateParticipantStatus(userID: userID, status: .jailbroken)
             }
         case .participantLeftDueToProximity(let userID, let username):
-            participants.removeAll { $0.userID == userID }
+            updateParticipantStatus(userID: userID, status: .left)
             let currentUserID = AppLogger.measureMainThreadWork(
                 "SessionOrchestrator.readUserForProximityMessage",
                 category: .cache,
@@ -329,7 +333,7 @@ final class SessionOrchestrator {
             warnAfter: 0.03
         ) {
             self.currentSession = response
-            self.participants = response.participants.filter { $0.status == .active }
+            self.participants = response.participants
             self.countdownEndsAt = response.session.endsAt
             return cache.readUser()?.id
         }
@@ -376,6 +380,19 @@ final class SessionOrchestrator {
         )
         await engageShield(endsAt: endsAt)
         await startLockedProximityEnforcementIfNeeded()
+    }
+
+    private func updateParticipantStatus(userID: UUID, status: ParticipantStatus) {
+        guard let index = participants.firstIndex(where: { $0.userID == userID }) else { return }
+        let participant = participants[index]
+        participants[index] = ParticipantResponse(
+            id: participant.id,
+            userID: participant.userID,
+            username: participant.username,
+            status: status,
+            joinedAt: participant.joinedAt,
+            isHost: participant.isHost
+        )
     }
 
     // MARK: - Shield + recap

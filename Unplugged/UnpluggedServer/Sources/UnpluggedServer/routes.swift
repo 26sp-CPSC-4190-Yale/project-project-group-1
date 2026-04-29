@@ -59,10 +59,28 @@ private func handleIncomingText(req: Request, ws: WebSocket, text: String) async
     case .heartbeat, .hello:
         break
     case .reportJailbreak(let reason):
-        let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-        record.detectedAt = Date()
+        let detectedAt = Date()
         do {
-            try await record.save(on: req.db)
+            guard let room = try await RoomModel.find(roomID, on: req.db),
+                  room.endedAt == nil,
+                  room.lockedAt != nil,
+                  let member = try await MemberModel.query(on: req.db)
+                    .filter(\.$roomID == roomID)
+                    .filter(\.$userID == userID)
+                    .first() else { return }
+
+            try await req.db.transaction { db in
+                if member.participantStatus == .active {
+                    member.config = MemberModel.jailbreakConfig
+                    member.leftAt = detectedAt
+                    member.leftEarly = true
+                    try await member.save(on: db)
+                }
+
+                let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+                record.detectedAt = detectedAt
+                try await record.save(on: db)
+            }
         } catch {
             req.logger.error("Failed to persist jailbreak report for user \(userID) in room \(roomID): \(error)")
         }

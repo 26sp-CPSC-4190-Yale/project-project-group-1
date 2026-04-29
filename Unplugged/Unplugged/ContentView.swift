@@ -29,6 +29,8 @@ struct ContentView: View {
 }
 
 struct MainTabView: View {
+    @Environment(DependencyContainer.self) private var container
+    @Environment(\.scenePhase) private var scenePhase
     var authViewModel: AuthViewModel
     @State private var selectedTab: MainTab = .home
     @State private var friendsRefreshToken = 0
@@ -51,6 +53,17 @@ struct MainTabView: View {
         .onChange(of: selectedTab) { _, newTab in
             guard newTab == .friends else { return }
             friendsRefreshToken += 1
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                do {
+                    try await container.user.reportPresence()
+                } catch {
+                    AppLogger.network.warning("presence heartbeat failed", context: ["error": String(describing: error)])
+                }
+                try? await Task.sleep(for: .seconds(30))
+            }
         }
     }
 

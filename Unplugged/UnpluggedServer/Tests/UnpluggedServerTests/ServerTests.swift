@@ -267,6 +267,175 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testPresenceHeartbeatControlsFriendOnlineStatus() async throws {
+        try await withApp { app, tester in
+            let alice = try await TestAppFactory.seedUser(on: app, username: "PresenceAlice")
+            let bob = try await TestAppFactory.seedUser(on: app, username: "PresenceBob")
+            try await TestAppFactory.seedAcceptedFriendship(on: app, between: alice, and: bob)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/users/me",
+                token: bob.token
+            )
+            let afterOrdinaryRequest = try await UserModel.find(bob.id, on: app.db)
+            XCTAssertNil(afterOrdinaryRequest?.lastSeenAt)
+
+            let heartbeatResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/users/me/presence",
+                token: bob.token
+            )
+            var friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            var friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            XCTAssertEqual(heartbeatResponse.status, .noContent)
+            XCTAssertEqual(friends.first(where: { $0.id == bob.id })?.presence, .online)
+
+            let storedBob = try await UserModel.find(bob.id, on: app.db)
+            let bobModel = try XCTUnwrap(storedBob)
+            bobModel.lastSeenAt = Date().addingTimeInterval(-120)
+            try await bobModel.save(on: app.db)
+
+            friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            XCTAssertEqual(friends.first(where: { $0.id == bob.id })?.presence, .offline)
+        }
+    }
+
+    func testFriendPresenceOnlyCountsActiveUnexpiredLockedRoomsAsUnplugged() async throws {
+        try await withApp { app, tester in
+            let alice = try await TestAppFactory.seedUser(on: app, username: "RoomPresenceAlice")
+            let host = try await TestAppFactory.seedUser(on: app, username: "RoomPresenceHost")
+            let bob = try await TestAppFactory.seedUser(on: app, username: "RoomPresenceBob")
+            try await TestAppFactory.seedAcceptedFriendship(on: app, between: alice, and: bob)
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Presence", durationSeconds: 1_800)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: bob.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+
+            var friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            var friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            XCTAssertEqual(friends.first(where: { $0.id == bob.id })?.presence, .unplugged)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/leave",
+                token: bob.token
+            )
+            friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            XCTAssertNotEqual(friends.first(where: { $0.id == bob.id })?.presence, .unplugged)
+
+            let expiredRoom = RoomModel(roomOwner: host.id, title: "Expired", durationSeconds: 60)
+            expiredRoom.lockedAt = Date().addingTimeInterval(-3_600)
+            try await expiredRoom.save(on: app.db)
+            let expiredMember = MemberModel(userID: bob.id, roomID: try expiredRoom.requireID())
+            try await expiredMember.save(on: app.db)
+
+            friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            XCTAssertNotEqual(friends.first(where: { $0.id == bob.id })?.presence, .unplugged)
+        }
+    }
+
+    func testJailbreakReportMarksParticipantJailbroken() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "JailbreakHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "JailbreakParticipant")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Jailbreak", durationSeconds: 1_800)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+
+            let reportResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/jailbreaks",
+                token: participant.token,
+                body: ReportJailbreakRequest(reason: "screen_time_auth_cleared")
+            )
+            let sessionResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)",
+                token: host.token
+            )
+            let session = try TestAppFactory.decode(SessionResponse.self, from: sessionResponse)
+            let member = try await MemberModel.query(on: app.db)
+                .filter(\.$roomID == created.id)
+                .filter(\.$userID == participant.id)
+                .first()
+
+            XCTAssertEqual(reportResponse.status, .noContent)
+            XCTAssertEqual(session.participants.first(where: { $0.userID == participant.id })?.status, .jailbroken)
+            XCTAssertEqual(member?.config, MemberModel.jailbreakConfig)
+            XCTAssertTrue(member?.leftEarly ?? false)
+            XCTAssertNotNil(member?.leftAt)
+        }
+    }
+
     func testGroupLifecycleEnforcesOwnerPermissions() async throws {
         try await withApp { app, tester in
             let owner = try await TestAppFactory.seedUser(on: app, username: "GroupOwner")
