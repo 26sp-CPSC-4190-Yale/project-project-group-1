@@ -7,8 +7,10 @@ COPY UnpluggedShared/Package.swift ./UnpluggedShared/
 COPY UnpluggedServer/Package.swift UnpluggedServer/Package.resolved* ./UnpluggedServer/
 RUN mkdir -p UnpluggedShared/Sources/UnpluggedShared \
     && mkdir -p UnpluggedServer/Sources/UnpluggedServer \
+    && mkdir -p UnpluggedServer/Tests/UnpluggedServerTests \
     && printf 'public enum DependencyWarmup {}\n' > UnpluggedShared/Sources/UnpluggedShared/DependencyWarmup.swift \
-    && printf '@main\nstruct DependencyWarmup { static func main() {} }\n' > UnpluggedServer/Sources/UnpluggedServer/main.swift
+    && printf '@main\nstruct DependencyWarmup { static func main() {} }\n' > UnpluggedServer/Sources/UnpluggedServer/main.swift \
+    && printf 'import XCTest\nfinal class DependencyWarmupTests: XCTestCase {}\n' > UnpluggedServer/Tests/UnpluggedServerTests/DependencyWarmupTests.swift
 WORKDIR /app/UnpluggedServer
 RUN swift package resolve
 RUN swift build -c release --product UnpluggedServer
