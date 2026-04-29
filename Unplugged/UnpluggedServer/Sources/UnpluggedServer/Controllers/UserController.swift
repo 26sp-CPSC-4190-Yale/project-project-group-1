@@ -35,12 +35,17 @@ struct UserController: RouteCollection {
     func reportPresence(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
+        let body = try req.content.decode(PresenceUpdateRequest.self)
 
         guard let user = try await UserModel.find(userID, on: req.db) else {
             throw Abort(.notFound)
         }
 
-        user.lastSeenAt = Date()
+        let now = Date()
+        user.lastSeenAt = now
+        user.presenceExpiresAt = body.isActive
+            ? now.addingTimeInterval(FriendController.onlinePresenceTTL)
+            : now
         try await user.save(on: req.db)
         return .noContent
     }

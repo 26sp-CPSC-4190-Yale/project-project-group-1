@@ -43,6 +43,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillTerminate),
+            name: UIApplication.willTerminateNotification,
+            object: nil
+        )
 
         return true
     }
@@ -96,6 +108,29 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     @objc private func appDidBecomeActive() {
         Task { await Self.syncDeviceToken() }
+    }
+
+    @objc private func appDidEnterBackground() {
+        var taskID = UIBackgroundTaskIdentifier.invalid
+        taskID = UIApplication.shared.beginBackgroundTask(withName: "presence-inactive") {
+            if taskID != .invalid {
+                UIApplication.shared.endBackgroundTask(taskID)
+                taskID = .invalid
+            }
+        }
+
+        Task { @MainActor in
+            await Self.reportPresence(isActive: false)
+            if taskID != .invalid {
+                UIApplication.shared.endBackgroundTask(taskID)
+            }
+        }
+    }
+
+    @objc private func appWillTerminate() {
+        Task { @MainActor in
+            await Self.reportPresence(isActive: false)
+        }
     }
 
     @MainActor
@@ -188,6 +223,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             )
         } catch {
             AppLogger.push.warning("device token upload failed; will retry on next foreground", error: error)
+        }
+    }
+
+    @MainActor
+    static func reportPresence(isActive: Bool) async {
+        guard let container = sharedContainer,
+              container.cache.readCachedToken() != nil else {
+            return
+        }
+
+        do {
+            try await container.user.reportPresence(isActive: isActive)
+        } catch {
+            AppLogger.network.warning(
+                isActive ? "presence active update failed" : "presence inactive update failed",
+                context: ["error": String(describing: error)]
+            )
         }
     }
 

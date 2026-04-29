@@ -8,8 +8,8 @@ struct UserAPIService {
         try await client.send(.getMe)
     }
 
-    func reportPresence() async throws {
-        try await client.sendVoid(.reportPresence)
+    func reportPresence(isActive: Bool = true) async throws {
+        try await client.sendVoid(.reportPresence(PresenceUpdateRequest(isActive: isActive)))
     }
 
     func searchUsers(query: String) async throws -> [User] {

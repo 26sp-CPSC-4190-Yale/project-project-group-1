@@ -16,6 +16,14 @@ public struct DeviceTokenRequest: Codable, Sendable {
     }
 }
 
+public struct PresenceUpdateRequest: Codable, Sendable {
+    public let isActive: Bool
+
+    public init(isActive: Bool) {
+        self.isActive = isActive
+    }
+}
+
 public struct DeleteAccountRequest: Codable, Sendable {
     public let password: String?
 

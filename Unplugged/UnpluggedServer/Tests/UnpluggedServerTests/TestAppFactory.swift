@@ -156,6 +156,7 @@ struct TestCreateUsers: AsyncMigration {
             .field("points", .int, .required)
             .field("device_token", .string)
             .field("last_seen_at", .datetime)
+            .field("presence_expires_at", .datetime)
             .field("apple_subject", .string)
             .field("google_subject", .string)
             .field("created_at", .datetime)

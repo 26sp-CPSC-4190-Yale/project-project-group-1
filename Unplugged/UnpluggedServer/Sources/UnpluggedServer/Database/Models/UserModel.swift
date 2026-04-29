@@ -25,6 +25,9 @@ final class UserModel: Model, @unchecked Sendable {
     @OptionalField(key: "last_seen_at")
     var lastSeenAt: Date?
 
+    @OptionalField(key: "presence_expires_at")
+    var presenceExpiresAt: Date?
+
     @OptionalField(key: "apple_subject")
     var appleSubject: String?
 

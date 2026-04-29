@@ -8,7 +8,7 @@ extension FriendProfileResponse: @retroactive Content {}
 extension LeaderboardEntryResponse: @retroactive Content {}
 
 struct FriendController: RouteCollection {
-    private static let onlinePresenceTTL: TimeInterval = 90
+    static let onlinePresenceTTL: TimeInterval = 90
 
     func boot(routes: RoutesBuilder) throws {
         let friends = routes.grouped("friends")
@@ -642,7 +642,11 @@ struct FriendController: RouteCollection {
         db: Database
     ) async throws -> FriendResponse {
         let userID = try user.requireID()
-        let presence = try await computePresence(for: userID, lastSeenAt: user.lastSeenAt, db: db)
+        let presence = try await computePresence(
+            for: userID,
+            presenceExpiresAt: user.presenceExpiresAt,
+            db: db
+        )
         let stats = try await StatsService.getStats(for: userID, on: db)
         return FriendResponse(
             id: overrideID ?? userID,
@@ -668,7 +672,11 @@ struct FriendController: RouteCollection {
     }
 
     // unplugged if actively participating in a locked, unexpired room; online only after a recent foreground heartbeat
-    private static func computePresence(for userID: UUID, lastSeenAt: Date?, db: Database) async throws -> PresenceStatus {
+    private static func computePresence(
+        for userID: UUID,
+        presenceExpiresAt: Date?,
+        db: Database
+    ) async throws -> PresenceStatus {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
@@ -691,8 +699,8 @@ struct FriendController: RouteCollection {
             }
         }
 
-        if let lastSeen = lastSeenAt,
-           Date().timeIntervalSince(lastSeen) < onlinePresenceTTL {
+        if let presenceExpiresAt,
+           presenceExpiresAt > Date() {
             return .online
         }
         return .offline

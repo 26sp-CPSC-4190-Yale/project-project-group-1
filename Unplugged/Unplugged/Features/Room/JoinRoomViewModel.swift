@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import UnpluggedShared
-import UIKit
 
 @MainActor
 @Observable
@@ -16,8 +15,7 @@ class JoinRoomViewModel {
     var error: String?
 
     private var listenTask: Task<Void, Never>?
-    // CHHapticEngine setup runs on first allocation; defer until proximity listening actually starts
-    private var tapFeedback: UIImpactFeedbackGenerator?
+    private let haptics = HapticsService()
 
     var canJoinManually: Bool {
         InputValidation.isValidSessionCode(manualCode) && !isJoining
@@ -32,10 +30,7 @@ class JoinRoomViewModel {
             category: .ui,
             warnAfter: 0.02
         ) {
-            let feedback = tapFeedback ?? UIImpactFeedbackGenerator(style: .medium)
-            tapFeedback = feedback
-            feedback.prepare()
-            return feedback
+            haptics.prepareTap()
         }
 
         listenTask?.cancel()
@@ -44,16 +39,13 @@ class JoinRoomViewModel {
             for await roomID in stream {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
-                #if canImport(UIKit)
                 AppLogger.measureMainThreadWork(
                     "JoinRoomViewModel.fireHaptic",
                     category: .ui,
                     warnAfter: 0.02
                 ) {
-                    self.tapFeedback?.impactOccurred()
-                    self.tapFeedback?.prepare()
+                    self.haptics.playTap()
                 }
-                #endif
                 await self.joinRoom(id: roomID, sessions: sessions)
             }
         }

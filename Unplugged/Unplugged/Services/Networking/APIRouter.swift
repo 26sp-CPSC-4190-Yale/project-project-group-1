@@ -16,7 +16,7 @@ enum APIRouter {
     case signInWithGoogle(GoogleSignInRequest)
 
     case getMe
-    case reportPresence
+    case reportPresence(PresenceUpdateRequest)
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
@@ -165,6 +165,7 @@ enum APIRouter {
         case .registerDeviceToken(let token):
             return DeviceTokenRequest(deviceToken: token)
         case .deleteMe(let r):          return r
+        case .reportPresence(let r):    return r
         case .reportUser(_, let r):     return r
         case .createSession(let r):     return r
         case .reportJailbreak(_, let r): return r

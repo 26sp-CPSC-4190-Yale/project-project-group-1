@@ -63,6 +63,7 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddPointsToUsers())
     app.migrations.add(AddLifecycleFieldsToRooms())
     app.migrations.add(AddLastSeenToUsers())
+    app.migrations.add(AddPresenceExpiryToUsers())
     app.migrations.add(AddJailbreakReason())
     app.migrations.add(AddDeletedAtToUsers())
     app.migrations.add(CreateUserBlocks())

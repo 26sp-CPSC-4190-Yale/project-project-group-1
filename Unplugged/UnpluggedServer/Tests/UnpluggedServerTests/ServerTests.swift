@@ -286,7 +286,8 @@ final class ServerTests: XCTestCase {
                 with: tester,
                 .POST,
                 "/users/me/presence",
-                token: bob.token
+                token: bob.token,
+                body: PresenceUpdateRequest(isActive: true)
             )
             var friendsResponse = try await TestAppFactory.sendRequest(
                 with: tester,
@@ -298,9 +299,35 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(heartbeatResponse.status, .noContent)
             XCTAssertEqual(friends.first(where: { $0.id == bob.id })?.presence, .online)
 
+            let inactiveResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/users/me/presence",
+                token: bob.token,
+                body: PresenceUpdateRequest(isActive: false)
+            )
+            friendsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/friends",
+                token: alice.token
+            )
+            friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
+            let inactiveBob = friends.first(where: { $0.id == bob.id })
+            XCTAssertEqual(inactiveResponse.status, .noContent)
+            XCTAssertEqual(inactiveBob?.presence, .offline)
+            XCTAssertNotNil(inactiveBob?.lastActiveAt)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/users/me/presence",
+                token: bob.token,
+                body: PresenceUpdateRequest(isActive: true)
+            )
             let storedBob = try await UserModel.find(bob.id, on: app.db)
             let bobModel = try XCTUnwrap(storedBob)
-            bobModel.lastSeenAt = Date().addingTimeInterval(-120)
+            bobModel.presenceExpiresAt = Date().addingTimeInterval(-1)
             try await bobModel.save(on: app.db)
 
             friendsResponse = try await TestAppFactory.sendRequest(
