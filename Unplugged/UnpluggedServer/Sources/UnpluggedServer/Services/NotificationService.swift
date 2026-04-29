@@ -51,7 +51,9 @@ struct NotificationService {
             expiration: .immediately,
             priority: .immediately,
             topic: bundleID,
-            payload: NotificationPayload(type: type)
+            payload: NotificationPayload(type: type),
+            sound: .default,
+            interruptionLevel: .active
         )
 
         do {
