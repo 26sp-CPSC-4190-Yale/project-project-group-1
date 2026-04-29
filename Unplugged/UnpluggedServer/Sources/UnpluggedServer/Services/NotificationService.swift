@@ -246,11 +246,11 @@ extension Application {
     // call from configure.swift, any missing APNs env var skips setup so local dev runs without credentials
     func configureAPNS() throws {
         guard
-            let rawPrivateKey = Environment.get("APNS_PRIVATE_KEY"),
+            let rawPrivateKey = try loadAPNSPrivateKey(),
             let keyID = Environment.get("APNS_KEY_ID"),
             let teamID = Environment.get("APNS_TEAM_ID")
         else {
-            logger.warning("[APNs] Skipping APNs setup — APNS_PRIVATE_KEY, APNS_KEY_ID, or APNS_TEAM_ID not set.")
+            logger.warning("[APNs] Skipping APNs setup — APNS_PRIVATE_KEY/APNS_PRIVATE_KEY_FILE, APNS_KEY_ID, or APNS_TEAM_ID not set.")
             return
         }
 
@@ -287,5 +287,22 @@ extension Application {
         logger.info("[APNs] Configured for \(envName).", metadata: [
             "topic": "\(NotificationService.apnsBundleID())"
         ])
+    }
+
+    private func loadAPNSPrivateKey() throws -> String? {
+        if let rawPrivateKey = Environment.get("APNS_PRIVATE_KEY"), !rawPrivateKey.isEmpty {
+            return rawPrivateKey
+        }
+
+        guard let privateKeyPath = Environment.get("APNS_PRIVATE_KEY_FILE"), !privateKeyPath.isEmpty else {
+            return nil
+        }
+
+        do {
+            return try String(contentsOfFile: privateKeyPath, encoding: .utf8)
+        } catch {
+            logger.error("[APNs] Could not read APNS_PRIVATE_KEY_FILE at \(privateKeyPath): \(error)")
+            return nil
+        }
     }
 }
