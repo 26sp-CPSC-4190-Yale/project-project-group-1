@@ -9,6 +9,7 @@ struct UserController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
         let users = routes.grouped("users")
         users.get("me", use: getMe)
+        users.post("me", "presence", use: reportPresence)
         users.get("search", use: searchUsers)
         users.patch("me", use: updateMe)
         users.put("device-token", use: registerDeviceToken)
@@ -31,6 +32,25 @@ struct UserController: RouteCollection {
     }
 
     @Sendable
+    func reportPresence(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+        let body = try req.content.decode(PresenceUpdateRequest.self)
+
+        guard let user = try await UserModel.find(userID, on: req.db) else {
+            throw Abort(.notFound)
+        }
+
+        let now = Date()
+        user.lastSeenAt = now
+        user.presenceExpiresAt = body.isActive
+            ? now.addingTimeInterval(FriendController.onlinePresenceTTL)
+            : now
+        try await user.save(on: req.db)
+        return .noContent
+    }
+
+    @Sendable
     func searchUsers(req: Request) async throws -> [User] {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
@@ -42,7 +62,7 @@ struct UserController: RouteCollection {
         let hiddenIDs = try await BlockService.hiddenUserIDs(for: userID, on: req.db)
 
         let users = try await UserModel.query(on: req.db)
-            .filter(\.$username, .custom("ILIKE"), "%\(query)%")
+            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), "%\(query)%")
             .filter(\.$id != userID)
             .limit(20)
             .all()
@@ -243,13 +263,52 @@ struct UserController: RouteCollection {
         let userID = try payload.userID
 
         let body = try req.content.decode(DeviceTokenRequest.self)
+        guard let normalizedToken = Self.normalizedAPNsToken(body.deviceToken) else {
+            throw Abort(.badRequest, reason: "Invalid APNs device token.")
+        }
 
         guard let user = try await UserModel.find(userID, on: req.db) else {
             throw Abort(.notFound)
         }
 
-        user.deviceToken = body.deviceToken
+        let duplicateUsers = try await UserModel.query(on: req.db)
+            .filter(\.$deviceToken == normalizedToken)
+            .all()
+        var clearedDuplicateCount = 0
+        for duplicateUser in duplicateUsers {
+            guard try duplicateUser.requireID() != userID else { continue }
+            duplicateUser.deviceToken = nil
+            try await duplicateUser.save(on: req.db)
+            clearedDuplicateCount += 1
+        }
+
+        user.deviceToken = normalizedToken
         try await user.save(on: req.db)
+        req.logger.info("device token registered", metadata: [
+            "user_id": "\(userID)",
+            "token_suffix": "\(normalizedToken.suffix(8))",
+            "cleared_duplicate_users": "\(clearedDuplicateCount)"
+        ])
         return .noContent
+    }
+}
+
+private extension UserController {
+    static func normalizedAPNsToken(_ raw: String) -> String? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { !$0.isWhitespace && $0 != "<" && $0 != ">" }
+        let isHex = normalized.unicodeScalars.allSatisfy {
+            CharacterSet(charactersIn: "0123456789abcdef").contains($0)
+        }
+
+        // APNs tokens are opaque and not guaranteed to stay fixed at 32 bytes.
+        guard normalized.count >= 32,
+              normalized.count.isMultiple(of: 2),
+              isHex else {
+            return nil
+        }
+        return normalized
     }
 }

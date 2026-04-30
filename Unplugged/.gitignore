@@ -1,0 +1,5 @@
+.env
+*.p8
+Docker/.env
+DerivedData/
+.DS_Store

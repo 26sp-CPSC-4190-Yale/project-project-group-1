@@ -16,6 +16,7 @@ enum APIRouter {
     case signInWithGoogle(GoogleSignInRequest)
 
     case getMe
+    case reportPresence(PresenceUpdateRequest)
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
@@ -48,6 +49,8 @@ enum APIRouter {
     case removeFriend(id: UUID)
     case acceptFriend(id: UUID)
     case rejectFriend(id: UUID)
+    case acceptFriendRequest(id: UUID)
+    case rejectFriendRequest(id: UUID)
     case nudgeFriend(id: UUID)
     case incomingFriendRequests
     case outgoingFriendRequests
@@ -68,6 +71,7 @@ enum APIRouter {
         case .signInWithApple:          return "/auth/apple"
         case .signInWithGoogle:         return "/auth/google"
         case .getMe, .updateMe, .deleteMe: return "/users/me"
+        case .reportPresence:           return "/users/me/presence"
         case .searchUsers(let q):       return "/users/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
         case .registerDeviceToken:      return "/users/device-token"
         case .listBlocks:               return "/users/blocks"
@@ -106,6 +110,8 @@ enum APIRouter {
         case .removeFriend(let id):     return "/friends/\(id)"
         case .acceptFriend(let id):     return "/friends/\(id)/accept"
         case .rejectFriend(let id):     return "/friends/\(id)/reject"
+        case .acceptFriendRequest(let id): return "/friends/requests/\(id)/accept"
+        case .rejectFriendRequest(let id): return "/friends/requests/\(id)/reject"
         case .nudgeFriend(let id):      return "/friends/\(id)/nudge"
         case .incomingFriendRequests:   return "/friends/requests/incoming"
         case .outgoingFriendRequests:   return "/friends/requests/outgoing"
@@ -122,8 +128,9 @@ enum APIRouter {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
-             .leaveSession, .reportProximityExit, .reportJailbreak, .acceptFriend, .rejectFriend, .nudgeFriend,
-             .createGroup, .addGroupMember, .blockUser, .reportUser:
+             .leaveSession, .reportProximityExit, .reportJailbreak,
+             .acceptFriend, .rejectFriend, .acceptFriendRequest, .rejectFriendRequest, .nudgeFriend,
+             .createGroup, .addGroupMember, .blockUser, .reportUser, .reportPresence:
             return .post
         case .registerDeviceToken:
             return .put
@@ -158,6 +165,7 @@ enum APIRouter {
         case .registerDeviceToken(let token):
             return DeviceTokenRequest(deviceToken: token)
         case .deleteMe(let r):          return r
+        case .reportPresence(let r):    return r
         case .reportUser(_, let r):     return r
         case .createSession(let r):     return r
         case .reportJailbreak(_, let r): return r

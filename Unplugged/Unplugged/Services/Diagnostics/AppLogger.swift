@@ -28,6 +28,7 @@ enum AppLogger {
     static let launch     = CategoryLogger(category: "launch")
     static let hang       = CategoryLogger(category: "hang")
     static let memory     = CategoryLogger(category: "memory")
+    static let mainThread = CategoryLogger(category: "main_thread")
     static let network    = CategoryLogger(category: "network")
     static let ws         = CategoryLogger(category: "ws")
     static let auth       = CategoryLogger(category: "auth")
@@ -70,14 +71,14 @@ enum AppLogger {
 
     // MARK: - Helpers
 
-    fileprivate static func formatContext(_ context: [String: Any]) -> String {
+    nonisolated static func formatContext(_ context: [String: Any]) -> String {
         context
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\(Self.stringify($0.value))" }
             .joined(separator: " ")
     }
 
-    fileprivate static func stringify(_ value: Any) -> String {
+    nonisolated private static func stringify(_ value: Any) -> String {
         switch value {
         case let s as String: return s
         case let e as Error:  return String(describing: e)
@@ -258,7 +259,7 @@ private final class EnabledFlag: @unchecked Sendable {
 struct Breadcrumb: Sendable {
     enum Level: String, Sendable { case info, warning, error, critical }
     enum Category: Sendable, Equatable {
-        case app, launch, hang, memory, network, ws, auth, session, shield
+        case app, launch, hang, memory, mainThread, network, ws, auth, session, shield
         case proximity, touchTips, screenTime, cache, push, onboarding, room, profile, ui
         case custom(String)
 
@@ -268,6 +269,7 @@ struct Breadcrumb: Sendable {
             case "launch":     self = .launch
             case "hang":       self = .hang
             case "memory":     self = .memory
+            case "main_thread": self = .mainThread
             case "network":    self = .network
             case "ws":         self = .ws
             case "auth":       self = .auth
@@ -292,6 +294,7 @@ struct Breadcrumb: Sendable {
             case .launch:     return "launch"
             case .hang:       return "hang"
             case .memory:     return "memory"
+            case .mainThread: return "main_thread"
             case .network:    return "network"
             case .ws:         return "ws"
             case .auth:       return "auth"

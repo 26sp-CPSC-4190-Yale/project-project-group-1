@@ -27,6 +27,7 @@ final class SessionOrchestrator {
     private let sessions: SessionAPIService
     private let recap: RecapAPIService
     private let screenTime: any ScreenTimeProviding
+    private let liveActivity: LiveActivityService
     private let cache: LocalCacheService
     private let webSocket: WebSocketClient
     private let touchTips: TouchTipsService
@@ -52,12 +53,14 @@ final class SessionOrchestrator {
     init(sessions: SessionAPIService,
          recap: RecapAPIService,
          screenTime: any ScreenTimeProviding,
+         liveActivity: LiveActivityService,
          cache: LocalCacheService,
          webSocket: WebSocketClient,
          touchTips: TouchTipsService) {
         self.sessions = sessions
         self.recap = recap
         self.screenTime = screenTime
+        self.liveActivity = liveActivity
         self.cache = cache
         self.webSocket = webSocket
         self.touchTips = touchTips
@@ -130,6 +133,7 @@ final class SessionOrchestrator {
             )
             errorMessage = "Couldn't unlock apps. Check Screen Time permission in Settings."
         }
+        await liveActivity.end(sessionID: sessionID)
 
         stopJailbreakWatchdog()
         stopSessionSync()
@@ -182,6 +186,7 @@ final class SessionOrchestrator {
         } catch {
             AppLogger.shield.critical("unlockApps failed during teardown — shield may be stuck", error: error)
         }
+        await liveActivity.end(sessionID: currentSession?.session.id)
         phase = .idle
         currentSession = nil
         participants = []
@@ -236,11 +241,13 @@ final class SessionOrchestrator {
     private func handle(message: WSServerMessage) async {
         switch message {
         case .participantJoined(let p):
-            if !participants.contains(where: { $0.id == p.id }) {
+            if let index = participants.firstIndex(where: { $0.id == p.id || $0.userID == p.userID }) {
+                participants[index] = p
+            } else {
                 participants.append(p)
             }
         case .participantLeft(let userID):
-            participants.removeAll { $0.userID == userID }
+            updateParticipantStatus(userID: userID, status: .left)
         case .sessionStarted(let endsAt), .sessionLocked(let endsAt):
             await applyLocked(endsAt: endsAt)
         case .sessionEnded:
@@ -249,11 +256,20 @@ final class SessionOrchestrator {
             await applySessionSnapshot(response)
         case .jailbreakReported(let userID, let reason):
             if reason == "left_due_to_proximity" {
-                participants.removeAll { $0.userID == userID }
+                updateParticipantStatus(userID: userID, status: .left)
+            } else {
+                updateParticipantStatus(userID: userID, status: .jailbroken)
             }
         case .participantLeftDueToProximity(let userID, let username):
-            participants.removeAll { $0.userID == userID }
-            if userID == cache.readUser()?.id {
+            updateParticipantStatus(userID: userID, status: .left)
+            let currentUserID = AppLogger.measureMainThreadWork(
+                "SessionOrchestrator.readUserForProximityMessage",
+                category: .cache,
+                warnAfter: 0.02
+            ) {
+                cache.readUser()?.id
+            }
+            if userID == currentUserID {
                 await completeLocalProximityExit()
             } else {
                 errorMessage = "\(username) left the session because they were too far away."
@@ -310,11 +326,19 @@ final class SessionOrchestrator {
     }
 
     private func applySessionSnapshot(_ response: SessionResponse) async {
-        self.currentSession = response
-        self.participants = response.participants.filter { $0.status == .active }
-        self.countdownEndsAt = response.session.endsAt
+        let currentUserID = AppLogger.measureMainThreadWork(
+            "SessionOrchestrator.applySessionSnapshot.sync",
+            category: .session,
+            context: ["participants": response.participants.count],
+            warnAfter: 0.03
+        ) {
+            self.currentSession = response
+            self.participants = response.participants
+            self.countdownEndsAt = response.session.endsAt
+            return cache.readUser()?.id
+        }
 
-        if let userID = cache.readUser()?.id,
+        if let userID = currentUserID,
            response.participants.contains(where: { $0.userID == userID && $0.status == .left }) {
             await completeLocalProximityExit()
             return
@@ -325,6 +349,11 @@ final class SessionOrchestrator {
         } else if response.session.lockedAt != nil {
             self.phase = .locked
             if let endsAt = response.session.endsAt {
+                await liveActivity.startOrUpdate(
+                    sessionID: response.session.id,
+                    roomTitle: response.session.title,
+                    endsAt: endsAt
+                )
                 await engageShield(endsAt: endsAt)
             } else {
                 AppLogger.session.critical(
@@ -337,14 +366,33 @@ final class SessionOrchestrator {
         } else {
             self.phase = .lobby
             stopLockedProximityEnforcement()
+            await liveActivity.end(sessionID: response.session.id)
         }
     }
 
     private func applyLocked(endsAt: Date) async {
         self.countdownEndsAt = endsAt
         self.phase = .locked
+        await liveActivity.startOrUpdate(
+            sessionID: currentSession?.session.id,
+            roomTitle: currentSession?.session.title,
+            endsAt: endsAt
+        )
         await engageShield(endsAt: endsAt)
         await startLockedProximityEnforcementIfNeeded()
+    }
+
+    private func updateParticipantStatus(userID: UUID, status: ParticipantStatus) {
+        guard let index = participants.firstIndex(where: { $0.userID == userID }) else { return }
+        let participant = participants[index]
+        participants[index] = ParticipantResponse(
+            id: participant.id,
+            userID: participant.userID,
+            username: participant.username,
+            status: status,
+            joinedAt: participant.joinedAt,
+            isHost: participant.isHost
+        )
     }
 
     // MARK: - Shield + recap
@@ -444,6 +492,7 @@ final class SessionOrchestrator {
                 error: error
             )
         }
+        await liveActivity.end(sessionID: currentSession?.session.id)
         await touchTips.stop()
         resetShieldTracking()
         self.phase = .ended
@@ -527,7 +576,15 @@ final class SessionOrchestrator {
             return
         }
 
-        guard let userID = cache.readUser()?.id else {
+        let currentUserID = AppLogger.measureMainThreadWork(
+            "SessionOrchestrator.readUserForProximityStart",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            cache.readUser()?.id
+        }
+
+        guard let userID = currentUserID else {
             AppLogger.proximity.warning("enforcement start skipped — no cached user")
             stopLockedProximityEnforcement()
             return

@@ -6,6 +6,7 @@ final class MemberModel: Model, @unchecked Sendable {
     static let schema = "member_info"
     static let proximityExitConfig = "proximity_exit"
     static let voluntaryExitConfig = "voluntary_exit"
+    static let jailbreakConfig = "jailbreak"
 
     @ID(key: .id)
     var id: UUID?
@@ -48,6 +49,8 @@ final class MemberModel: Model, @unchecked Sendable {
         switch config {
         case Self.proximityExitConfig, Self.voluntaryExitConfig:
             return .left
+        case Self.jailbreakConfig:
+            return .jailbroken
         default:
             return .active
         }

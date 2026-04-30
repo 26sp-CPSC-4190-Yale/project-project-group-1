@@ -1,27 +1,21 @@
 import Foundation
 import Observation
 import UnpluggedShared
-import UIKit
 
 @MainActor
 @Observable
 class JoinRoomViewModel {
     var isListening = false
     var hasFoundRoom = false
-    var manualCode = "" {
-        didSet {
-            let normalized = Self.normalizedRoomCode(manualCode)
-            if manualCode != normalized {
-                manualCode = normalized
-            }
-        }
-    }
+    // normalization happens at the binding boundary (see JoinRoomView), not in didSet,
+    // so we never re-publish on the same observation tick and SwiftUI re-renders once per keystroke
+    var manualCode = ""
     var isJoining = false
     var joinedSession: SessionResponse?
     var error: String?
 
     private var listenTask: Task<Void, Never>?
-    private let tapFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let haptics = HapticsService()
 
     var canJoinManually: Bool {
         InputValidation.isValidSessionCode(manualCode) && !isJoining
@@ -31,7 +25,13 @@ class JoinRoomViewModel {
         guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
-        tapFeedback.prepare()
+        _ = AppLogger.measureMainThreadWork(
+            "JoinRoomViewModel.prepareHaptics",
+            category: .ui,
+            warnAfter: 0.02
+        ) {
+            haptics.prepareTap()
+        }
 
         listenTask?.cancel()
         listenTask = Task { [weak self] in
@@ -39,10 +39,13 @@ class JoinRoomViewModel {
             for await roomID in stream {
                 guard let self, !Task.isCancelled else { return }
                 self.hasFoundRoom = true
-                #if canImport(UIKit)
-                self.tapFeedback.impactOccurred()
-                self.tapFeedback.prepare()
-                #endif
+                AppLogger.measureMainThreadWork(
+                    "JoinRoomViewModel.fireHaptic",
+                    category: .ui,
+                    warnAfter: 0.02
+                ) {
+                    self.haptics.playTap()
+                }
                 await self.joinRoom(id: roomID, sessions: sessions)
             }
         }
@@ -113,7 +116,7 @@ class JoinRoomViewModel {
         }
     }
 
-    private static func normalizedRoomCode(_ code: String) -> String {
+    static func normalizedRoomCode(_ code: String) -> String {
         String(code
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .filter { $0.isLetter || $0.isNumber }

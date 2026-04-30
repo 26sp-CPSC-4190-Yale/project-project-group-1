@@ -309,10 +309,13 @@ struct ActiveRoomView: View {
                         Text(participant.username)
                             .font(.body)
                             .foregroundStyle(Color.tertiaryColor)
-                        if participant.isHost {
-                            Text("Host")
-                                .font(.caption)
-                                .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                        HStack(spacing: 6) {
+                            participantStatusBadge(participant.status)
+                            if participant.isHost {
+                                Text("Host")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                            }
                         }
                     }
                     Spacer()
@@ -334,6 +337,38 @@ struct ActiveRoomView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func participantStatusBadge(_ status: ParticipantStatus) -> some View {
+        Text(participantStatusLabel(status))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(participantStatusColor(status))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(participantStatusColor(status).opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private func participantStatusLabel(_ status: ParticipantStatus) -> String {
+        switch status {
+        case .active:
+            return "Active"
+        case .left:
+            return "Left"
+        case .jailbroken:
+            return "Jailbroken"
+        }
+    }
+
+    private func participantStatusColor(_ status: ParticipantStatus) -> Color {
+        switch status {
+        case .active:
+            return .green
+        case .left:
+            return Color.tertiaryColor.opacity(0.55)
+        case .jailbroken:
+            return Color.destructiveColor
         }
     }
 

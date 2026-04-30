@@ -8,6 +8,8 @@ extension FriendProfileResponse: @retroactive Content {}
 extension LeaderboardEntryResponse: @retroactive Content {}
 
 struct FriendController: RouteCollection {
+    static let onlinePresenceTTL: TimeInterval = 90
+
     func boot(routes: RoutesBuilder) throws {
         let friends = routes.grouped("friends")
         // POST sends, or accepts if a reciprocal pending request already exists
@@ -35,7 +37,7 @@ struct FriendController: RouteCollection {
         let body = try req.content.decode(AddFriendRequest.self)
 
         guard let target = try await UserModel.query(on: req.db)
-            .filter(\.$username, .custom("ILIKE"), body.username)
+            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), body.username)
             .first()
         else {
             throw Abort(.notFound, reason: "User not found.")
@@ -71,6 +73,22 @@ struct FriendController: RouteCollection {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
                 try await Self.deletePendingFriendships(between: userID, and: targetID, on: req.db)
+                guard let sender = try await UserModel.find(userID, on: req.db) else {
+                    throw Abort(.internalServerError)
+                }
+                await NotificationService.send(
+                    to: targetID,
+                    title: "Friend Request Accepted",
+                    body: "\(sender.username) accepted your friend request.",
+                    type: NotificationService.NotificationType.friendAccepted,
+                    on: req.db,
+                    application: req.application
+                )
+                await Self.sendFriendshipUpdate(
+                    to: targetID,
+                    on: req.db,
+                    application: req.application
+                )
                 return try await Self.buildFriendResponse(user: target, status: "accepted", db: req.db)
             }
             throw Abort(.conflict, reason: "Friend request already exists.")
@@ -93,6 +111,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: targetID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: target, status: "pending", db: req.db)
     }
@@ -107,7 +130,7 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        try await FriendshipModel.query(on: req.db)
+        let friendships = try await FriendshipModel.query(on: req.db)
             .group(.or) { group in
                 group.group(.and) { g in
                     g.filter(\.$user1ID == userID)
@@ -118,7 +141,19 @@ struct FriendController: RouteCollection {
                     g.filter(\.$user2ID == userID)
                 }
             }
-            .delete()
+            .all()
+
+        for friendship in friendships {
+            try await friendship.delete(on: req.db)
+        }
+
+        if !friendships.isEmpty {
+            await Self.sendFriendshipUpdate(
+                to: friendID,
+                on: req.db,
+                application: req.application
+            )
+        }
         return .noContent
     }
 
@@ -307,6 +342,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: friendship.user1ID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
@@ -333,6 +373,11 @@ struct FriendController: RouteCollection {
         }
 
         try await friendship.delete(on: req.db)
+        await Self.sendFriendshipUpdate(
+            to: friendship.user1ID,
+            on: req.db,
+            application: req.application
+        )
         return .noContent
     }
 
@@ -399,6 +444,11 @@ struct FriendController: RouteCollection {
             on: req.db,
             application: req.application
         )
+        await Self.sendFriendshipUpdate(
+            to: requesterID,
+            on: req.db,
+            application: req.application
+        )
 
         return try await Self.buildFriendResponse(user: otherUser, status: "accepted", db: req.db)
     }
@@ -413,7 +463,7 @@ struct FriendController: RouteCollection {
             throw Abort(.badRequest)
         }
 
-        try await FriendshipModel.query(on: req.db)
+        let friendships = try await FriendshipModel.query(on: req.db)
             .filter(\.$status == "pending")
             .group(.or) { group in
                 group.group(.and) { g in
@@ -425,7 +475,19 @@ struct FriendController: RouteCollection {
                     g.filter(\.$user2ID == otherID)
                 }
             }
-            .delete()
+            .all()
+
+        for friendship in friendships {
+            try await friendship.delete(on: req.db)
+        }
+
+        if !friendships.isEmpty {
+            await Self.sendFriendshipUpdate(
+                to: otherID,
+                on: req.db,
+                application: req.application
+            )
+        }
 
         return .noContent
     }
@@ -580,7 +642,11 @@ struct FriendController: RouteCollection {
         db: Database
     ) async throws -> FriendResponse {
         let userID = try user.requireID()
-        let presence = try await computePresence(for: userID, lastSeenAt: user.lastSeenAt, db: db)
+        let presence = try await computePresence(
+            for: userID,
+            presenceExpiresAt: user.presenceExpiresAt,
+            db: db
+        )
         let stats = try await StatsService.getStats(for: userID, on: db)
         return FriendResponse(
             id: overrideID ?? userID,
@@ -592,28 +658,49 @@ struct FriendController: RouteCollection {
         )
     }
 
-    // unplugged if in an active locked room, online if last_seen within 5 minutes, else offline
-    private static func computePresence(for userID: UUID, lastSeenAt: Date?, db: Database) async throws -> PresenceStatus {
+    static func sendFriendshipUpdate(
+        to userID: UUID,
+        on db: Database,
+        application: Application
+    ) async {
+        await NotificationService.sendSilent(
+            to: userID,
+            type: NotificationService.NotificationType.friendshipUpdated,
+            on: db,
+            application: application
+        )
+    }
+
+    // unplugged if actively participating in a locked, unexpired room; online only after a recent foreground heartbeat
+    private static func computePresence(
+        for userID: UUID,
+        presenceExpiresAt: Date?,
+        db: Database
+    ) async throws -> PresenceStatus {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
         let roomIDs = memberships
-            .filter { $0.config != MemberModel.proximityExitConfig }
+            .filter { $0.participantStatus == .active }
             .map { $0.roomID }
 
         if !roomIDs.isEmpty {
-            let lockedActive = try await RoomModel.query(on: db)
+            let now = Date()
+            let lockedRooms = try await RoomModel.query(on: db)
                 .filter(\.$id ~~ roomIDs)
                 .filter(\.$lockedAt != nil)
                 .filter(\.$endedAt == nil)
-                .count()
-            if lockedActive > 0 {
+                .all()
+            if lockedRooms.contains(where: { room in
+                guard let endsAt = room.endsAt else { return false }
+                return endsAt > now
+            }) {
                 return .unplugged
             }
         }
 
-        if let lastSeen = lastSeenAt,
-           Date().timeIntervalSince(lastSeen) < 5 * 60 {
+        if let presenceExpiresAt,
+           presenceExpiresAt > Date() {
             return .online
         }
         return .offline

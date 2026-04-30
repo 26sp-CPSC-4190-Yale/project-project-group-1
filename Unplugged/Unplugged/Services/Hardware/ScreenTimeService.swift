@@ -129,10 +129,22 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
             repeats: false
         )
 
-        center.stopMonitoring([activityName])
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.stopMonitoringBeforeLock",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            center.stopMonitoring([activityName])
+        }
         var monitoringFailed = false
         do {
-            try center.startMonitoring(activityName, during: schedule)
+            try AppLogger.measureMainThreadWork(
+                "ScreenTimeService.startMonitoring",
+                category: .screenTime,
+                warnAfter: 0.03
+            ) {
+                try center.startMonitoring(activityName, during: schedule)
+            }
         } catch {
             // do not throw, in-process enforcement still works and the user should not get a "couldn't engage shield" alert
             monitoringFailed = true
@@ -154,17 +166,53 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         )
 
         // yield between FamilyControls writes to keep the main thread responsive during the IPC burst
-        store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.blockedApplications.set",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
+        }
         await Task.yield()
-        store.shield.applications = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.shieldApplications.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.applications = nil
+        }
         await Task.yield()
-        store.shield.webDomains = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.shieldWebDomains.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.webDomains = nil
+        }
         await Task.yield()
-        store.shield.applicationCategories = .all(except: allowedAppTokens)
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.applicationCategories.set",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.applicationCategories = .all(except: allowedAppTokens)
+        }
         await Task.yield()
-        store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.webDomainCategories.set",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.webDomainCategories = .all(except: emergencySelection.webDomainTokens)
+        }
         await Task.yield()
-        store.webContent.blockedByFilter = .all(except: allowedWebDomains)
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.webContentFilter.set",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.webContent.blockedByFilter = .all(except: allowedWebDomains)
+        }
 
         AppLogger.breadcrumb(
             .screenTime,
@@ -178,19 +226,61 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         #if canImport(FamilyControls) && canImport(ManagedSettings) && canImport(DeviceActivity)
         guard isAvailable else { return }
 
-        store.application.blockedApplications = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.blockedApplications.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.application.blockedApplications = nil
+        }
         await Task.yield()
-        store.shield.applications = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.shieldApplications.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.applications = nil
+        }
         await Task.yield()
-        store.shield.applicationCategories = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.applicationCategories.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.applicationCategories = nil
+        }
         await Task.yield()
-        store.shield.webDomains = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.shieldWebDomains.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.webDomains = nil
+        }
         await Task.yield()
-        store.shield.webDomainCategories = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.webDomainCategories.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.shield.webDomainCategories = nil
+        }
         await Task.yield()
-        store.webContent.blockedByFilter = nil
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.webContentFilter.clear",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            store.webContent.blockedByFilter = nil
+        }
         await Task.yield()
-        center.stopMonitoring([activityName])
+        AppLogger.measureMainThreadWork(
+            "ScreenTimeService.stopMonitoringAfterUnlock",
+            category: .screenTime,
+            warnAfter: 0.03
+        ) {
+            center.stopMonitoring([activityName])
+        }
         #endif
     }
 

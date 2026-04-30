@@ -46,11 +46,17 @@ class LocalCacheService {
     }
 
     func readToken() -> String? {
-        if didLoadToken { return cachedToken }
-        let token = Self.keychainReadToken(key: tokenKey)
-        cachedToken = token
-        didLoadToken = true
-        return token
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.readToken(sync keychain)",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            if didLoadToken { return cachedToken }
+            let token = Self.keychainReadToken(key: tokenKey)
+            cachedToken = token
+            didLoadToken = true
+            return token
+        }
     }
 
     // SecItemCopyMatching on a cold keychain stalls for hundreds of ms, do not call the sync variant from MainActor
@@ -109,8 +115,14 @@ class LocalCacheService {
     }
 
     func deleteToken() {
-        cachedToken = nil
-        didLoadToken = true
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.deleteToken",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            cachedToken = nil
+            didLoadToken = true
+        }
         let key = tokenKey
         keychainQueue.async {
             let query: [String: Any] = [
@@ -131,32 +143,51 @@ class LocalCacheService {
     }
 
     func saveUser(_ user: User) {
-        cachedUser = user
-        do {
-            let encoded = try jsonEncoder.encode(user)
-            UserDefaults.standard.set(encoded, forKey: userKey)
-        } catch {
-            AppLogger.cache.error("user encode failed — cached user not persisted", error: error)
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.saveUser",
+            category: .cache,
+            context: ["user_id": user.id.uuidString],
+            warnAfter: 0.02
+        ) {
+            cachedUser = user
+            do {
+                let encoded = try jsonEncoder.encode(user)
+                UserDefaults.standard.set(encoded, forKey: userKey)
+            } catch {
+                AppLogger.cache.error("user encode failed — cached user not persisted", error: error)
+            }
         }
     }
 
     func readUser() -> User? {
-        if let cachedUser { return cachedUser }
-        guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
-        do {
-            let user = try jsonDecoder.decode(User.self, from: data)
-            cachedUser = user
-            return user
-        } catch {
-            AppLogger.cache.error("user decode failed — clearing cached value", error: error, context: ["bytes": data.count])
-            UserDefaults.standard.removeObject(forKey: userKey)
-            return nil
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.readUser",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            if let cachedUser { return cachedUser }
+            guard let data = UserDefaults.standard.data(forKey: userKey) else { return nil }
+            do {
+                let user = try jsonDecoder.decode(User.self, from: data)
+                cachedUser = user
+                return user
+            } catch {
+                AppLogger.cache.error("user decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+                UserDefaults.standard.removeObject(forKey: userKey)
+                return nil
+            }
         }
     }
 
     func clearUser() {
-        cachedUser = nil
-        UserDefaults.standard.removeObject(forKey: userKey)
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.clearUser",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            cachedUser = nil
+            UserDefaults.standard.removeObject(forKey: userKey)
+        }
     }
 
     func saveAuth(_ response: AuthResponse) {
@@ -165,8 +196,14 @@ class LocalCacheService {
     }
 
     func clearAuth() {
-        cachedToken = nil
-        didLoadToken = true
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.clearAuth",
+            category: .cache,
+            warnAfter: 0.03
+        ) {
+            cachedToken = nil
+            didLoadToken = true
+        }
         let key = tokenKey
         keychainQueue.async {
             let query: [String: Any] = [
@@ -179,51 +216,82 @@ class LocalCacheService {
             }
         }
         clearUser()
-        UserDefaults.standard.removeObject(forKey: statsKey)
-        UserDefaults.standard.removeObject(forKey: historyKey)
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.clearAuth.cachedPayloads",
+            category: .cache,
+            warnAfter: 0.02
+        ) {
+            UserDefaults.standard.removeObject(forKey: statsKey)
+            UserDefaults.standard.removeObject(forKey: historyKey)
+        }
     }
 
     // MARK: - Stats cache
 
     func saveStats(_ stats: UserStatsResponse) {
-        do {
-            let data = try jsonEncoder.encode(stats)
-            UserDefaults.standard.set(data, forKey: statsKey)
-        } catch {
-            AppLogger.cache.error("stats encode failed", error: error)
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.saveStats",
+            category: .cache,
+            warnAfter: 0.03
+        ) {
+            do {
+                let data = try jsonEncoder.encode(stats)
+                UserDefaults.standard.set(data, forKey: statsKey)
+            } catch {
+                AppLogger.cache.error("stats encode failed", error: error)
+            }
         }
     }
 
     func readStats() -> UserStatsResponse? {
-        guard let data = UserDefaults.standard.data(forKey: statsKey) else { return nil }
-        do {
-            return try jsonDecoder.decode(UserStatsResponse.self, from: data)
-        } catch {
-            AppLogger.cache.error("stats decode failed — clearing cached value", error: error, context: ["bytes": data.count])
-            UserDefaults.standard.removeObject(forKey: statsKey)
-            return nil
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.readStats",
+            category: .cache,
+            warnAfter: 0.03
+        ) {
+            guard let data = UserDefaults.standard.data(forKey: statsKey) else { return nil }
+            do {
+                return try jsonDecoder.decode(UserStatsResponse.self, from: data)
+            } catch {
+                AppLogger.cache.error("stats decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+                UserDefaults.standard.removeObject(forKey: statsKey)
+                return nil
+            }
         }
     }
 
     // MARK: - History cache
 
     func saveHistory(_ history: [SessionHistoryResponse]) {
-        do {
-            let data = try jsonEncoder.encode(history)
-            UserDefaults.standard.set(data, forKey: historyKey)
-        } catch {
-            AppLogger.cache.error("history encode failed", error: error)
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.saveHistory",
+            category: .cache,
+            context: ["sessions": history.count],
+            warnAfter: 0.03
+        ) {
+            do {
+                let data = try jsonEncoder.encode(history)
+                UserDefaults.standard.set(data, forKey: historyKey)
+            } catch {
+                AppLogger.cache.error("history encode failed", error: error)
+            }
         }
     }
 
     func readHistory() -> [SessionHistoryResponse]? {
-        guard let data = UserDefaults.standard.data(forKey: historyKey) else { return nil }
-        do {
-            return try jsonDecoder.decode([SessionHistoryResponse].self, from: data)
-        } catch {
-            AppLogger.cache.error("history decode failed — clearing cached value", error: error, context: ["bytes": data.count])
-            UserDefaults.standard.removeObject(forKey: historyKey)
-            return nil
+        AppLogger.measureMainThreadWork(
+            "LocalCacheService.readHistory",
+            category: .cache,
+            warnAfter: 0.03
+        ) {
+            guard let data = UserDefaults.standard.data(forKey: historyKey) else { return nil }
+            do {
+                return try jsonDecoder.decode([SessionHistoryResponse].self, from: data)
+            } catch {
+                AppLogger.cache.error("history decode failed — clearing cached value", error: error, context: ["bytes": data.count])
+                UserDefaults.standard.removeObject(forKey: historyKey)
+                return nil
+            }
         }
     }
 }

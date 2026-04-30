@@ -44,8 +44,10 @@ struct JoinRoomView: View {
             proximityStartTask = nil
             viewModel.stopListening(touchTips: touchTips)
         }
-        .onChange(of: viewModel.manualCode) { _, code in
-            if code.isEmpty {
+        .onChange(of: viewModel.manualCode.isEmpty) { _, isEmpty in
+            // only react to empty/non-empty transitions, not every keystroke,
+            // otherwise rapid type-then-backspace churns the UWB session (P3-19)
+            if isEmpty {
                 scheduleProximityListening()
             } else {
                 proximityStartTask?.cancel()
@@ -101,7 +103,12 @@ struct JoinRoomView: View {
                 .font(.subheadline)
                 .foregroundStyle(Color.tertiaryColor.opacity(0.6))
 
-            TextField("", text: $viewModel.manualCode, prompt: codePlaceholder)
+            // Binding normalizes once per setter call; doing this in a property
+            // didSet would re-publish the @Observable value and double-render the field
+            TextField("", text: Binding(
+                get: { viewModel.manualCode },
+                set: { viewModel.manualCode = JoinRoomViewModel.normalizedRoomCode($0) }
+            ), prompt: codePlaceholder)
                 .textFieldStyle(.plain)
                 .foregroundStyle(Color.tertiaryColor)
                 .tint(Color.tertiaryColor)

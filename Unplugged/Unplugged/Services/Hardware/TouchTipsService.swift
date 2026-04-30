@@ -401,6 +401,13 @@ actor TouchTipsService {
         if case .lockedGuest = role {
             publishLockedSignalLoss(reason: "ni_invalidated")
         }
+        // host pushes a fresh handshake to connected guests so they pick up the new discovery token instead of ranging against a dead one
+        if case .host = role, let mcSession {
+            for peer in mcSession.connectedPeers {
+                log("rebroadcasting handshake to \(peer.displayName) after NI reset")
+                sendHandshake(to: peer)
+            }
+        }
     }
 
     private func handleLostPeer(browser: MCNearbyServiceBrowser, peer: MCPeerID) {
@@ -439,6 +446,19 @@ actor TouchTipsService {
     private func handleNISuspensionEnded(session: NISession) {
         guard hasActiveNISession(session) else { return }
         log("NI suspension ended for role \(roleLogDescription)")
+
+        // NI requires re-running the configuration on the existing session to resume ranging after a suspend
+        guard let peer = niSessions.first(where: { $0.value === session })?.key else {
+            log("NI suspension resume skipped: peer not found for session")
+            return
+        }
+        guard let token = peerDiscoveryTokens[peer] else {
+            log("NI suspension resume skipped: no token cached for \(peer.displayName)")
+            return
+        }
+        let config = NINearbyPeerConfiguration(peerToken: token)
+        session.run(config)
+        log("NI ranging resumed after suspension for \(peer.displayName)")
     }
 
     // MARK: - Yielding

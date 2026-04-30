@@ -9,6 +9,13 @@ struct UnpluggedApp: App {
     init() {
         // must run before any log call-site, honors the persisted kill switch across launches
         AppLogger.loadPersistedEnabledFlag()
+        let trace = AppLogger.beginMainThreadWork(
+            "UnpluggedApp.init",
+            category: .launch,
+            warnAfter: 0.05
+        )
+        defer { trace.end() }
+
         AppLogger.launch.info("UnpluggedApp.init")
 
         let container = DependencyContainer()

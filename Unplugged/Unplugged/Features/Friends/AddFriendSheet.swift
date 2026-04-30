@@ -36,39 +36,18 @@ class AddFriendViewModel {
         searchTask?.cancel()
         isSearching = true
         error = nil
-        AppLogger.ui.debug(
-            "friend search queued",
-            context: [
-                "query": query,
-                "generation": generation
-            ]
-        )
 
-        // plain Task inherits @MainActor, Task.detached + MainActor.run caused per-keystroke hitches on iOS 17.6
+        // plain Task inherits @MainActor, Task.detached + MainActor.run caused per-keystroke hitches on iOS 17.6.
+        // No per-keystroke logging here — formatContext + dict allocation on the main actor adds up over a typing burst
         searchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self, !Task.isCancelled else { return }
             do {
-                AppLogger.ui.debug(
-                    "friend search begin",
-                    context: [
-                        "query": query,
-                        "generation": generation
-                    ]
-                )
                 let results = try await usersService.searchUsers(query: query)
                 guard !Task.isCancelled, generation == self.searchGeneration else { return }
                 self.users = results.filter { !excludedUserIDs.contains($0.id) }
                 self.error = nil
                 self.isSearching = false
-                AppLogger.ui.info(
-                    "friend search success",
-                    context: [
-                        "query": query,
-                        "generation": generation,
-                        "results": self.users.count
-                    ]
-                )
             } catch {
                 guard !Task.isCancelled, generation == self.searchGeneration else { return }
                 self.error = "Could not search users"

@@ -1,19 +1,33 @@
 import UIKit
 import UserNotifications
-import os
+import UnpluggedShared
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     @MainActor static var sharedContainer: DependencyContainer?
 
-    private static let log = Logger(subsystem: "com.unplugged.app", category: "push")
-
     private enum Keys {
         static let pendingToken = "apns.pendingToken"
         static let registeredToken = "apns.registeredToken"
+        static let registeredUserID = "apns.registeredUserID"
     }
 
-    // silent push type is user controlled, only dispatch values we actually handle
-    private static let knownPayloadTypes: Set<String> = ["session_locked", "session_ended"]
+    // remote notification type is user controlled, only dispatch values we actually handle
+    private static let sessionPayloadTypes: Set<String> = [
+        "session_locked",
+        "session_ended",
+        "session_jailbreak",
+        "session_proximity_exit",
+        "session_starting_soon"
+    ]
+    private static let friendRefreshPayloadTypes: Set<String> = [
+        "friend_request",
+        "friend_accepted",
+        "friendship_updated",
+        "friend_verified"
+    ]
+    private static let knownPayloadTypes = sessionPayloadTypes
+        .union(friendRefreshPayloadTypes)
+        .union(["nudge"])
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -29,6 +43,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillTerminate),
+            name: UIApplication.willTerminateNotification,
+            object: nil
+        )
 
         return true
     }
@@ -37,6 +63,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(hex, forKey: Keys.pendingToken)
+        AppLogger.push.info(
+            "APNs device token received",
+            context: ["token_suffix": Self.tokenSuffix(hex)]
+        )
         Task { await Self.syncDeviceToken() }
     }
 
@@ -48,6 +78,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        Self.logPushReceived(source: "background_fetch", userInfo: userInfo)
+
         guard let type = userInfo["type"] as? String,
               Self.knownPayloadTypes.contains(type) else {
             AppLogger.push.warning(
@@ -59,6 +91,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         Task { @MainActor in
+            if Self.friendRefreshPayloadTypes.contains(type) {
+                Self.postFriendsDidChange()
+                completionHandler(.newData)
+                return
+            }
+
             let handled = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
                 type: type,
                 userInfo: userInfo
@@ -72,12 +110,47 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { await Self.syncDeviceToken() }
     }
 
+    @objc private func appDidEnterBackground() {
+        var taskID = UIBackgroundTaskIdentifier.invalid
+        taskID = UIApplication.shared.beginBackgroundTask(withName: "presence-inactive") {
+            if taskID != .invalid {
+                UIApplication.shared.endBackgroundTask(taskID)
+                taskID = .invalid
+            }
+        }
+
+        Task { @MainActor in
+            await Self.reportPresence(isActive: false)
+            if taskID != .invalid {
+                UIApplication.shared.endBackgroundTask(taskID)
+            }
+        }
+    }
+
+    @objc private func appWillTerminate() {
+        Task { @MainActor in
+            await Self.reportPresence(isActive: false)
+        }
+    }
+
+    @MainActor
+    static func markDeviceTokenNeedsAccountSync() {
+        let defaults = UserDefaults.standard
+        if let registeredToken = defaults.string(forKey: Keys.registeredToken) {
+            defaults.set(registeredToken, forKey: Keys.pendingToken)
+        }
+        defaults.removeObject(forKey: Keys.registeredToken)
+        defaults.removeObject(forKey: Keys.registeredUserID)
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     // without this, iOS suppresses banners for alert payloads while the app is foregrounded
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Self.logPushReceived(source: "foreground_alert", userInfo: notification.request.content.userInfo)
+        Self.handleFriendNotification(userInfo: notification.request.content.userInfo)
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -85,6 +158,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
+        Self.logPushReceived(
+            source: "notification_response",
+            userInfo: userInfo,
+            context: ["action": response.actionIdentifier]
+        )
         guard let type = userInfo["type"] as? String,
               Self.knownPayloadTypes.contains(type) else {
             completionHandler()
@@ -92,6 +170,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
 
         Task { @MainActor in
+            if Self.friendRefreshPayloadTypes.contains(type) {
+                Self.postFriendsDidChange()
+                completionHandler()
+                return
+            }
+
             _ = await Self.sharedContainer?.sessionOrchestrator.handleRemotePayload(
                 type: type,
                 userInfo: userInfo
@@ -101,22 +185,101 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    private static func syncDeviceToken() async {
+    static func syncDeviceToken() async {
         let defaults = UserDefaults.standard
-        guard let hex = defaults.string(forKey: Keys.pendingToken) else { return }
+        let pendingToken = defaults.string(forKey: Keys.pendingToken)
+        let registeredToken = defaults.string(forKey: Keys.registeredToken)
+        guard let hex = pendingToken ?? registeredToken else { return }
 
-        if defaults.string(forKey: Keys.registeredToken) == hex {
+        guard let container = sharedContainer else {
+            AppLogger.push.debug("device token sync deferred: dependency container unavailable")
+            return
+        }
+
+        guard container.cache.readCachedToken() != nil else {
+            AppLogger.push.debug("device token sync deferred: no cached auth token")
+            return
+        }
+
+        let currentUserID = container.cache.readUser()?.id.uuidString ?? "<unknown>"
+        if pendingToken == nil,
+           registeredToken == hex,
+           defaults.string(forKey: Keys.registeredUserID) == currentUserID {
             defaults.removeObject(forKey: Keys.pendingToken)
             return
         }
 
-        guard let container = sharedContainer else { return }
         do {
             try await container.user.registerDeviceToken(hex)
             defaults.set(hex, forKey: Keys.registeredToken)
+            defaults.set(currentUserID, forKey: Keys.registeredUserID)
             defaults.removeObject(forKey: Keys.pendingToken)
+            AppLogger.push.info(
+                "device token uploaded",
+                context: [
+                    "user_id": currentUserID,
+                    "token_suffix": Self.tokenSuffix(hex)
+                ]
+            )
         } catch {
             AppLogger.push.warning("device token upload failed; will retry on next foreground", error: error)
         }
     }
+
+    @MainActor
+    static func reportPresence(isActive: Bool) async {
+        guard let container = sharedContainer,
+              container.cache.readCachedToken() != nil else {
+            return
+        }
+
+        do {
+            try await container.user.reportPresence(isActive: isActive)
+        } catch {
+            AppLogger.network.warning(
+                isActive ? "presence active update failed" : "presence inactive update failed",
+                context: ["error": String(describing: error)]
+            )
+        }
+    }
+
+    private static func handleFriendNotification(userInfo: [AnyHashable: Any]) {
+        guard let type = userInfo["type"] as? String,
+              friendRefreshPayloadTypes.contains(type) else { return }
+        Task { @MainActor in
+            postFriendsDidChange()
+        }
+    }
+
+    @MainActor
+    private static func postFriendsDidChange() {
+        NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
+    }
+
+    private static func logPushReceived(
+        source: String,
+        userInfo: [AnyHashable: Any],
+        context extraContext: [String: Any] = [:]
+    ) {
+        let type = userInfo["type"] as? String ?? "<missing>"
+        let aps = userInfo["aps"] as? [AnyHashable: Any]
+        let alert = aps?["alert"] != nil
+        var context: [String: Any] = [
+            "source": source,
+            "type": type,
+            "known": knownPayloadTypes.contains(type),
+            "alert": alert,
+            "content_available": aps?["content-available"] as? Int ?? 0
+        ]
+        extraContext.forEach { context[$0.key] = $0.value }
+        AppLogger.push.notice("remote push received", context: context)
+    }
+
+    private static func tokenSuffix(_ token: String) -> String {
+        String(token.suffix(8))
+    }
+}
+
+extension Notification.Name {
+    static let unpluggedFriendsDidChange = Notification.Name("com.unplugged.app.friends.didChange")
 }

@@ -29,8 +29,10 @@ struct ContentView: View {
 }
 
 struct MainTabView: View {
+    @Environment(\.scenePhase) private var scenePhase
     var authViewModel: AuthViewModel
     @State private var selectedTab: MainTab = .home
+    @State private var friendsRefreshToken = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -38,7 +40,7 @@ struct MainTabView: View {
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(MainTab.home)
 
-            FriendsListView()
+            FriendsListView(refreshToken: friendsRefreshToken)
                 .tabItem { Label("Friends", systemImage: "person.2.fill") }
                 .tag(MainTab.friends)
 
@@ -47,6 +49,21 @@ struct MainTabView: View {
                 .tag(MainTab.profile)
         }
         .tint(.tertiaryColor)
+        .onChange(of: selectedTab) { _, newTab in
+            guard newTab == .friends else { return }
+            friendsRefreshToken += 1
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase != .active else { return }
+            Task { await AppDelegate.reportPresence(isActive: false) }
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await AppDelegate.reportPresence(isActive: true)
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
     }
 
     private enum MainTab: Hashable {

@@ -538,11 +538,34 @@ struct SessionController: RouteCollection {
         let room = try await requireRoom(req: req)
         let roomID = try room.requireID()
 
+        guard room.endedAt == nil else {
+            throw Abort(.gone, reason: "Session already ended.")
+        }
+        guard room.lockedAt != nil else {
+            throw Abort(.badRequest, reason: "Jailbreak reports only apply to locked sessions.")
+        }
+
         let body = try req.content.decode(ReportJailbreakRequest.self)
 
-        let record = JailbreakModel(sessionID: roomID, userID: userID, reason: body.reason)
-        record.detectedAt = body.detectedAt
-        try await record.save(on: req.db)
+        guard let member = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .filter(\.$userID == userID)
+            .first() else {
+            throw Abort(.forbidden)
+        }
+
+        try await req.db.transaction { db in
+            if member.participantStatus == .active {
+                member.config = MemberModel.jailbreakConfig
+                member.leftAt = body.detectedAt
+                member.leftEarly = true
+                try await member.save(on: db)
+            }
+
+            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: body.reason)
+            record.detectedAt = body.detectedAt
+            try await record.save(on: db)
+        }
 
         await req.sessionHub.broadcast(
             roomID: roomID,

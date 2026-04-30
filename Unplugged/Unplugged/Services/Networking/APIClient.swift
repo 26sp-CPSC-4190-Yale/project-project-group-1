@@ -1,11 +1,18 @@
 import Foundation
 import UnpluggedShared
 
-struct APIClient {
-    private let baseURL = Config.baseURL
-    private let cache: LocalCacheService
+protocol HTTPSession {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
 
-    private let session: URLSession = {
+extension URLSession: HTTPSession {}
+
+struct APIClient {
+    private let baseURL: String
+    private let cachedToken: () -> String?
+    private let session: any HTTPSession
+
+    private static func makeDefaultSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
@@ -13,10 +20,24 @@ struct APIClient {
         config.timeoutIntervalForResource = 12
         config.waitsForConnectivity = false
         return URLSession(configuration: config)
-    }()
+    }
 
     init(cache: LocalCacheService) {
-        self.cache = cache
+        self.init(
+            baseURL: Config.baseURL,
+            cachedToken: { cache.readCachedToken() },
+            session: Self.makeDefaultSession()
+        )
+    }
+
+    init(
+        baseURL: String = Config.baseURL,
+        cachedToken: @escaping () -> String? = { nil },
+        session: any HTTPSession = APIClient.makeDefaultSession()
+    ) {
+        self.baseURL = baseURL
+        self.cachedToken = cachedToken
+        self.session = session
     }
 
     func send<T: Decodable>(_ route: APIRouter) async throws -> T {
@@ -86,7 +107,7 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
-        if route.requiresAuth, let token = cache.readCachedToken() {
+        if route.requiresAuth, let token = cachedToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

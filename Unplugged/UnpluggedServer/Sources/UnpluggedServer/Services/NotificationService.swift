@@ -6,10 +6,12 @@ import Vapor
 import VaporAPNS
 
 struct NotificationService {
+    private static let defaultBundleID = "com.unplugged"
     enum NotificationType {
         static let nudge = "nudge"
         static let friendRequest = "friend_request"
         static let friendAccepted = "friend_accepted"
+        static let friendshipUpdated = "friendship_updated"
         static let friendVerified = "friend_verified"
         static let sessionStartingSoon = "session_starting_soon"
         static let sessionLocked = "session_locked"
@@ -18,7 +20,7 @@ struct NotificationService {
         static let sessionProximityExit = "session_proximity_exit"
     }
 
-    // silently no-ops if the user has no device token or APNs is not configured
+    // alert push; logs every skip/send path so notification delivery failures are diagnosable
     static func send(
         to userID: UUID,
         title: String,
@@ -27,12 +29,15 @@ struct NotificationService {
         on db: Database,
         application: Application
     ) async {
-        guard application.isAPNSConfigured,
-              let user = try? await UserModel.find(userID, on: db),
-              let token = user.deviceToken
-        else { return }
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "alert",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        let bundleID = apnsBundleID()
 
         struct NotificationPayload: Codable & Sendable {
             let type: String
@@ -46,14 +51,28 @@ struct NotificationService {
             expiration: .immediately,
             priority: .immediately,
             topic: bundleID,
-            payload: NotificationPayload(type: type)
+            payload: NotificationPayload(type: type),
+            sound: .default,
+            interruptionLevel: .active
         )
 
         do {
+            application.logger.info("APNs alert push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
             try await application.apns.client(.default).sendAlertNotification(
                 notification,
                 deviceToken: token
             )
+            application.logger.info("APNs alert push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
         } catch {
             application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
         }
@@ -63,17 +82,68 @@ struct NotificationService {
     static func sendSilent(
         to userID: UUID,
         type: String,
+        on db: Database,
+        application: Application
+    ) async {
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "silent",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
+
+        let bundleID = apnsBundleID()
+
+        struct SilentPayload: Codable & Sendable {
+            let type: String
+        }
+
+        let notification = APNSBackgroundNotification(
+            expiration: .immediately,
+            topic: bundleID,
+            payload: SilentPayload(type: type)
+        )
+
+        do {
+            application.logger.info("APNs silent push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
+            try await application.apns.client(.default).sendBackgroundNotification(
+                notification,
+                deviceToken: token
+            )
+            application.logger.info("APNs silent push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
+        } catch {
+            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type)): \(error)")
+        }
+    }
+
+    static func sendSilent(
+        to userID: UUID,
+        type: String,
         sessionID: UUID,
         endsAt: Date? = nil,
         on db: Database,
         application: Application
     ) async {
-        guard application.isAPNSConfigured,
-              let user = try? await UserModel.find(userID, on: db),
-              let token = user.deviceToken
-        else { return }
+        guard let token = await deviceToken(
+            for: userID,
+            channel: "silent",
+            type: type,
+            on: db,
+            application: application
+        ) else { return }
 
-        let bundleID = Environment.get("APNS_BUNDLE_ID") ?? "com.unplugged.app"
+        let bundleID = apnsBundleID()
 
         struct SilentPayload: Codable & Sendable {
             let type: String
@@ -90,13 +160,76 @@ struct NotificationService {
         )
 
         do {
+            application.logger.info("APNs silent push sending", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "session_id": "\(sessionID)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
             try await application.apns.client(.default).sendBackgroundNotification(
                 notification,
                 deviceToken: token
             )
+            application.logger.info("APNs silent push sent", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "session_id": "\(sessionID)",
+                "topic": "\(bundleID)",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
         }
+    }
+
+    private static func deviceToken(
+        for userID: UUID,
+        channel: String,
+        type: String,
+        on db: Database,
+        application: Application
+    ) async -> String? {
+        guard application.isAPNSConfigured else {
+            application.logger.warning("APNs \(channel) push skipped: APNs not configured", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)"
+            ])
+            return nil
+        }
+
+        do {
+            guard let user = try await UserModel.find(userID, on: db) else {
+                application.logger.warning("APNs \(channel) push skipped: recipient user not found", metadata: [
+                    "user_id": "\(userID)",
+                    "type": "\(type)"
+                ])
+                return nil
+            }
+            guard let token = user.deviceToken, !token.isEmpty else {
+                application.logger.warning("APNs \(channel) push skipped: recipient has no device token", metadata: [
+                    "user_id": "\(userID)",
+                    "type": "\(type)"
+                ])
+                return nil
+            }
+            return token
+        } catch {
+            application.logger.error("APNs \(channel) push skipped: recipient lookup failed for user \(userID) (type=\(type)): \(error)")
+            return nil
+        }
+    }
+
+    static func apnsBundleID() -> String {
+        let trimmed = Environment.get("APNS_BUNDLE_ID")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            return trimmed
+        }
+        return defaultBundleID
+    }
+
+    private static func tokenSuffix(_ token: String) -> String {
+        String(token.suffix(8))
     }
 }
 
@@ -115,17 +248,26 @@ extension Application {
     // call from configure.swift, any missing APNs env var skips setup so local dev runs without credentials
     func configureAPNS() throws {
         guard
-            let privateKey = Environment.get("APNS_PRIVATE_KEY"),
+            let rawPrivateKey = try loadAPNSPrivateKey(),
             let keyID = Environment.get("APNS_KEY_ID"),
             let teamID = Environment.get("APNS_TEAM_ID")
         else {
-            logger.warning("[APNs] Skipping APNs setup — APNS_PRIVATE_KEY, APNS_KEY_ID, or APNS_TEAM_ID not set.")
+            logger.warning("[APNs] Skipping APNs setup — APNS_PRIVATE_KEY/APNS_PRIVATE_KEY_FILE, APNS_KEY_ID, or APNS_TEAM_ID not set.")
             return
         }
 
-        let apnsEnv: APNSEnvironment = Environment.get("APNS_ENVIRONMENT") == "production"
-            ? APNSEnvironment.production
-            : APNSEnvironment.development
+        let privateKey = rawPrivateKey.replacingOccurrences(of: "\\n", with: "\n")
+        let rawEnvironment = Environment.get("APNS_ENVIRONMENT")?.lowercased()
+        let useProduction: Bool
+        switch rawEnvironment {
+        case "production":
+            useProduction = true
+        case "development", "sandbox":
+            useProduction = false
+        default:
+            useProduction = environment == .production
+        }
+        let apnsEnv: APNSEnvironment = useProduction ? .production : .development
 
         apns.containers.use(
             APNSClientConfiguration(
@@ -143,7 +285,26 @@ extension Application {
         )
 
         isAPNSConfigured = true
-        let envName = Environment.get("APNS_ENVIRONMENT") == "production" ? "production" : "development"
-        logger.info("[APNs] Configured for \(envName).")
+        let envName = useProduction ? "production" : "development"
+        logger.info("[APNs] Configured for \(envName).", metadata: [
+            "topic": "\(NotificationService.apnsBundleID())"
+        ])
+    }
+
+    private func loadAPNSPrivateKey() throws -> String? {
+        if let rawPrivateKey = Environment.get("APNS_PRIVATE_KEY"), !rawPrivateKey.isEmpty {
+            return rawPrivateKey
+        }
+
+        guard let privateKeyPath = Environment.get("APNS_PRIVATE_KEY_FILE"), !privateKeyPath.isEmpty else {
+            return nil
+        }
+
+        do {
+            return try String(contentsOfFile: privateKeyPath, encoding: .utf8)
+        } catch {
+            logger.error("[APNs] Could not read APNS_PRIVATE_KEY_FILE at \(privateKeyPath): \(error)")
+            return nil
+        }
     }
 }

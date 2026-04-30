@@ -15,15 +15,24 @@ class DependencyContainer {
     let recap: RecapAPIService
     let touchTips: TouchTipsService
     let screenTime: ScreenTimeService
+    let liveActivity: LiveActivityService
     let webSocket: WebSocketClient
     let sessionOrchestrator: SessionOrchestrator
 
     init() {
+        let trace = AppLogger.beginMainThreadWork(
+            "DependencyContainer.init",
+            category: .launch,
+            warnAfter: 0.05
+        )
+        defer { trace.end() }
+
         let cache = LocalCacheService()
         // SecItemCopyMatching can block hundreds of ms on a cold keychain, pre-warm off the main actor
         cache.prewarmToken()
         let client = APIClient(cache: cache)
         let screenTime = ScreenTimeService()
+        let liveActivity = LiveActivityService()
         let webSocket = WebSocketClient()
         let touchTips = TouchTipsService()
 
@@ -40,11 +49,13 @@ class DependencyContainer {
         self.recap = recap
         self.touchTips = touchTips
         self.screenTime = screenTime
+        self.liveActivity = liveActivity
         self.webSocket = webSocket
         self.sessionOrchestrator = SessionOrchestrator(
             sessions: sessions,
             recap: recap,
             screenTime: screenTime,
+            liveActivity: liveActivity,
             cache: cache,
             webSocket: webSocket,
             touchTips: touchTips

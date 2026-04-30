@@ -17,7 +17,25 @@ struct FriendAPIService {
     }
 
     func acceptRequest(friendID: UUID) async throws -> FriendResponse {
-        try await client.send(.acceptFriend(id: friendID))
+        do {
+            return try await client.send(.acceptFriend(id: friendID))
+        } catch {
+            guard Self.shouldTryRequestIDFallback(after: error) else { throw error }
+            return try await client.send(.acceptFriendRequest(id: friendID))
+        }
+    }
+
+    func rejectIncomingRequest(requestID: UUID) async throws {
+        do {
+            try await client.sendVoid(.rejectFriendRequest(id: requestID))
+        } catch {
+            guard Self.shouldTryRequestIDFallback(after: error) else { throw error }
+            try await client.sendVoid(.rejectFriend(id: requestID))
+        }
+    }
+
+    func cancelOutgoingRequest(targetID: UUID) async throws {
+        try await client.sendVoid(.rejectFriend(id: targetID))
     }
 
     func rejectRequest(friendID: UUID) async throws {
@@ -42,5 +60,11 @@ struct FriendAPIService {
 
     func getLeaderboard() async throws -> [LeaderboardEntryResponse] {
         try await client.send(.getLeaderboard)
+    }
+
+    private static func shouldTryRequestIDFallback(after error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == "Vapor" else { return false }
+        return [400, 403, 404, 409, 422].contains(nsError.code)
     }
 }

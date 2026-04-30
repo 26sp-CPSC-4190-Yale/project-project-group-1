@@ -42,6 +42,7 @@ class AuthViewModel {
             }
         }
         isAuthenticated = true
+        await AppDelegate.syncDeviceToken()
     }
 
     func loginWithUsername(username: String, password: String) async {
@@ -55,6 +56,7 @@ class AuthViewModel {
             let response = try await authService.login(username: username, password: password)
             cache.saveAuth(response)
             isAuthenticated = true
+            await AppDelegate.syncDeviceToken()
         } catch {
             AppLogger.auth.warning("username login failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -73,6 +75,7 @@ class AuthViewModel {
             let response = try await authService.register(username: username, password: password)
             cache.saveAuth(response)
             isAuthenticated = true
+            await AppDelegate.syncDeviceToken()
         } catch {
             AppLogger.auth.warning("username registration failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -124,6 +127,7 @@ class AuthViewModel {
                 )
                 cache.saveAuth(response)
                 isAuthenticated = true
+                await AppDelegate.syncDeviceToken()
             } catch {
                 AppLogger.auth.error("Apple sign-in API failed", error: error)
                 errorMessage = message(for: error)
@@ -143,6 +147,7 @@ class AuthViewModel {
             let response = try await authService.signInWithGoogle(idToken: idToken)
             cache.saveAuth(response)
             isAuthenticated = true
+            await AppDelegate.syncDeviceToken()
         } catch {
             AppLogger.auth.error("Google sign-in API failed", error: error)
             errorMessage = message(for: error)
@@ -154,6 +159,7 @@ class AuthViewModel {
         if let orchestrator = sessionOrchestrator {
             Task { await orchestrator.teardown() }
         }
+        AppDelegate.markDeviceTokenNeedsAccountSync()
         cache?.clearAuth()
         isAuthenticated = false
     }
