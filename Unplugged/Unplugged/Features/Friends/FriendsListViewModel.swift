@@ -171,6 +171,16 @@ class FriendsListViewModel {
         await load(service: service, force: true)
     }
 
+    func removeFriend(id: UUID, service: FriendAPIService) async {
+        friends.removeAll { $0.id == id }
+        do {
+            try await service.removeFriend(id: id)
+        } catch {
+            self.error = "Could not remove friend"
+        }
+        await load(service: service, force: true)
+    }
+
     func blockUser(id: UUID, user: UserAPIService, friends friendsService: FriendAPIService) async {
         friends.removeAll { $0.id == id }
         incomingRequests.removeAll { $0.id == id }

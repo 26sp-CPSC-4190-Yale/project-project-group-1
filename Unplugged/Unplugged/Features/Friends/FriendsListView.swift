@@ -65,6 +65,16 @@ struct FriendsListView: View {
                                         }
                                         Button(role: .destructive) {
                                             Task {
+                                                await viewModel.removeFriend(
+                                                    id: friend.id,
+                                                    service: deps.friends
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Remove Friend", systemImage: "person.badge.minus")
+                                        }
+                                        Button(role: .destructive) {
+                                            Task {
                                                 await viewModel.blockUser(
                                                     id: friend.id,
                                                     user: deps.user,
