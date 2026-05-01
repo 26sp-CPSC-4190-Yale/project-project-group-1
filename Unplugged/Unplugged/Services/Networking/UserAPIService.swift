@@ -24,6 +24,10 @@ struct UserAPIService {
         try await client.sendVoid(.registerDeviceToken(token))
     }
 
+    func clearDeviceToken() async throws {
+        try await client.sendVoid(.clearDeviceToken)
+    }
+
     // password required for password accounts, ignored for OAuth, missing password returns 400
     func deleteAccount(password: String?) async throws {
         try await client.sendVoid(.deleteMe(DeleteAccountRequest(password: password)))

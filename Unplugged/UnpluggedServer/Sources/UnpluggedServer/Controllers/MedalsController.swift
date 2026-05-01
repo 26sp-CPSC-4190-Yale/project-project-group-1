@@ -63,6 +63,9 @@ struct MedalsController: RouteCollection {
         guard let userID = req.parameters.get("userID", as: UUID.self) else {
             throw Abort(.badRequest)
         }
+        guard try await UserVisibilityService.visibleUser(userID, on: req.db) != nil else {
+            throw Abort(.notFound)
+        }
         return try await MedalService.getUserMedals(userID: userID, on: req.db)
     }
 

@@ -46,6 +46,25 @@ struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
+struct SecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            configuration.label
+            Spacer(minLength: 0)
+        }
+            .font(.headlineFont)
+            .foregroundColor(.tertiaryColor)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, .spacingMd)
+            .background(Color.surfaceColor)
+            .cornerRadius(.cornerRadius)
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
 struct DestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {

@@ -49,6 +49,7 @@ final class SessionOrchestrator {
     private var lastShieldWarningMessage: String?
     private var appliedShieldSessionID: UUID?
     private var appliedShieldEndsAt: Date?
+    private static let unlimitedShieldInterval: TimeInterval = 365 * 24 * 60 * 60
 
     init(sessions: SessionAPIService,
          recap: RecapAPIService,
@@ -71,10 +72,39 @@ final class SessionOrchestrator {
     func enterLobby(session: SessionResponse) async {
         let shouldConnect = currentSession?.session.id != session.session.id
         await applySessionSnapshot(session)
+        await flushPendingShieldAttempts()
         guard session.session.endedAt == nil else { return }
         guard shouldConnect else { return }
         await connectWebSocket(sessionID: session.session.id)
         startSessionSync(sessionID: session.session.id)
+    }
+
+    @discardableResult
+    func recoverActiveSession() async -> SessionResponse? {
+        do {
+            await flushPendingShieldAttempts()
+            let active = try await sessions.listSessions()
+                .filter { response in
+                    response.session.endedAt == nil
+                        && response.participants.contains { $0.userID == cache.readUser()?.id && $0.status == .active }
+                }
+                .sorted { lhs, rhs in
+                    let lhsLocked = lhs.session.lockedAt != nil
+                    let rhsLocked = rhs.session.lockedAt != nil
+                    if lhsLocked != rhsLocked { return lhsLocked && !rhsLocked }
+                    return (lhs.session.startedAt ?? .distantPast) > (rhs.session.startedAt ?? .distantPast)
+                }
+                .first
+            guard let active else { return nil }
+            await enterLobby(session: active)
+            return active
+        } catch {
+            AppLogger.session.warning(
+                "active session recovery failed",
+                context: ["error": String(describing: error)]
+            )
+            return nil
+        }
     }
 
     func hostStart() async {
@@ -89,6 +119,39 @@ final class SessionOrchestrator {
         } catch {
             AppLogger.session.error("hostStart failed", error: error, context: ["id": session.session.id.uuidString])
             errorMessage = "Couldn't start the session: \(error)"
+        }
+    }
+
+    func setCoLockReady(_ isReady: Bool) async {
+        guard let session = currentSession else { return }
+        do {
+            let updated = try await sessions.setCoLockReady(id: session.session.id, isReady: isReady)
+            await applySessionSnapshot(updated)
+        } catch {
+            AppLogger.session.error("setCoLockReady failed", error: error, context: ["id": session.session.id.uuidString])
+            errorMessage = "Couldn't update co-lock readiness."
+        }
+    }
+
+    func requestCoLockRelease() async {
+        guard let session = currentSession else { return }
+        do {
+            let updated = try await sessions.requestCoLockRelease(id: session.session.id)
+            await applySessionSnapshot(updated)
+        } catch {
+            AppLogger.session.error("requestCoLockRelease failed", error: error, context: ["id": session.session.id.uuidString])
+            errorMessage = "Couldn't request release."
+        }
+    }
+
+    func approveCoLockRelease() async {
+        guard let session = currentSession else { return }
+        do {
+            let updated = try await sessions.approveCoLockRelease(id: session.session.id)
+            await applySessionSnapshot(updated)
+        } catch {
+            AppLogger.session.error("approveCoLockRelease failed", error: error, context: ["id": session.session.id.uuidString])
+            errorMessage = "Couldn't approve release."
         }
     }
 
@@ -121,6 +184,10 @@ final class SessionOrchestrator {
                 error: error,
                 context: ["id": sessionID.uuidString]
             )
+            if session.session.lockMode == .coLock && phase == .locked {
+                errorMessage = "Co-lock sessions require everyone to approve release."
+                return
+            }
         }
 
         do {
@@ -143,6 +210,7 @@ final class SessionOrchestrator {
         await webSocket.disconnect()
         await touchTips.stop()
         resetShieldTracking()
+        clearScreenTimeContext()
 
         phase = .idle
         currentSession = nil
@@ -195,6 +263,7 @@ final class SessionOrchestrator {
         lastRecap = nil
         didLeaveCurrentSessionForProximity = false
         resetShieldTracking()
+        clearScreenTimeContext()
     }
 
     func acknowledgeProximityExitDismissal() {
@@ -255,7 +324,7 @@ final class SessionOrchestrator {
         case .stateSync(let response):
             await applySessionSnapshot(response)
         case .jailbreakReported(let userID, let reason):
-            if reason == "left_due_to_proximity" {
+            if reason == SessionExitReason.leftDueToProximity {
                 updateParticipantStatus(userID: userID, status: .left)
             } else {
                 updateParticipantStatus(userID: userID, status: .jailbroken)
@@ -348,13 +417,18 @@ final class SessionOrchestrator {
             await handleSessionEnded()
         } else if response.session.lockedAt != nil {
             self.phase = .locked
-            if let endsAt = response.session.endsAt {
+            let shieldEndsAt = response.session.endsAt ?? Self.unlimitedShieldEndsAt()
+            if response.session.durationSeconds == nil {
+                self.countdownEndsAt = nil
+            }
+            if response.session.endsAt != nil || response.session.durationSeconds == nil {
                 await liveActivity.startOrUpdate(
                     sessionID: response.session.id,
                     roomTitle: response.session.title,
-                    endsAt: endsAt
+                    endsAt: shieldEndsAt
                 )
-                await engageShield(endsAt: endsAt)
+                warnIfLiveActivitiesDisabled(sessionID: response.session.id)
+                await engageShield(endsAt: shieldEndsAt)
             } else {
                 AppLogger.session.critical(
                     "session locked but endsAt missing — server protocol violation",
@@ -366,20 +440,37 @@ final class SessionOrchestrator {
         } else {
             self.phase = .lobby
             stopLockedProximityEnforcement()
+            clearScreenTimeContext()
             await liveActivity.end(sessionID: response.session.id)
         }
     }
 
     private func applyLocked(endsAt: Date) async {
-        self.countdownEndsAt = endsAt
+        self.countdownEndsAt = currentSession?.session.durationSeconds == nil ? nil : endsAt
         self.phase = .locked
         await liveActivity.startOrUpdate(
             sessionID: currentSession?.session.id,
             roomTitle: currentSession?.session.title,
             endsAt: endsAt
         )
+        warnIfLiveActivitiesDisabled(sessionID: currentSession?.session.id)
         await engageShield(endsAt: endsAt)
         await startLockedProximityEnforcementIfNeeded()
+    }
+
+    private var lastLiveActivityWarningSessionID: UUID?
+
+    private func warnIfLiveActivitiesDisabled(sessionID: UUID?) {
+        guard !liveActivity.areActivitiesEnabled() else { return }
+        guard lastLiveActivityWarningSessionID != sessionID else { return }
+        lastLiveActivityWarningSessionID = sessionID
+        AppLogger.session.warning(
+            "Live Activities disabled — background proximity enforcement may stop when the app is backgrounded",
+            context: ["session": sessionID?.uuidString ?? "<none>"]
+        )
+        if errorMessage == nil {
+            errorMessage = "Enable Live Activities in Settings → Unplugged so the lock survives backgrounding."
+        }
     }
 
     private func updateParticipantStatus(userID: UUID, status: ParticipantStatus) {
@@ -400,6 +491,7 @@ final class SessionOrchestrator {
     private func engageShield(endsAt: Date) async {
         let sessionID = currentSession?.session.id
         if shieldMatches(sessionID: sessionID, endsAt: endsAt, trackedSessionID: appliedShieldSessionID, trackedEndsAt: appliedShieldEndsAt) {
+            await saveScreenTimeContext(endsAt: endsAt)
             startJailbreakWatchdog()
             return
         }
@@ -420,6 +512,7 @@ final class SessionOrchestrator {
             lastShieldWarningSessionID = nil
             lastShieldWarningEndsAt = nil
             lastShieldWarningMessage = nil
+            await saveScreenTimeContext(endsAt: endsAt)
             startJailbreakWatchdog()
         } catch {
             AppLogger.shield.critical(
@@ -495,6 +588,7 @@ final class SessionOrchestrator {
         await liveActivity.end(sessionID: currentSession?.session.id)
         await touchTips.stop()
         resetShieldTracking()
+        clearScreenTimeContext()
         self.phase = .ended
         if let id = currentSession?.session.id {
             do {
@@ -589,21 +683,29 @@ final class SessionOrchestrator {
             stopLockedProximityEnforcement()
             return
         }
-        guard userID != session.hostID else {
-            AppLogger.proximity.info("enforcement start skipped — user IS host", context: ["userID": userID.uuidString, "hostID": session.hostID.uuidString])
-            stopLockedProximityEnforcement()
-            return
-        }
 
         guard await touchTips.supportsLockedProximityMonitoring() else {
             AppLogger.proximity.warning("enforcement start skipped — UWB not supported on device")
             stopLockedProximityEnforcement()
             return
         }
-        AppLogger.proximity.info("enforcement starting for session \(session.id.uuidString)")
+
+        let isHostMaintenance = session.lockMode != .coLock && userID == session.hostID
+
+        if isHostMaintenance {
+            AppLogger.proximity.info("host proximity maintenance starting for session \(session.id.uuidString)")
+        } else {
+            AppLogger.proximity.info("enforcement starting for session \(session.id.uuidString)")
+        }
 
         stopLockedProximityEnforcement()
         lockedProximitySessionID = session.id
+
+        if isHostMaintenance {
+            await installHostProximityMaintenance(sessionID: session.id)
+            // host is never kicked out for being out of range, so no evaluation timer is started here
+            return
+        }
 
         await installLockedProximityStream(sessionID: session.id, reason: "initial_start")
 
@@ -614,6 +716,42 @@ final class SessionOrchestrator {
                 await self.evaluateLockedProximity(sessionID: session.id)
             }
         }
+    }
+
+    private func installHostProximityMaintenance(sessionID: UUID) async {
+        AppLogger.proximity.info("host maintenance install — session=\(sessionID.uuidString)")
+        let stream = await touchTips.startHostProximityMaintenance(roomID: sessionID)
+        lockedProximityUpdatesTask = Task { [weak self] in
+            for await reading in stream {
+                guard let self else { return }
+                await self.recordHostProximityForLiveActivity(reading)
+            }
+        }
+    }
+
+    private func recordHostProximityForLiveActivity(_ reading: LockedProximityReading) async {
+        latestLockedProximityReading = reading
+        guard let session = currentSession?.session else { return }
+        let state = Self.proximityActivityState(for: reading)
+        await liveActivity.updateProximity(
+            sessionID: session.id,
+            distanceMeters: reading.distanceMeters,
+            state: state,
+            observedAt: reading.observedAt,
+            roomTitle: session.title,
+            endsAt: effectiveLockedEndsAt(for: session)
+        )
+    }
+
+    private func effectiveLockedEndsAt(for session: Session) -> Date {
+        session.endsAt ?? Self.unlimitedShieldEndsAt()
+    }
+
+    private static func proximityActivityState(
+        for reading: LockedProximityReading
+    ) -> LockedSessionActivityAttributes.ProximityState {
+        guard let distance = reading.distanceMeters else { return .signalLost }
+        return distance <= LockedSessionProximityPolicy.maxDistanceMeters ? .inRange : .outOfRange
     }
 
     private func stopLockedProximityEnforcement() {
@@ -672,6 +810,35 @@ final class SessionOrchestrator {
             }
         } else if reading.distanceMeters == nil, stateChanged {
             AppLogger.proximity.warning("no-distance reading recorded — \(assessment.logDescription)")
+        }
+        Task { [weak self] in
+            await self?.pushProximityToLiveActivity(reading: reading, assessment: assessment)
+        }
+    }
+
+    private func pushProximityToLiveActivity(
+        reading: LockedProximityReading,
+        assessment: LockedProximityAssessment
+    ) async {
+        guard let session = currentSession?.session else { return }
+        let state = Self.proximityActivityState(for: assessment)
+        await liveActivity.updateProximity(
+            sessionID: session.id,
+            distanceMeters: reading.distanceMeters,
+            state: state,
+            observedAt: reading.observedAt,
+            roomTitle: session.title,
+            endsAt: effectiveLockedEndsAt(for: session)
+        )
+    }
+
+    private static func proximityActivityState(
+        for assessment: LockedProximityAssessment
+    ) -> LockedSessionActivityAttributes.ProximityState {
+        switch assessment.state {
+        case .withinThreshold: return .inRange
+        case .outOfRange: return .outOfRange
+        case .noReading, .stale, .missingDistance: return .signalLost
         }
     }
 
@@ -875,6 +1042,16 @@ final class SessionOrchestrator {
         stopJailbreakWatchdog()
         stopSessionSync()
         stopLockedProximityEnforcement()
+        do {
+            try await screenTime.unlockApps()
+        } catch {
+            AppLogger.shield.critical(
+                "unlockApps failed during proximity exit — shield may be stuck",
+                error: error
+            )
+            errorMessage = "Couldn't unlock apps. Check Screen Time permission in Settings."
+        }
+        await liveActivity.end(sessionID: currentSession?.session.id)
         listenerTask?.cancel()
         listenerTask = nil
         await webSocket.disconnect()
@@ -883,6 +1060,29 @@ final class SessionOrchestrator {
         participants = []
         countdownEndsAt = nil
         didLeaveCurrentSessionForProximity = true
+        clearScreenTimeContext()
+    }
+
+    func flushPendingShieldAttempts() async {
+        let attempts = ScreenTimeShared.drainPendingShieldAttempts()
+        guard !attempts.isEmpty else { return }
+
+        var retry: [ScreenTimeShared.PendingShieldAttempt] = []
+        for attempt in attempts {
+            do {
+                try await sessions.reportShieldAttempt(id: attempt.sessionID, reason: attempt.reason)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == "Vapor", [400, 403, 404, 410].contains(nsError.code) {
+                    continue
+                }
+                retry.append(attempt)
+            }
+        }
+
+        if !retry.isEmpty {
+            ScreenTimeShared.requeuePendingShieldAttempts(retry)
+        }
     }
 
     private func resetShieldTracking() {
@@ -891,6 +1091,45 @@ final class SessionOrchestrator {
         lastShieldWarningMessage = nil
         appliedShieldSessionID = nil
         appliedShieldEndsAt = nil
+    }
+
+    private func saveScreenTimeContext(endsAt: Date) async {
+        guard let session = currentSession?.session else { return }
+        let token: String?
+        if let cached = cache.readCachedToken() {
+            token = cached
+        } else {
+            token = await cache.readTokenAsync()
+        }
+        guard let token else {
+            AppLogger.shield.warning(
+                "screen time context not saved: missing auth token",
+                context: ["session": session.id.uuidString]
+            )
+            return
+        }
+
+        let context = ScreenTimeShared.ActiveContext(
+            sessionID: session.id,
+            bearerToken: token,
+            baseURL: Config.baseURL,
+            sessionTitle: session.title ?? "Unplugged",
+            lockMode: session.lockMode.rawValue,
+            endsAt: session.durationSeconds == nil ? nil : (session.endsAt ?? endsAt),
+            isUnlimited: session.durationSeconds == nil,
+            updatedAt: Date()
+        )
+
+        if !ScreenTimeShared.saveActiveContext(context) {
+            AppLogger.shield.warning(
+                "screen time context not saved: app group unavailable",
+                context: ["session": session.id.uuidString]
+            )
+        }
+    }
+
+    private func clearScreenTimeContext() {
+        ScreenTimeShared.clearActiveContext()
     }
 
     private func setShieldWarning(_ message: String, sessionID: UUID?, endsAt: Date) {
@@ -932,12 +1171,12 @@ final class SessionOrchestrator {
                         context: ["session": sessionID.uuidString]
                     )
                     do {
-                        try await self.sessions.reportJailbreak(id: sessionID, reason: "screen_time_auth_cleared")
+                        try await self.sessions.reportJailbreak(id: sessionID, reason: SessionExitReason.screenTimeAuthorizationCleared)
                     } catch {
                         AppLogger.shield.error("jailbreak REST report failed", error: error, context: ["session": sessionID.uuidString])
                     }
                     do {
-                        try await self.webSocket.send(.reportJailbreak(reason: "screen_time_auth_cleared"))
+                        try await self.webSocket.send(.reportJailbreak(reason: SessionExitReason.screenTimeAuthorizationCleared))
                     } catch {
                         AppLogger.shield.error("jailbreak WS report failed", error: error, context: ["session": sessionID.uuidString])
                     }
@@ -984,5 +1223,9 @@ final class SessionOrchestrator {
             return Date(timeIntervalSince1970: seconds)
         }
         return nil
+    }
+
+    private static func unlimitedShieldEndsAt() -> Date {
+        Date().addingTimeInterval(unlimitedShieldInterval)
     }
 }

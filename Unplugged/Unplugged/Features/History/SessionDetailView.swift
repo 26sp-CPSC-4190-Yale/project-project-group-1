@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UnpluggedShared
 
 struct SessionDetailView: View {
@@ -23,6 +24,24 @@ struct SessionDetailView: View {
                     durationCard
 
                     outcomeCard
+
+                    if let description = session.description, !description.isEmpty {
+                        metaTextCard(icon: "text.alignleft", label: "Description", value: description)
+                    }
+
+                    if let weather = session.weather {
+                        metaRow(icon: weather.conditionSymbol ?? "cloud.sun.fill",
+                                label: "Weather",
+                                value: weatherLabel(weather))
+                    }
+
+                    if let latitude = session.latitude, let longitude = session.longitude {
+                        SessionMapView(latitude: latitude, longitude: longitude)
+                    }
+
+                    if !session.memoryPhotos.isEmpty {
+                        memoryPhotos(session.memoryPhotos)
+                    }
 
                     if session.participantCount > 1 {
                         metaRow(icon: "person.2.fill",
@@ -76,12 +95,12 @@ struct SessionDetailView: View {
             HStack(spacing: .spacingMd) {
                 durationBlock(
                     title: "Planned",
-                    seconds: session.durationSeconds ?? 0,
+                    value: plannedDurationLabel,
                     color: Color.tertiaryColor.opacity(0.7)
                 )
                 durationBlock(
                     title: "Actual",
-                    seconds: session.actualFocusedSeconds ?? 0,
+                    value: TimeInterval(session.actualFocusedSeconds ?? 0).humanReadable,
                     color: actualColor
                 )
             }
@@ -92,14 +111,21 @@ struct SessionDetailView: View {
         session.leftEarly ? Color.destructiveColor : Color.secondaryColor
     }
 
-    private func durationBlock(title: String, seconds: Int, color: Color) -> some View {
+    private var plannedDurationLabel: String {
+        guard let duration = session.durationSeconds else { return "Unlimited" }
+        return TimeInterval(duration).humanReadable
+    }
+
+    private func durationBlock(title: String, value: String, color: Color) -> some View {
         VStack(spacing: .spacingSm) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(Color.tertiaryColor.opacity(0.6))
-            Text(TimeInterval(seconds).humanReadable)
+            Text(value)
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, .spacingLg)
@@ -150,7 +176,9 @@ struct SessionDetailView: View {
         let planned = session.durationSeconds ?? 0
         let actual = session.actualFocusedSeconds ?? 0
         if !session.leftEarly {
-            return "You stayed locked in the full \(TimeInterval(planned).humanReadable)."
+            return session.durationSeconds == nil
+                ? "You stayed locked in until everyone released."
+                : "You stayed locked in the full \(TimeInterval(planned).humanReadable)."
         }
         let missed = max(0, planned - actual)
         return "You stayed \(TimeInterval(actual).humanReadable) of \(TimeInterval(planned).humanReadable) — \(TimeInterval(missed).humanReadable) short."
@@ -171,6 +199,57 @@ struct SessionDetailView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadius))
+    }
+
+    private func metaTextCard(icon: String, label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: .spacingSm) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .frame(width: 24)
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+            }
+            Text(value)
+                .font(.body)
+                .foregroundStyle(Color.tertiaryColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.spacingMd)
+        .background(Color.surfaceColor)
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadius))
+    }
+
+    private func weatherLabel(_ weather: SessionWeatherSnapshot) -> String {
+        if let temp = weather.temperatureFahrenheit {
+            return "\(weather.summary), \(Int(temp.rounded()))°F"
+        }
+        return weather.summary
+    }
+
+    private func memoryPhotos(_ photos: [SessionMemoryPhotoResponse]) -> some View {
+        VStack(alignment: .leading, spacing: .spacingSm) {
+            Text("Memories")
+                .font(.headline)
+                .foregroundStyle(Color.tertiaryColor)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: .spacingSm) {
+                    ForEach(photos) { photo in
+                        if let data = photo.thumbnailData, let uiImage = UIImage(data: data) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 96, height: 96)
+                                .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSm))
+                                .clipped()
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

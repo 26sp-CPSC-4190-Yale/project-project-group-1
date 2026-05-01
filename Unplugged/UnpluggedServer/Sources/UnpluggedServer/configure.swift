@@ -53,12 +53,9 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateSessions())
     app.migrations.add(CreateParticipants())
     app.migrations.add(CreateFriendships())
-    app.migrations.add(CreateGroups())
-    app.migrations.add(CreateGroupMembers())
     app.migrations.add(CreateJailbreaks())
     app.migrations.add(CreateMedal())
     app.migrations.add(CreateUserMedalPivot()) // must come after both user + medal migrations
-    // app.migrations.add(CreateSessionLocations()) // location is now in the rooms table
     app.migrations.add(AddDeviceTokenToUsers())
     app.migrations.add(AddPointsToUsers())
     app.migrations.add(AddLifecycleFieldsToRooms())
@@ -69,6 +66,10 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(CreateUserBlocks())
     app.migrations.add(CreateUserReports())
     app.migrations.add(AddRoomCodeToRooms())
+    app.migrations.add(AddSessionMetadataAndCoLock())
+    app.migrations.add(CreateSessionMemoryPhotos())
+    app.migrations.add(CreateCoLockReleaseApprovals())
+    app.migrations.add(AddUniquenessIndexes())
     app.migrations.add(AddPerformanceIndexes())
     app.migrations.add(DropIsActiveFromRooms())
     app.migrations.add(DropEndsAtFromRooms())

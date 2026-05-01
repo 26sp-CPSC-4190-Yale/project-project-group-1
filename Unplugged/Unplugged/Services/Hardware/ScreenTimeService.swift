@@ -8,10 +8,10 @@ import DeviceActivity
 
 // all calls no-op and isAvailable is false when the FamilyControls entitlement is missing, on simulator, or permission is denied
 final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
-    static let appGroup = "group.com.unplugged.app.shared"
+    static let appGroup = ScreenTimeShared.appGroupID
     static let allowlistKey = "emergencyAllowlist"
-    static let monitorName = "unpluggedSession"
-    static let storeName = "unpluggedSession"
+    static let monitorName = ScreenTimeShared.deviceActivityName
+    static let storeName = ScreenTimeShared.managedSettingsStoreName
 
     private let groupDefaults: UserDefaults?
 
@@ -118,8 +118,11 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
         let now = Date()
-        // DeviceActivitySchedule requires >= 15 min window, pad short sessions to 16, the normal unlock flow clears the shield at the real endsAt well before the monitor fires
-        let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
+        // DeviceActivitySchedule is time-of-day based; keep very long/unlimited locks inside the next day.
+        // The ManagedSettings shield remains until the app explicitly unlocks on session end.
+        let minimumEndsAt = now.addingTimeInterval(16 * 60)
+        let maximumScheduledEndsAt = now.addingTimeInterval(23 * 60 * 60)
+        let scheduledEndsAt = min(max(endsAt, minimumEndsAt), maximumScheduledEndsAt)
         let calendar = Calendar.current
         let start = calendar.dateComponents([.hour, .minute, .second], from: now)
         let end = calendar.dateComponents([.hour, .minute, .second], from: scheduledEndsAt)

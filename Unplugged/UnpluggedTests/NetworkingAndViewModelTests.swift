@@ -15,6 +15,15 @@ final class NetworkingAndViewModelTests: XCTestCase {
         XCTAssertEqual(items["before"], "2026-05-03T03:09:37.000Z")
     }
 
+    func testAPIRouterSearchUsersEscapesReservedCharacters() throws {
+        let path = APIRouter.searchUsers(query: "a&b=c").path
+        let components = try XCTUnwrap(URLComponents(string: "https://example.test\(path)"))
+        let items = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value) })
+
+        XCTAssertEqual(components.path, "/users/search")
+        XCTAssertEqual(items["q"], "a&b=c")
+    }
+
     func testAPIClientAddsAuthorizationAndJSONBody() async throws {
         let seenRequest = RequestCapture()
         let user = User(id: UUID(), username: "alice", createdAt: Date(timeIntervalSince1970: 1_700_000_000))
@@ -41,6 +50,54 @@ final class NetworkingAndViewModelTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(json["username"], "alice")
+    }
+
+    func testAPIClientUsesAsyncTokenFallbackWhenCacheIsCold() async throws {
+        let seenRequest = RequestCapture()
+        let session = StubSession { request in
+            seenRequest.request = request
+            return (try Self.encodeJSON(User(id: UUID(), username: "alice", createdAt: Date())), Self.httpResponse(url: request.url!, status: 200))
+        }
+        let client = APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { nil },
+            authToken: { "async-jwt-token" },
+            session: session
+        )
+
+        let _: User = try await client.send(.getMe)
+
+        XCTAssertEqual(seenRequest.request?.value(forHTTPHeaderField: "Authorization"), "Bearer async-jwt-token")
+    }
+
+    func testScreenTimeSharedContextAndPendingAttemptsRoundTrip() throws {
+        let suiteName = "screen-time-shared-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sessionID = UUID()
+        let context = ScreenTimeShared.ActiveContext(
+            sessionID: sessionID,
+            bearerToken: "token",
+            baseURL: "https://example.test",
+            sessionTitle: "Study",
+            lockMode: "standard",
+            endsAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isUnlimited: false,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertTrue(ScreenTimeShared.saveActiveContext(context, defaults: defaults))
+        XCTAssertEqual(ScreenTimeShared.loadActiveContext(defaults: defaults), context)
+        XCTAssertTrue(ScreenTimeShared.claimAttemptReportSlot(sessionID: sessionID, now: Date(timeIntervalSince1970: 100), defaults: defaults))
+        XCTAssertFalse(ScreenTimeShared.claimAttemptReportSlot(sessionID: sessionID, now: Date(timeIntervalSince1970: 120), defaults: defaults))
+
+        ScreenTimeShared.appendPendingShieldAttempt(
+            .init(sessionID: sessionID, reason: ScreenTimeShared.shieldActionAttemptReason),
+            defaults: defaults
+        )
+        XCTAssertEqual(ScreenTimeShared.drainPendingShieldAttempts(defaults: defaults).count, 1)
+        XCTAssertTrue(ScreenTimeShared.drainPendingShieldAttempts(defaults: defaults).isEmpty)
     }
 
     func testAPIClientDecodesFractionalAndStandardISO8601Dates() async throws {
@@ -543,71 +600,6 @@ final class NetworkingAndViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.error, "Failed to create room: Duration must be between 1 second and 24 hours.")
     }
 
-    @MainActor
-    func testGroupsViewModelCreateAddMemberAndDeleteUpdateState() async throws {
-        let groupID = UUID()
-        let ownerID = UUID()
-        let memberID = UUID()
-        let createdGroup = GroupResponse(
-            id: groupID,
-            name: "Besties",
-            ownerID: ownerID,
-            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            members: [
-                GroupMemberResponse(id: UUID(), userID: ownerID, username: "owner", joinedAt: Date(timeIntervalSince1970: 1_700_000_000))
-            ]
-        )
-        let updatedGroup = GroupResponse(
-            id: groupID,
-            name: "Besties",
-            ownerID: ownerID,
-            createdAt: createdGroup.createdAt,
-            members: createdGroup.members + [
-                GroupMemberResponse(id: UUID(), userID: memberID, username: "member", joinedAt: Date(timeIntervalSince1970: 1_700_000_100))
-            ]
-        )
-        let createService = GroupAPIService(client: APIClient(
-            baseURL: "https://example.test",
-            cachedToken: { "jwt-token" },
-            session: StubSession { request in
-                switch (request.httpMethod, request.url?.path) {
-                case ("POST", "/groups"):
-                    return (try Self.encodeJSON(createdGroup), Self.httpResponse(url: request.url!, status: 200))
-                default:
-                    XCTFail("Unexpected request \(request.httpMethod ?? "<nil>") \(request.url?.path ?? "<nil>")")
-                    throw URLError(.badURL)
-                }
-            }
-        ))
-        let updateService = GroupAPIService(client: APIClient(
-            baseURL: "https://example.test",
-            cachedToken: { "jwt-token" },
-            session: StubSession { request in
-                switch (request.httpMethod, request.url?.path) {
-                case ("POST", "/groups/\(groupID)/members"):
-                    return (try Self.encodeJSON(updatedGroup), Self.httpResponse(url: request.url!, status: 200))
-                case ("DELETE", "/groups/\(groupID)"):
-                    return (Data(), Self.httpResponse(url: request.url!, status: 204))
-                default:
-                    XCTFail("Unexpected request \(request.httpMethod ?? "<nil>") \(request.url?.path ?? "<nil>")")
-                    throw URLError(.badURL)
-                }
-            }
-        ))
-
-        let viewModel = GroupsViewModel()
-        viewModel.newGroupName = "  Besties  "
-
-        await viewModel.createGroup(service: createService)
-        XCTAssertEqual(viewModel.groups.map(\.name), ["Besties"])
-        XCTAssertFalse(viewModel.showCreate)
-
-        await viewModel.addMember(to: createdGroup, userID: memberID, service: updateService)
-        XCTAssertEqual(viewModel.groups.first?.members.count, 2)
-
-        await viewModel.deleteGroup(updatedGroup, service: updateService)
-        XCTAssertTrue(viewModel.groups.isEmpty)
-    }
 }
 
 private extension NetworkingAndViewModelTests {

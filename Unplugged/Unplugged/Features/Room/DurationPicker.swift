@@ -5,9 +5,9 @@ struct DurationValue: Equatable {
     var minutes: Int
     var isUnlimited: Bool
 
-    // 24h matches the server-side cap, unlimited is a UI shortcut
-    var durationSeconds: Int {
-        isUnlimited ? 24 * 60 * 60 : (hours * 60 + minutes) * 60
+    var durationSeconds: Int? {
+        if isUnlimited { return nil }
+        return (hours * 60 + minutes) * 60
     }
 }
 

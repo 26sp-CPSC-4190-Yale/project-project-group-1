@@ -20,6 +20,7 @@ enum APIRouter {
     case searchUsers(query: String)
     case updateMe(UpdateUserRequest)
     case registerDeviceToken(String)
+    case clearDeviceToken
     case deleteMe(DeleteAccountRequest)
     case blockUser(id: UUID)
     case unblockUser(id: UUID)
@@ -40,8 +41,16 @@ enum APIRouter {
     case startSession(id: UUID)
     case endSession(id: UUID)
     case leaveSession(id: UUID)
+    case updateSessionMetadata(id: UUID, body: SessionMetadataRequest)
+    case setCoLockReady(id: UUID, body: CoLockReadyRequest)
+    case requestCoLockRelease(id: UUID)
+    case approveCoLockRelease(id: UUID)
+    case listSessionPhotos(id: UUID)
+    case uploadSessionPhoto(id: UUID, body: UploadSessionPhotoRequest)
+    case deleteSessionPhoto(id: UUID, photoID: UUID)
     case reportProximityExit(id: UUID)
     case reportJailbreak(id: UUID, body: ReportJailbreakRequest)
+    case reportShieldAttempt(id: UUID, body: ShieldActionAttemptRequest)
     case getRecap(id: UUID)
 
     case listFriends
@@ -57,13 +66,6 @@ enum APIRouter {
     case getFriendProfile(id: UUID)
     case getLeaderboard
 
-    case createGroup(CreateGroupRequest)
-    case listGroups
-    case getGroup(id: UUID)
-    case addGroupMember(id: UUID, body: AddGroupMemberRequest)
-    case removeGroupMember(id: UUID, userID: UUID)
-    case deleteGroup(id: UUID)
-
     var path: String {
         switch self {
         case .login:                    return "/auth/login"
@@ -72,8 +74,9 @@ enum APIRouter {
         case .signInWithGoogle:         return "/auth/google"
         case .getMe, .updateMe, .deleteMe: return "/users/me"
         case .reportPresence:           return "/users/me/presence"
-        case .searchUsers(let q):       return "/users/search?q=\(q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        case .registerDeviceToken:      return "/users/device-token"
+        case .searchUsers(let q):
+            return queryPath("/users/search", [URLQueryItem(name: "q", value: q)])
+        case .registerDeviceToken, .clearDeviceToken: return "/users/device-token"
         case .listBlocks:               return "/users/blocks"
         case .blockUser(let id), .unblockUser(let id):
             return "/users/\(id)/block"
@@ -103,8 +106,15 @@ enum APIRouter {
         case .startSession(let id):     return "/sessions/\(id)/start"
         case .endSession(let id):       return "/sessions/\(id)/end"
         case .leaveSession(let id):     return "/sessions/\(id)/leave"
+        case .updateSessionMetadata(let id, _): return "/sessions/\(id)/metadata"
+        case .setCoLockReady(let id, _): return "/sessions/\(id)/co-lock/ready"
+        case .requestCoLockRelease(let id): return "/sessions/\(id)/co-lock/release"
+        case .approveCoLockRelease(let id): return "/sessions/\(id)/co-lock/release/approve"
+        case .listSessionPhotos(let id), .uploadSessionPhoto(let id, _): return "/sessions/\(id)/photos"
+        case .deleteSessionPhoto(let id, let photoID): return "/sessions/\(id)/photos/\(photoID)"
         case .reportProximityExit(let id): return "/sessions/\(id)/proximity-exit"
         case .reportJailbreak(let id, _): return "/sessions/\(id)/jailbreaks"
+        case .reportShieldAttempt(let id, _): return "/sessions/\(id)/shield-attempt"
         case .getRecap(let id):         return "/sessions/\(id)/recap"
         case .listFriends, .addFriend:  return "/friends"
         case .removeFriend(let id):     return "/friends/\(id)"
@@ -117,10 +127,6 @@ enum APIRouter {
         case .outgoingFriendRequests:   return "/friends/requests/outgoing"
         case .getFriendProfile(let id): return "/friends/\(id)/profile"
         case .getLeaderboard:           return "/friends/leaderboard"
-        case .createGroup, .listGroups: return "/groups"
-        case .getGroup(let id), .deleteGroup(let id): return "/groups/\(id)"
-        case .addGroupMember(let id, _): return "/groups/\(id)/members"
-        case .removeGroupMember(let id, let userID): return "/groups/\(id)/members/\(userID)"
         }
     }
 
@@ -128,20 +134,22 @@ enum APIRouter {
         switch self {
         case .login, .register, .signInWithApple, .signInWithGoogle,
              .createSession, .addFriend, .joinSession, .joinSessionCode, .startSession, .endSession,
-             .leaveSession, .reportProximityExit, .reportJailbreak,
+             .leaveSession, .setCoLockReady, .requestCoLockRelease, .approveCoLockRelease,
+             .uploadSessionPhoto, .reportProximityExit, .reportJailbreak, .reportShieldAttempt,
              .acceptFriend, .rejectFriend, .acceptFriendRequest, .rejectFriendRequest, .nudgeFriend,
-             .createGroup, .addGroupMember, .blockUser, .reportUser, .reportPresence:
+             .blockUser, .reportUser, .reportPresence:
             return .post
         case .registerDeviceToken:
             return .put
         case .getMe, .getStats, .getMyMedals, .getMedalCatalog, .listSessions, .sessionHistory, .getSession, .getRecap,
+             .listSessionPhotos,
              .listFriends, .incomingFriendRequests, .outgoingFriendRequests,
              .getFriendProfile, .getLeaderboard,
-             .listGroups, .getGroup, .searchUsers, .listBlocks:
+             .searchUsers, .listBlocks:
             return .get
-        case .updateMe:
+        case .updateMe, .updateSessionMetadata:
             return .patch
-        case .removeFriend, .removeGroupMember, .deleteGroup, .deleteMe, .unblockUser:
+        case .removeFriend, .deleteMe, .unblockUser, .clearDeviceToken, .deleteSessionPhoto:
             return .delete
         }
     }
@@ -168,12 +176,21 @@ enum APIRouter {
         case .reportPresence(let r):    return r
         case .reportUser(_, let r):     return r
         case .createSession(let r):     return r
+        case .updateSessionMetadata(_, let r): return r
+        case .setCoLockReady(_, let r): return r
+        case .uploadSessionPhoto(_, let r): return r
         case .reportJailbreak(_, let r): return r
+        case .reportShieldAttempt(_, let r): return r
         case .addFriend(let r):         return r
-        case .createGroup(let r):       return r
-        case .addGroupMember(_, let r): return r
         case .startSession:             return StartSessionRequest()
         default:                        return nil
         }
+    }
+
+    private func queryPath(_ path: String, _ items: [URLQueryItem]) -> String {
+        var comps = URLComponents()
+        comps.path = path
+        comps.queryItems = items
+        return comps.string ?? path
     }
 }

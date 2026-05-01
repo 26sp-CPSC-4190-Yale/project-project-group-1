@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         static let pendingToken = "apns.pendingToken"
         static let registeredToken = "apns.registeredToken"
         static let registeredUserID = "apns.registeredUserID"
+        static let notificationsEnabled = "notificationsEnabled"
     }
 
     // remote notification type is user controlled, only dispatch values we actually handle
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         "session_ended",
         "session_jailbreak",
         "session_proximity_exit",
+        "session_shield_attempt",
         "session_starting_soon"
     ]
     private static let friendRefreshPayloadTypes: Set<String> = [
@@ -61,6 +63,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        guard Self.notificationsEnabled else {
+            AppLogger.push.debug("APNs token received while notifications are disabled; ignoring")
+            return
+        }
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(hex, forKey: Keys.pendingToken)
         AppLogger.push.info(
@@ -107,7 +113,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func appDidBecomeActive() {
-        Task { await Self.syncDeviceToken() }
+        Task { @MainActor in
+            await Self.syncDeviceToken()
+            await Self.sharedContainer?.sessionOrchestrator.flushPendingShieldAttempts()
+        }
     }
 
     @objc private func appDidEnterBackground() {
@@ -143,6 +152,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         defaults.removeObject(forKey: Keys.registeredUserID)
     }
 
+    @MainActor
+    static func setNotificationsEnabled(_ enabled: Bool) async {
+        UserDefaults.standard.set(enabled, forKey: Keys.notificationsEnabled)
+        if enabled {
+            UIApplication.shared.registerForRemoteNotifications()
+            await syncDeviceToken()
+        } else {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            await clearDeviceTokenRegistration()
+        }
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     // without this, iOS suppresses banners for alert payloads while the app is foregrounded
@@ -150,7 +171,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         Self.logPushReceived(source: "foreground_alert", userInfo: notification.request.content.userInfo)
-        Self.handleFriendNotification(userInfo: notification.request.content.userInfo)
+        Self.handleForegroundNotification(userInfo: notification.request.content.userInfo)
         completionHandler([.banner, .list, .sound, .badge])
     }
 
@@ -187,6 +208,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     @MainActor
     static func syncDeviceToken() async {
         let defaults = UserDefaults.standard
+        guard notificationsEnabled else {
+            AppLogger.push.debug("device token sync skipped: notifications disabled")
+            return
+        }
         let pendingToken = defaults.string(forKey: Keys.pendingToken)
         let registeredToken = defaults.string(forKey: Keys.registeredToken)
         guard let hex = pendingToken ?? registeredToken else { return }
@@ -227,6 +252,32 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
+    private static func clearDeviceTokenRegistration() async {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Keys.pendingToken)
+
+        guard let container = sharedContainer else {
+            AppLogger.push.debug("device token clear deferred: dependency container unavailable")
+            return
+        }
+        guard container.cache.readCachedToken() != nil else {
+            defaults.removeObject(forKey: Keys.registeredToken)
+            defaults.removeObject(forKey: Keys.registeredUserID)
+            AppLogger.push.debug("device token clear skipped: no cached auth token")
+            return
+        }
+
+        do {
+            try await container.user.clearDeviceToken()
+            defaults.removeObject(forKey: Keys.registeredToken)
+            defaults.removeObject(forKey: Keys.registeredUserID)
+            AppLogger.push.info("device token cleared after notification opt-out")
+        } catch {
+            AppLogger.push.warning("device token clear failed; will retry when notifications change", error: error)
+        }
+    }
+
+    @MainActor
     static func reportPresence(isActive: Bool) async {
         guard let container = sharedContainer,
               container.cache.readCachedToken() != nil else {
@@ -248,6 +299,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
               friendRefreshPayloadTypes.contains(type) else { return }
         Task { @MainActor in
             postFriendsDidChange()
+        }
+    }
+
+    private static func handleForegroundNotification(userInfo: [AnyHashable: Any]) {
+        guard let type = userInfo["type"] as? String else { return }
+        if friendRefreshPayloadTypes.contains(type) {
+            handleFriendNotification(userInfo: userInfo)
+            return
+        }
+        guard sessionPayloadTypes.contains(type) else { return }
+        Task { @MainActor in
+            _ = await sharedContainer?.sessionOrchestrator.handleRemotePayload(
+                type: type,
+                userInfo: userInfo
+            )
         }
     }
 
@@ -277,6 +343,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     private static func tokenSuffix(_ token: String) -> String {
         String(token.suffix(8))
+    }
+
+    private static var notificationsEnabled: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: Keys.notificationsEnabled) != nil else { return true }
+        return defaults.bool(forKey: Keys.notificationsEnabled)
     }
 }
 

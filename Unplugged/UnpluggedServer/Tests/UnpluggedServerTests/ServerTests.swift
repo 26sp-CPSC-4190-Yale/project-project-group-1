@@ -25,6 +25,20 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testUsernameUniquenessIsCaseInsensitive() async throws {
+        try await withApp { app, tester in
+            _ = try await TestAppFactory.seedUser(on: app, username: "CaseUser")
+            let duplicateResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/auth/register",
+                body: RegisterRequest(username: "caseuser", password: TestAppFactory.defaultPassword)
+            )
+
+            XCTAssertEqual(duplicateResponse.status, .conflict)
+        }
+    }
+
     func testUpdateSearchAndDeviceTokenNormalization() async throws {
         try await withApp { app, tester in
             let alpha = try await TestAppFactory.seedUser(on: app, username: "AlphaUser")
@@ -55,6 +69,12 @@ final class ServerTests: XCTestCase {
                 token: alpha.token,
                 body: DeviceTokenRequest(deviceToken: "<AABBCCDDEEFF00112233445566778899>")
             )
+            let clearTokenResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .DELETE,
+                "/users/device-token",
+                token: alpha.token
+            )
             let searchResponse = try await TestAppFactory.sendRequest(
                 with: tester,
                 .GET,
@@ -73,8 +93,9 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(updated.username, "RenamedAlpha")
             XCTAssertEqual(invalidTokenResponse.status, .badRequest)
             XCTAssertEqual(validTokenResponse.status, .noContent)
+            XCTAssertEqual(clearTokenResponse.status, .noContent)
             XCTAssertEqual(found.map(\.id), [alpha.id])
-            XCTAssertEqual(storedUser.deviceToken, "aabbccddeeff00112233445566778899")
+            XCTAssertNil(storedUser.deviceToken)
             XCTAssertNil(staleTokenOwnerAfter.deviceToken)
         }
     }
@@ -463,67 +484,201 @@ final class ServerTests: XCTestCase {
         }
     }
 
-    func testGroupLifecycleEnforcesOwnerPermissions() async throws {
+    func testSessionReadAndJailbreakReportsRequireMembership() async throws {
         try await withApp { app, tester in
-            let owner = try await TestAppFactory.seedUser(on: app, username: "GroupOwner")
-            let member = try await TestAppFactory.seedUser(on: app, username: "GroupMember")
+            let host = try await TestAppFactory.seedUser(on: app, username: "PrivateHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "PrivateMember")
+            let intruder = try await TestAppFactory.seedUser(on: app, username: "PrivateIntruder")
 
             let createResponse = try await TestAppFactory.sendRequest(
                 with: tester,
                 .POST,
-                "/groups",
-                token: owner.token,
-                body: CreateGroupRequest(name: "Study Crew")
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Private", durationSeconds: 1_800)
             )
-            let created = try TestAppFactory.decode(GroupResponse.self, from: createResponse)
-
-            let forbiddenBeforeAdd = try await TestAppFactory.sendRequest(
-                with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let addMemberResponse = try await TestAppFactory.sendRequest(
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
                 with: tester,
                 .POST,
-                "/groups/\(created.id)/members",
-                token: owner.token,
-                body: AddGroupMemberRequest(userID: member.id)
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
             )
-            let memberGetResponse = try await TestAppFactory.sendRequest(
+            _ = try await TestAppFactory.sendRequest(
                 with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let memberDeleteGroupResponse = try await TestAppFactory.sendRequest(
-                with: tester,
-                .DELETE,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let memberRemoveSelfResponse = try await TestAppFactory.sendRequest(
-                with: tester,
-                .DELETE,
-                "/groups/\(created.id)/members/\(member.id)",
-                token: member.token
-            )
-            let forbiddenAfterRemoval = try await TestAppFactory.sendRequest(
-                with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
             )
 
-            let updated = try TestAppFactory.decode(GroupResponse.self, from: addMemberResponse)
-            let visibleToMember = try TestAppFactory.decode(GroupResponse.self, from: memberGetResponse)
+            let readResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)",
+                token: intruder.token
+            )
+            let reportResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/jailbreaks",
+                token: intruder.token,
+                body: ReportJailbreakRequest(reason: SessionExitReason.screenTimeAuthorizationCleared)
+            )
 
-            XCTAssertEqual(forbiddenBeforeAdd.status, .forbidden)
-            XCTAssertEqual(updated.members.count, 2)
-            XCTAssertEqual(visibleToMember.members.count, 2)
-            XCTAssertEqual(memberDeleteGroupResponse.status, .forbidden)
-            XCTAssertEqual(memberRemoveSelfResponse.status, .noContent)
-            XCTAssertEqual(forbiddenAfterRemoval.status, .forbidden)
+            XCTAssertEqual(readResponse.status, .forbidden)
+            XCTAssertEqual(reportResponse.status, .forbidden)
+        }
+    }
+
+    func testShieldAttemptsRequireMembershipAndThrottleNotifications() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "ShieldHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "ShieldMember")
+            let intruder = try await TestAppFactory.seedUser(on: app, username: "ShieldIntruder")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Shielded", durationSeconds: 1_800)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+
+            let intruderResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: intruder.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let firstResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: participant.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let secondResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: participant.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let records = try await JailbreakModel.query(on: app.db)
+                .filter(\.$sessionID == created.id)
+                .filter(\.$userID == participant.id)
+                .filter(\.$reason == SessionExitReason.shieldActionAttempt)
+                .all()
+
+            XCTAssertEqual(intruderResponse.status, .forbidden)
+            XCTAssertEqual(firstResponse.status, .noContent)
+            XCTAssertEqual(secondResponse.status, .noContent)
+            XCTAssertEqual(records.count, 1)
+        }
+    }
+
+    func testCoLockUnlimitedRequiresReadinessAndUnanimousRelease() async throws {
+        try await withApp { app, tester in
+            let first = try await TestAppFactory.seedUser(on: app, username: "CoLockFirst")
+            let second = try await TestAppFactory.seedUser(on: app, username: "CoLockSecond")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: first.token,
+                body: CreateSessionRequest(
+                    title: "Co-Lock",
+                    durationSeconds: nil,
+                    lockMode: .coLock
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: second.token
+            )
+
+            let startBeforeReady = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: first.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: first.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            let startBeforeEveryoneReady = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: second.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: second.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            let startResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: second.token
+            )
+            let started = try TestAppFactory.decode(SessionResponse.self, from: startResponse)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/release",
+                token: first.token
+            )
+            let endBeforeApproval = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: first.token
+            )
+            let approveResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/release/approve",
+                token: second.token
+            )
+            let ended = try TestAppFactory.decode(SessionResponse.self, from: approveResponse)
+
+            XCTAssertEqual(startBeforeReady.status, .conflict)
+            XCTAssertEqual(startBeforeEveryoneReady.status, .conflict)
+            XCTAssertEqual(startResponse.status, .ok)
+            XCTAssertNil(started.session.durationSeconds)
+            XCTAssertNil(started.session.endsAt)
+            XCTAssertEqual(started.session.lockMode, .coLock)
+            XCTAssertEqual(started.session.coLockStatus?.requiredApprovals, 2)
+            XCTAssertEqual(endBeforeApproval.status, .conflict)
+            XCTAssertEqual(approveResponse.status, .ok)
+            XCTAssertEqual(ended.session.state, .ended)
         }
     }
 

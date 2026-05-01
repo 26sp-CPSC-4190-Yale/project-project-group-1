@@ -55,8 +55,7 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $viewModel.showCreateRoom, onDismiss: activatePendingSessionIfNeeded) {
                 CreateRoomView(
                     sessions: deps.sessions,
-                    touchTips: deps.touchTips,
-                    userID: UUID()
+                    location: deps.location
                 ) { session in
                     pendingActiveSession = session
                     pendingActiveSessionIsHost = true
@@ -69,6 +68,12 @@ struct HomeView: View {
                     viewModel.isHost = false
                 }
                 .environment(deps)
+            }
+            .task {
+                activateRecoveredSessionIfNeeded()
+            }
+            .onChange(of: deps.sessionOrchestrator.currentSession?.id) { _, _ in
+                activateRecoveredSessionIfNeeded()
             }
         }
     }
@@ -110,7 +115,16 @@ struct HomeView: View {
     private func activatePendingSessionIfNeeded() {
         guard let session = pendingActiveSession else { return }
         pendingActiveSession = nil
-        viewModel.isHost = pendingActiveSessionIsHost
+        viewModel.isHost = session.session.lockMode == .standard && pendingActiveSessionIsHost
+        viewModel.activeSession = session
+    }
+
+    private func activateRecoveredSessionIfNeeded() {
+        guard viewModel.activeSession == nil,
+              let session = deps.sessionOrchestrator.currentSession,
+              session.session.endedAt == nil else { return }
+        viewModel.isHost = session.session.lockMode == .standard
+            && session.session.hostID == deps.cache.readUser()?.id
         viewModel.activeSession = session
     }
 }

@@ -29,10 +29,11 @@ struct LockedSessionLiveActivity: Widget {
 
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 12) {
-                        Text(context.state.roomTitle)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                            .foregroundStyle(.white.opacity(0.88))
+                        ProximityBadge(
+                            state: context.state.proximity,
+                            distanceMeters: context.state.distanceMeters,
+                            compact: false
+                        )
                         Spacer(minLength: 8)
                         Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
                             .font(.title3.weight(.bold))
@@ -41,8 +42,7 @@ struct LockedSessionLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: "lock.fill")
-                    .foregroundStyle(.white)
+                ProximityDot(state: context.state.proximity)
             } compactTrailing: {
                 Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
                     .font(.caption2.weight(.semibold))
@@ -107,9 +107,77 @@ private struct LockedSessionLockScreenView: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white.opacity(0.68))
                 }
+
+                ProximityBadge(
+                    state: context.state.proximity,
+                    distanceMeters: context.state.distanceMeters,
+                    compact: false
+                )
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
+        }
+    }
+}
+
+private struct ProximityBadge: View {
+    let state: LockedSessionActivityAttributes.ProximityState
+    let distanceMeters: Double?
+    let compact: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProximityDot(state: state)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(distanceText)
+                    .font(compact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                if !compact {
+                    Text(statusText)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
+    }
+
+    private var distanceText: String {
+        guard let meters = distanceMeters else { return "—" }
+        let feet = Measurement(value: meters, unit: UnitLength.meters)
+            .converted(to: .feet)
+            .value
+        return String(format: "%.1f ft", feet)
+    }
+
+    private var statusText: String {
+        switch state {
+        case .inRange: return "Together"
+        case .outOfRange: return "Out of range"
+        case .signalLost: return "Reconnecting"
+        case .unknown: return "Connecting"
+        }
+    }
+}
+
+private struct ProximityDot: View {
+    let state: LockedSessionActivityAttributes.ProximityState
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 10, height: 10)
+            .overlay(
+                Circle()
+                    .stroke(.white.opacity(0.35), lineWidth: 0.5)
+            )
+    }
+
+    private var color: Color {
+        switch state {
+        case .inRange: return .green
+        case .outOfRange: return .red
+        case .signalLost: return .orange
+        case .unknown: return .gray
         }
     }
 }

@@ -6,6 +6,9 @@ import ActivityKit
 
 @MainActor
 final class LiveActivityService {
+    private static let proximityUpdateMinInterval: TimeInterval = 5
+    private var lastProximityUpdate: [UUID: (date: Date, state: LockedSessionActivityAttributes.ProximityState)] = [:]
+
     func startOrUpdate(sessionID: UUID?, roomTitle: String?, endsAt: Date) async {
         #if canImport(ActivityKit)
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
@@ -30,10 +33,14 @@ final class LiveActivityService {
         }
 
         if let existing = existingActivity {
-            if existing.content.state == state {
+            // preserve any proximity state already pushed; only refresh title/endsAt here
+            var merged = existing.content.state
+            merged.roomTitle = state.roomTitle
+            merged.endsAt = state.endsAt
+            if existing.content.state == merged {
                 return
             }
-            await existing.update(ActivityContent(state: state, staleDate: endsAt))
+            await existing.update(ActivityContent(state: merged, staleDate: endsAt))
             return
         }
 
@@ -71,6 +78,41 @@ final class LiveActivityService {
         #endif
     }
 
+    func updateProximity(
+        sessionID: UUID,
+        distanceMeters: Double?,
+        state: LockedSessionActivityAttributes.ProximityState,
+        observedAt: Date,
+        roomTitle: String?,
+        endsAt: Date
+    ) async {
+        #if canImport(ActivityKit)
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard let existing = preferredActivity(for: sessionID) else { return }
+
+        // throttle same-state updates so ActivityKit isn't pinged every 0.3s, but a state transition (in/out/lost) always goes through immediately
+        if let last = lastProximityUpdate[sessionID],
+           last.state == state,
+           observedAt.timeIntervalSince(last.date) < Self.proximityUpdateMinInterval {
+            return
+        }
+
+        var newState = existing.content.state
+        newState.roomTitle = Self.normalizedTitle(roomTitle)
+        newState.endsAt = endsAt
+        newState.proximity = state
+        newState.distanceMeters = distanceMeters
+        newState.proximityObservedAt = observedAt
+
+        lastProximityUpdate[sessionID] = (observedAt, state)
+
+        if existing.content.state == newState {
+            return
+        }
+        await existing.update(ActivityContent(state: newState, staleDate: endsAt))
+        #endif
+    }
+
     func end(sessionID: UUID?) async {
         #if canImport(ActivityKit)
         let activities = AppLogger.measureMainThreadWork(
@@ -90,6 +132,20 @@ final class LiveActivityService {
         for activity in activities {
             await activity.end(activity.content, dismissalPolicy: .immediate)
         }
+
+        if let sessionID {
+            lastProximityUpdate.removeValue(forKey: sessionID)
+        } else {
+            lastProximityUpdate.removeAll()
+        }
+        #endif
+    }
+
+    func areActivitiesEnabled() -> Bool {
+        #if canImport(ActivityKit)
+        return ActivityAuthorizationInfo().areActivitiesEnabled
+        #else
+        return false
         #endif
     }
 

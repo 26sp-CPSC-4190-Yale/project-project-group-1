@@ -11,9 +11,10 @@ class DependencyContainer {
     let friends: FriendAPIService
     let stats: StatsAPIService
     let medals: MedalsAPIService
-    let groups: GroupAPIService
     let recap: RecapAPIService
     let touchTips: TouchTipsService
+    let location: LocationService
+    let audio: AudioService
     let screenTime: ScreenTimeService
     let liveActivity: LiveActivityService
     let webSocket: WebSocketClient
@@ -35,6 +36,8 @@ class DependencyContainer {
         let liveActivity = LiveActivityService()
         let webSocket = WebSocketClient()
         let touchTips = TouchTipsService()
+        let location = LocationService()
+        let audio = AudioService()
 
         self.cache = cache
         self.auth = AuthAPIService(client: client)
@@ -44,10 +47,11 @@ class DependencyContainer {
         self.friends = FriendAPIService(client: client)
         self.stats = StatsAPIService(client: client)
         self.medals = MedalsAPIService(client: client)
-        self.groups = GroupAPIService(client: client)
         let recap = RecapAPIService(client: client)
         self.recap = recap
         self.touchTips = touchTips
+        self.location = location
+        self.audio = audio
         self.screenTime = screenTime
         self.liveActivity = liveActivity
         self.webSocket = webSocket

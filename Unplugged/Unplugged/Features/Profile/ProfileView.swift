@@ -178,10 +178,8 @@ struct ProfileView: View {
             }
             .padding(.horizontal, .spacingLg)
 
-            ScrollView {
-                SessionHistoryView()
-            }
-            .frame(maxHeight: 220)
+            SessionHistoryView()
+                .frame(minHeight: 320)
         }
     }
 
@@ -195,6 +193,9 @@ struct ProfileView: View {
             settingsRow(icon: "bell.fill", title: "Notifications") {
                 Toggle("", isOn: $notificationsEnabled)
                     .tint(.secondaryColor)
+                    .onChange(of: notificationsEnabled) { enabled in
+                        Task { await AppDelegate.setNotificationsEnabled(enabled) }
+                    }
             }
 
             Button {
@@ -212,11 +213,10 @@ struct ProfileView: View {
                 settingsLabel(icon: "shield.fill", title: "Privacy Policy", trailing: "↗")
             }
 
-            settingsRow(icon: "questionmark.circle.fill", title: "Help & Support") {
-                Text("Coming soon")
-                    .font(.caption)
-                    .foregroundStyle(Color.tertiaryColor.opacity(0.3))
+            Link(destination: URL(string: "mailto:unplugged.ios.devs@gmail.com")!) {
+                settingsLabel(icon: "questionmark.circle.fill", title: "Help & Support", trailing: "Email")
             }
+            .buttonStyle(.plain)
 
             Button {
                 isShowingAboutSheet = true

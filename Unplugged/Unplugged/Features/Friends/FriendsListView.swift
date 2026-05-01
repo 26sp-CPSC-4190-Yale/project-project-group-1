@@ -177,7 +177,7 @@ struct FriendsListView: View {
                 // Friends state should not depend on APNs to become consistent.
                 while !Task.isCancelled {
                     await viewModel.load(service: deps.friends, force: true)
-                    try? await Task.sleep(for: .seconds(2))
+                    try? await Task.sleep(for: .seconds(15))
                 }
             }
             .onAppear {
