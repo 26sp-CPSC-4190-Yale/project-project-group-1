@@ -1,7 +1,6 @@
 import SwiftUI
 import UnpluggedShared
 
-@MainActor
 @Observable
 class AddFriendViewModel {
     var searchText = ""
@@ -14,6 +13,7 @@ class AddFriendViewModel {
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
 
+    @MainActor
     func cancelSearch() {
         searchGeneration += 1
         searchTask?.cancel()
@@ -21,6 +21,7 @@ class AddFriendViewModel {
         isSearching = false
     }
 
+    @MainActor
     func search(usersService: UserAPIService) {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {

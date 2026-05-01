@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import UnpluggedShared
 
-@MainActor
 @Observable
 class CreateRoomViewModel {
     var duration = DurationValue(hours: 1, minutes: 0, isUnlimited: false)
@@ -25,6 +24,7 @@ class CreateRoomViewModel {
             && !isCreating
     }
 
+    @MainActor
     func createRoom(title: String, sessions: SessionAPIService) async {
         guard !isCreating else { return }
         isCreating = true

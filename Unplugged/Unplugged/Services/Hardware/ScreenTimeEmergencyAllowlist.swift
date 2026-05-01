@@ -1,6 +1,6 @@
 import Foundation
 #if canImport(FamilyControls)
-import FamilyControls
+@preconcurrency import FamilyControls
 #endif
 
 enum EmergencySystemApplication: String, CaseIterable, Identifiable {

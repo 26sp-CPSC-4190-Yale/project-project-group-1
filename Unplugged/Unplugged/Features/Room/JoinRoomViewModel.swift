@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import UnpluggedShared
 
-@MainActor
 @Observable
 class JoinRoomViewModel {
     var isListening = false
@@ -15,17 +14,23 @@ class JoinRoomViewModel {
     var error: String?
 
     private var listenTask: Task<Void, Never>?
-    private let haptics = HapticsService()
+    private let haptics: HapticsService
+
+    @MainActor
+    init() {
+        self.haptics = HapticsService()
+    }
 
     var canJoinManually: Bool {
         InputValidation.isValidSessionCode(manualCode) && !isJoining
     }
 
+    @MainActor
     func startListening(touchTips: TouchTipsService, sessions: SessionAPIService) {
         guard !isListening else { return }
         isListening = true
         hasFoundRoom = false
-        _ = AppLogger.measureMainThreadWork(
+        AppLogger.measureMainThreadWork(
             "JoinRoomViewModel.prepareHaptics",
             category: .ui,
             warnAfter: 0.02
@@ -51,6 +56,7 @@ class JoinRoomViewModel {
         }
     }
 
+    @MainActor
     func stopListening(touchTips: TouchTipsService) {
         listenTask?.cancel()
         listenTask = nil
@@ -58,6 +64,7 @@ class JoinRoomViewModel {
         isListening = false
     }
 
+    @MainActor
     func stopListeningNow(touchTips: TouchTipsService) async {
         listenTask?.cancel()
         listenTask = nil
@@ -66,6 +73,7 @@ class JoinRoomViewModel {
         hasFoundRoom = false
     }
 
+    @MainActor
     func joinRoom(id: UUID, sessions: SessionAPIService) async {
         guard !isJoining else { return }
         isJoining = true
@@ -87,6 +95,7 @@ class JoinRoomViewModel {
         }
     }
 
+    @MainActor
     func joinWithCode(sessions: SessionAPIService, touchTips: TouchTipsService) async {
         let code = Self.normalizedRoomCode(manualCode)
         manualCode = code

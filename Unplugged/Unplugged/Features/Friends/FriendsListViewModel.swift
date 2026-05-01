@@ -9,7 +9,6 @@ import Foundation
 import Observation
 import UnpluggedShared
 
-@MainActor
 @Observable
 class FriendsListViewModel {
     var friends: [FriendResponse] = []
@@ -101,6 +100,7 @@ class FriendsListViewModel {
     }
 
     @discardableResult
+    @MainActor
     func load(service: FriendAPIService, force: Bool = false) async -> Bool {
         guard force || !isLoading else { return false }
 
@@ -140,6 +140,7 @@ class FriendsListViewModel {
         return token == loadToken
     }
 
+    @MainActor
     func addFriend(service: FriendAPIService) async -> Bool {
         let trimmed = addFriendUsername.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -156,6 +157,7 @@ class FriendsListViewModel {
         }
     }
 
+    @MainActor
     func acceptRequest(service: FriendAPIService, requestID: UUID) async {
         guard acceptingRequestIDs.insert(requestID).inserted else { return }
         defer { acceptingRequestIDs.remove(requestID) }
@@ -171,6 +173,7 @@ class FriendsListViewModel {
         }
     }
 
+    @MainActor
     func rejectRequest(service: FriendAPIService, requestID: UUID) async {
         guard rejectingRequestIDs.insert(requestID).inserted else { return }
         defer { rejectingRequestIDs.remove(requestID) }
@@ -192,6 +195,7 @@ class FriendsListViewModel {
 
     /// Cancel an outgoing friend request. Uses the same reject endpoint on the
     /// server (which deletes pending rows regardless of direction once it matches).
+    @MainActor
     func cancelOutgoingRequest(service: FriendAPIService, targetID: UUID) async {
         guard cancellingRequestIDs.insert(targetID).inserted else { return }
         defer { cancellingRequestIDs.remove(targetID) }
@@ -211,6 +215,7 @@ class FriendsListViewModel {
         }
     }
 
+    @MainActor
     func nudge(service: FriendAPIService, friendID: UUID) async {
         guard nudgingFriendIDs.insert(friendID).inserted else { return }
         defer { nudgingFriendIDs.remove(friendID) }
@@ -222,6 +227,7 @@ class FriendsListViewModel {
         }
     }
 
+    @MainActor
     func removeFriend(service: FriendAPIService, friend: FriendResponse) async {
         guard removingFriendIDs.insert(friend.id).inserted else { return }
         defer { removingFriendIDs.remove(friend.id) }
@@ -239,6 +245,7 @@ class FriendsListViewModel {
         await load(service: service, force: true)
     }
 
+    @MainActor
     func blockUser(id: UUID, user: UserAPIService, friends friendsService: FriendAPIService) async {
         friends.removeAll { $0.id == id }
         incomingRequests.removeAll { $0.id == id }
@@ -251,6 +258,7 @@ class FriendsListViewModel {
         await load(service: friendsService, force: true)
     }
 
+    @MainActor
     func reportUser(id: UUID, reason: String, details: String, user: UserAPIService) async {
         let trimmedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
         do {

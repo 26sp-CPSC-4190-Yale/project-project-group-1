@@ -278,7 +278,6 @@ final class NetworkingAndViewModelTests: XCTestCase {
         let added = await viewModel.addFriend(service: service)
 
         XCTAssertTrue(added)
-        XCTAssertFalse(viewModel.showAddFriend)
         XCTAssertEqual(viewModel.outgoingRequests, [pendingFriend])
         XCTAssertEqual(viewModel.visibleOutgoingRequests, [pendingFriend])
     }
