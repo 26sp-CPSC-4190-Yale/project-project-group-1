@@ -3,3 +3,6 @@
 Docker/.env
 DerivedData/
 .DS_Store
+
+# Required by Xcode Cloud/TestFlight when automatic SwiftPM resolution is disabled.
+!Unplugged.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
