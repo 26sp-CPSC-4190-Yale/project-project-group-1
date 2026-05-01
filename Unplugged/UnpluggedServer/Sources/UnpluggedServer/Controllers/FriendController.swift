@@ -36,9 +36,7 @@ struct FriendController: RouteCollection {
 
         let body = try req.content.decode(AddFriendRequest.self)
 
-        guard let target = try await UserModel.query(on: req.db)
-            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), body.username)
-            .first()
+        guard let target = try await UserVisibilityService.findByUsername(body.username, on: req.db)
         else {
             throw Abort(.notFound, reason: "User not found.")
         }
@@ -73,7 +71,7 @@ struct FriendController: RouteCollection {
                 existing.status = "accepted"
                 try await existing.save(on: req.db)
                 try await Self.deletePendingFriendships(between: userID, and: targetID, on: req.db)
-                guard let sender = try await UserModel.find(userID, on: req.db) else {
+                guard let sender = try await UserVisibilityService.visibleUser(userID, on: req.db) else {
                     throw Abort(.internalServerError)
                 }
                 await NotificationService.send(
@@ -100,7 +98,7 @@ struct FriendController: RouteCollection {
         friendship.status = "pending"
         try await friendship.save(on: req.db)
 
-        guard let sender = try await UserModel.find(userID, on: req.db) else {
+        guard let sender = try await UserVisibilityService.visibleUser(userID, on: req.db) else {
             throw Abort(.internalServerError)
         }
         await NotificationService.send(
@@ -185,6 +183,7 @@ struct FriendController: RouteCollection {
 
         let users = try await UserModel.query(on: req.db)
             .filter(\.$id ~~ friendIDs)
+            .filter(\.$deletedAt == nil)
             .all()
 
         var results: [FriendResponse] = []
@@ -223,6 +222,7 @@ struct FriendController: RouteCollection {
 
         let users = try await UserModel.query(on: req.db)
             .filter(\.$id ~~ requesterIDs)
+            .filter(\.$deletedAt == nil)
             .all()
 
         let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
@@ -272,6 +272,7 @@ struct FriendController: RouteCollection {
 
         let users = try await UserModel.query(on: req.db)
             .filter(\.$id ~~ targetIDs)
+            .filter(\.$deletedAt == nil)
             .all()
 
         var results: [FriendResponse] = []
@@ -309,7 +310,9 @@ struct FriendController: RouteCollection {
             throw Abort(.forbidden)
         }
 
-        let otherUser = try await UserModel.find(friendship.user1ID, on: req.db)
+        let otherUser = try await UserVisibilityService.visibleUser(friendship.user1ID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
+        let accepter = try await UserVisibilityService.visibleUser(userID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
@@ -337,7 +340,7 @@ struct FriendController: RouteCollection {
         await NotificationService.send(
             to: friendship.user1ID,
             title: "Friend Request Accepted",
-            body: "\(otherUser.username) accepted your friend request.",
+            body: Self.friendAcceptedNotificationBody(accepter: accepter),
             type: NotificationService.NotificationType.friendAccepted,
             on: req.db,
             application: req.application
@@ -413,7 +416,9 @@ struct FriendController: RouteCollection {
             throw Abort(.notFound)
         }
 
-        let otherUser = try await UserModel.find(requesterID, on: req.db)
+        let otherUser = try await UserVisibilityService.visibleUser(requesterID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
+        let accepter = try await UserVisibilityService.visibleUser(userID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
@@ -439,7 +444,7 @@ struct FriendController: RouteCollection {
         await NotificationService.send(
             to: requesterID,
             title: "Friend Request Accepted",
-            body: "\(otherUser.username) accepted your friend request.",
+            body: Self.friendAcceptedNotificationBody(accepter: accepter),
             type: NotificationService.NotificationType.friendAccepted,
             on: req.db,
             application: req.application
@@ -514,7 +519,7 @@ struct FriendController: RouteCollection {
             throw Abort(.forbidden, reason: "You can only nudge accepted friends.")
         }
 
-        guard let sender = try await UserModel.find(senderID, on: req.db) else {
+        guard let sender = try await UserVisibilityService.visibleUser(senderID, on: req.db) else {
             throw Abort(.notFound)
         }
 
@@ -558,7 +563,7 @@ struct FriendController: RouteCollection {
             }
         }
 
-        guard let user = try await UserModel.find(friendID, on: req.db) else {
+        guard let user = try await UserVisibilityService.visibleUser(friendID, on: req.db) else {
             throw Abort(.notFound)
         }
 
@@ -669,6 +674,10 @@ struct FriendController: RouteCollection {
             on: db,
             application: application
         )
+    }
+
+    static func friendAcceptedNotificationBody(accepter: UserModel) -> String {
+        "\(accepter.username) accepted your friend request."
     }
 
     // unplugged if actively participating in a locked, unexpired room; online only after a recent foreground heartbeat

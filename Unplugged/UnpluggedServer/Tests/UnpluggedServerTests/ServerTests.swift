@@ -1,4 +1,5 @@
 import Fluent
+import Foundation
 import XCTest
 import XCTVapor
 @testable import UnpluggedServer
@@ -22,6 +23,20 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(loggedIn.user.id, registered.user.id)
             XCTAssertEqual(me.id, registered.user.id)
             XCTAssertEqual(me.username, "RouteUser")
+        }
+    }
+
+    func testUsernameUniquenessIsCaseInsensitive() async throws {
+        try await withApp { app, tester in
+            _ = try await TestAppFactory.seedUser(on: app, username: "CaseUser")
+            let duplicateResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/auth/register",
+                body: RegisterRequest(username: "caseuser", password: TestAppFactory.defaultPassword)
+            )
+
+            XCTAssertEqual(duplicateResponse.status, .conflict)
         }
     }
 
@@ -55,6 +70,12 @@ final class ServerTests: XCTestCase {
                 token: alpha.token,
                 body: DeviceTokenRequest(deviceToken: "<AABBCCDDEEFF00112233445566778899>")
             )
+            let clearTokenResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .DELETE,
+                "/users/device-token",
+                token: alpha.token
+            )
             let searchResponse = try await TestAppFactory.sendRequest(
                 with: tester,
                 .GET,
@@ -73,8 +94,9 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(updated.username, "RenamedAlpha")
             XCTAssertEqual(invalidTokenResponse.status, .badRequest)
             XCTAssertEqual(validTokenResponse.status, .noContent)
+            XCTAssertEqual(clearTokenResponse.status, .noContent)
             XCTAssertEqual(found.map(\.id), [alpha.id])
-            XCTAssertEqual(storedUser.deviceToken, "aabbccddeeff00112233445566778899")
+            XCTAssertNil(storedUser.deviceToken)
             XCTAssertNil(staleTokenOwnerAfter.deviceToken)
         }
     }
@@ -463,67 +485,201 @@ final class ServerTests: XCTestCase {
         }
     }
 
-    func testGroupLifecycleEnforcesOwnerPermissions() async throws {
+    func testSessionReadAndJailbreakReportsRequireMembership() async throws {
         try await withApp { app, tester in
-            let owner = try await TestAppFactory.seedUser(on: app, username: "GroupOwner")
-            let member = try await TestAppFactory.seedUser(on: app, username: "GroupMember")
+            let host = try await TestAppFactory.seedUser(on: app, username: "PrivateHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "PrivateMember")
+            let intruder = try await TestAppFactory.seedUser(on: app, username: "PrivateIntruder")
 
             let createResponse = try await TestAppFactory.sendRequest(
                 with: tester,
                 .POST,
-                "/groups",
-                token: owner.token,
-                body: CreateGroupRequest(name: "Study Crew")
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Private", durationSeconds: 1_800)
             )
-            let created = try TestAppFactory.decode(GroupResponse.self, from: createResponse)
-
-            let forbiddenBeforeAdd = try await TestAppFactory.sendRequest(
-                with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let addMemberResponse = try await TestAppFactory.sendRequest(
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
                 with: tester,
                 .POST,
-                "/groups/\(created.id)/members",
-                token: owner.token,
-                body: AddGroupMemberRequest(userID: member.id)
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
             )
-            let memberGetResponse = try await TestAppFactory.sendRequest(
+            _ = try await TestAppFactory.sendRequest(
                 with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let memberDeleteGroupResponse = try await TestAppFactory.sendRequest(
-                with: tester,
-                .DELETE,
-                "/groups/\(created.id)",
-                token: member.token
-            )
-            let memberRemoveSelfResponse = try await TestAppFactory.sendRequest(
-                with: tester,
-                .DELETE,
-                "/groups/\(created.id)/members/\(member.id)",
-                token: member.token
-            )
-            let forbiddenAfterRemoval = try await TestAppFactory.sendRequest(
-                with: tester,
-                .GET,
-                "/groups/\(created.id)",
-                token: member.token
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
             )
 
-            let updated = try TestAppFactory.decode(GroupResponse.self, from: addMemberResponse)
-            let visibleToMember = try TestAppFactory.decode(GroupResponse.self, from: memberGetResponse)
+            let readResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)",
+                token: intruder.token
+            )
+            let reportResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/jailbreaks",
+                token: intruder.token,
+                body: ReportJailbreakRequest(reason: SessionExitReason.screenTimeAuthorizationCleared)
+            )
 
-            XCTAssertEqual(forbiddenBeforeAdd.status, .forbidden)
-            XCTAssertEqual(updated.members.count, 2)
-            XCTAssertEqual(visibleToMember.members.count, 2)
-            XCTAssertEqual(memberDeleteGroupResponse.status, .forbidden)
-            XCTAssertEqual(memberRemoveSelfResponse.status, .noContent)
-            XCTAssertEqual(forbiddenAfterRemoval.status, .forbidden)
+            XCTAssertEqual(readResponse.status, .forbidden)
+            XCTAssertEqual(reportResponse.status, .forbidden)
+        }
+    }
+
+    func testShieldAttemptsRequireMembershipAndThrottleNotifications() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "ShieldHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "ShieldMember")
+            let intruder = try await TestAppFactory.seedUser(on: app, username: "ShieldIntruder")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Shielded", durationSeconds: 1_800)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+
+            let intruderResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: intruder.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let firstResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: participant.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let secondResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/shield-attempt",
+                token: participant.token,
+                body: ShieldActionAttemptRequest()
+            )
+            let records = try await JailbreakModel.query(on: app.db)
+                .filter(\.$sessionID == created.id)
+                .filter(\.$userID == participant.id)
+                .filter(\.$reason == SessionExitReason.shieldActionAttempt)
+                .all()
+
+            XCTAssertEqual(intruderResponse.status, .forbidden)
+            XCTAssertEqual(firstResponse.status, .noContent)
+            XCTAssertEqual(secondResponse.status, .noContent)
+            XCTAssertEqual(records.count, 1)
+        }
+    }
+
+    func testCoLockUnlimitedRequiresReadinessAndUnanimousRelease() async throws {
+        try await withApp { app, tester in
+            let first = try await TestAppFactory.seedUser(on: app, username: "CoLockFirst")
+            let second = try await TestAppFactory.seedUser(on: app, username: "CoLockSecond")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: first.token,
+                body: CreateSessionRequest(
+                    title: "Co-Lock",
+                    durationSeconds: nil,
+                    lockMode: .coLock
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: second.token
+            )
+
+            let startBeforeReady = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: first.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: first.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            let startBeforeEveryoneReady = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: second.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: second.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            let startResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: second.token
+            )
+            let started = try TestAppFactory.decode(SessionResponse.self, from: startResponse)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/release",
+                token: first.token
+            )
+            let endBeforeApproval = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: first.token
+            )
+            let approveResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/release/approve",
+                token: second.token
+            )
+            let ended = try TestAppFactory.decode(SessionResponse.self, from: approveResponse)
+
+            XCTAssertEqual(startBeforeReady.status, .conflict)
+            XCTAssertEqual(startBeforeEveryoneReady.status, .conflict)
+            XCTAssertEqual(startResponse.status, .ok)
+            XCTAssertNil(started.session.durationSeconds)
+            XCTAssertNil(started.session.endsAt)
+            XCTAssertEqual(started.session.lockMode, .coLock)
+            XCTAssertEqual(started.session.coLockStatus?.requiredApprovals, 2)
+            XCTAssertEqual(endBeforeApproval.status, .conflict)
+            XCTAssertEqual(approveResponse.status, .ok)
+            XCTAssertEqual(ended.session.state, .ended)
         }
     }
 
@@ -601,6 +757,178 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(recap.actualFocusedSeconds, 3_600)
             XCTAssertEqual(recap.participants.count, 2)
             XCTAssertTrue(recap.jailbreaks.isEmpty)
+        }
+    }
+
+    func testUnlimitedSessionStatsUseElapsedFocusedTime() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "UnlimitedHost")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Unlimited", durationSeconds: nil)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+
+            let startResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let room = try XCTUnwrap(roomRecord)
+            room.lockedAt = Date().addingTimeInterval(-125)
+            try await room.save(on: app.db)
+
+            let endResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: host.token
+            )
+            let statsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/users/me/stats",
+                token: host.token
+            )
+            let recapResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)/recap",
+                token: host.token
+            )
+            let historyResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/history?limit=10",
+                token: host.token
+            )
+
+            let ended = try TestAppFactory.decode(SessionResponse.self, from: endResponse)
+            let stats = try TestAppFactory.decode(UserStatsResponse.self, from: statsResponse)
+            let recap = try TestAppFactory.decode(SessionRecapResponse.self, from: recapResponse)
+            let history = try TestAppFactory.decode([SessionHistoryResponse].self, from: historyResponse)
+
+            XCTAssertEqual(startResponse.status, .ok)
+            XCTAssertEqual(ended.session.state, .ended)
+            XCTAssertNil(recap.durationSeconds)
+            XCTAssertGreaterThanOrEqual(recap.actualFocusedSeconds, 120)
+            XCTAssertLessThanOrEqual(recap.actualFocusedSeconds, 130)
+            XCTAssertEqual(stats.totalSessions, 1)
+            XCTAssertEqual(stats.totalMinutes, recap.actualFocusedSeconds / 60)
+            XCTAssertEqual(history.first?.actualFocusedSeconds, recap.actualFocusedSeconds)
+        }
+    }
+
+    func testMementoMetadataAndPhotosArePostSessionOnly() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "MementoHost")
+            let weather = SessionWeatherSnapshot(
+                summary: "Cloudy",
+                temperatureFahrenheit: 62,
+                conditionSymbol: "cloud.fill",
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(
+                    title: "Memento",
+                    durationSeconds: 1_800,
+                    description: "should not be saved",
+                    latitude: 1,
+                    longitude: 2,
+                    weather: weather
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            XCTAssertNil(created.session.description)
+            XCTAssertNil(created.session.latitude)
+            XCTAssertNil(created.session.weather)
+
+            let preEndMetadata = try await TestAppFactory.sendRequest(
+                with: tester,
+                .PATCH,
+                "/sessions/\(created.id)/metadata",
+                token: host.token,
+                body: SessionMetadataRequest(description: "Library grind")
+            )
+            let preEndPhoto = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/photos",
+                token: host.token,
+                body: UploadSessionPhotoRequest(
+                    imageData: Data(repeating: 7, count: 24_000),
+                    thumbnailData: Data(repeating: 3, count: 512),
+                    mimeType: "image/jpeg"
+                )
+            )
+            XCTAssertEqual(preEndMetadata.status, .conflict)
+            XCTAssertEqual(preEndPhoto.status, .conflict)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: host.token
+            )
+
+            let metadataResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .PATCH,
+                "/sessions/\(created.id)/metadata",
+                token: host.token,
+                body: SessionMetadataRequest(
+                    description: "Library grind",
+                    latitude: 37.3349,
+                    longitude: -122.009,
+                    weather: weather
+                )
+            )
+            let photoResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/photos",
+                token: host.token,
+                body: UploadSessionPhotoRequest(
+                    imageData: Data(repeating: 9, count: 24_000),
+                    thumbnailData: Data(repeating: 4, count: 512),
+                    mimeType: "image/jpeg"
+                )
+            )
+            let recapResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)/recap",
+                token: host.token
+            )
+
+            let metadata = try TestAppFactory.decode(SessionResponse.self, from: metadataResponse)
+            let photo = try TestAppFactory.decode(SessionMemoryPhotoResponse.self, from: photoResponse)
+            let recap = try TestAppFactory.decode(SessionRecapResponse.self, from: recapResponse)
+
+            XCTAssertEqual(metadata.session.description, "Library grind")
+            XCTAssertEqual(metadata.session.latitude, 37.3349)
+            XCTAssertEqual(metadata.session.weather?.summary, "Cloudy")
+            XCTAssertEqual(photo.byteCount, 24_000)
+            XCTAssertEqual(recap.description, "Library grind")
+            XCTAssertEqual(recap.memoryPhotos.count, 1)
+            XCTAssertEqual(recap.memoryPhotos.first?.thumbnailData?.count, 512)
         }
     }
 

@@ -47,10 +47,19 @@ struct AuthView: View {
                             Task {
                                 guard let rootVC = UIApplication.shared.connectedScenes
                                     .compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController })
-                                    .first else { return }
-                                if let result = try? await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC),
-                                   let idToken = result.user.idToken?.tokenString {
+                                    .first else {
+                                    viewModel.errorMessage = "Google sign-in is not available right now."
+                                    return
+                                }
+                                do {
+                                    let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: rootVC)
+                                    guard let idToken = result.user.idToken?.tokenString else {
+                                        viewModel.handleMissingGoogleIdentityToken()
+                                        return
+                                    }
                                     await viewModel.signInWithGoogle(idToken: idToken)
+                                } catch {
+                                    viewModel.handleGoogleSignInFailure(error)
                                 }
                             }
                         } label: {

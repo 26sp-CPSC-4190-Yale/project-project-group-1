@@ -31,7 +31,7 @@ struct SessionHistoryView: View {
             }
         }
         .navigationDestination(for: SessionHistoryResponse.self) { session in
-            SessionDetailView(session: session)
+            RecapView(sessionID: session.id)
         }
         .task {
             await viewModel.load(sessions: deps.sessions, cache: deps.cache)

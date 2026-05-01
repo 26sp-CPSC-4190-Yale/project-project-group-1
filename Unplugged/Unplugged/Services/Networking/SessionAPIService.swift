@@ -7,14 +7,18 @@ struct SessionAPIService {
 
     func createSession(
         title: String,
-        durationSeconds: Int,
-        location: CLLocationCoordinate2D? = nil
+        durationSeconds: Int?,
+        lockMode: SessionLockMode = .standard,
+        location: CLLocationCoordinate2D? = nil,
+        weather: SessionWeatherSnapshot? = nil
     ) async throws -> SessionResponse {
         let body = CreateSessionRequest(
             title: title,
             durationSeconds: durationSeconds,
+            lockMode: lockMode,
             latitude: location?.latitude,
-            longitude: location?.longitude
+            longitude: location?.longitude,
+            weather: weather
         )
         return try await client.send(.createSession(body))
     }
@@ -51,6 +55,46 @@ struct SessionAPIService {
         try await client.sendVoid(.leaveSession(id: id))
     }
 
+    func updateMetadata(
+        id: UUID,
+        description: String? = nil,
+        location: CLLocationCoordinate2D?,
+        weather: SessionWeatherSnapshot?
+    ) async throws -> SessionResponse {
+        let body = SessionMetadataRequest(
+            description: description,
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+            weather: weather
+        )
+        return try await client.send(.updateSessionMetadata(id: id, body: body))
+    }
+
+    func setCoLockReady(id: UUID, isReady: Bool) async throws -> SessionResponse {
+        try await client.send(.setCoLockReady(id: id, body: CoLockReadyRequest(isReady: isReady)))
+    }
+
+    func requestCoLockRelease(id: UUID) async throws -> SessionResponse {
+        try await client.send(.requestCoLockRelease(id: id))
+    }
+
+    func approveCoLockRelease(id: UUID) async throws -> SessionResponse {
+        try await client.send(.approveCoLockRelease(id: id))
+    }
+
+    func listPhotos(id: UUID) async throws -> [SessionMemoryPhotoResponse] {
+        try await client.send(.listSessionPhotos(id: id))
+    }
+
+    func uploadPhoto(id: UUID, imageData: Data, thumbnailData: Data?, mimeType: String) async throws -> SessionMemoryPhotoResponse {
+        let body = UploadSessionPhotoRequest(imageData: imageData, thumbnailData: thumbnailData, mimeType: mimeType)
+        return try await client.send(.uploadSessionPhoto(id: id, body: body))
+    }
+
+    func deletePhoto(sessionID: UUID, photoID: UUID) async throws {
+        try await client.sendVoid(.deleteSessionPhoto(id: sessionID, photoID: photoID))
+    }
+
     func reportJailbreak(id: UUID, reason: String, detectedAt: Date = Date()) async throws {
         let body = ReportJailbreakRequest(reason: reason, detectedAt: detectedAt)
         try await client.sendVoid(.reportJailbreak(id: id, body: body))
@@ -58,5 +102,9 @@ struct SessionAPIService {
 
     func reportProximityExit(id: UUID) async throws {
         try await client.sendVoid(.reportProximityExit(id: id))
+    }
+
+    func reportShieldAttempt(id: UUID, reason: String = SessionExitReason.shieldActionAttempt) async throws {
+        try await client.sendVoid(.reportShieldAttempt(id: id, body: ShieldActionAttemptRequest(reason: reason)))
     }
 }

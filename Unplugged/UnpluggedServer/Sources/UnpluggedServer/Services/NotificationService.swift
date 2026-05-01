@@ -6,7 +6,6 @@ import Vapor
 import VaporAPNS
 
 struct NotificationService {
-    private static let defaultBundleID = "com.unplugged"
     enum NotificationType {
         static let nudge = "nudge"
         static let friendRequest = "friend_request"
@@ -18,6 +17,7 @@ struct NotificationService {
         static let sessionEnded = "session_ended"
         static let sessionJailbreak = "session_jailbreak"
         static let sessionProximityExit = "session_proximity_exit"
+        static let sessionShieldAttempt = "session_shield_attempt"
     }
 
     // alert push; logs every skip/send path so notification delivery failures are diagnosable
@@ -225,7 +225,7 @@ struct NotificationService {
         if let trimmed, !trimmed.isEmpty {
             return trimmed
         }
-        return defaultBundleID
+        return ""
     }
 
     private static func tokenSuffix(_ token: String) -> String {
@@ -252,8 +252,14 @@ extension Application {
             let keyID = Environment.get("APNS_KEY_ID"),
             let teamID = Environment.get("APNS_TEAM_ID")
         else {
+            if environment == .production {
+                throw Abort(.internalServerError, reason: "APNs credentials must be configured in production.")
+            }
             logger.warning("[APNs] Skipping APNs setup — APNS_PRIVATE_KEY/APNS_PRIVATE_KEY_FILE, APNS_KEY_ID, or APNS_TEAM_ID not set.")
             return
+        }
+        guard !NotificationService.apnsBundleID().isEmpty else {
+            throw Abort(.internalServerError, reason: "APNS_BUNDLE_ID must be set.")
         }
 
         let privateKey = rawPrivateKey.replacingOccurrences(of: "\\n", with: "\n")

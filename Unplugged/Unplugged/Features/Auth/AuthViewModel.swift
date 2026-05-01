@@ -41,8 +41,7 @@ class AuthViewModel {
                 AppLogger.auth.error("restoreSession: getMe failed, proceeding without cached user", error: error)
             }
         }
-        isAuthenticated = true
-        await AppDelegate.syncDeviceToken()
+        await completeAuthentication()
     }
 
     func loginWithUsername(username: String, password: String) async {
@@ -55,8 +54,7 @@ class AuthViewModel {
         do {
             let response = try await authService.login(username: username, password: password)
             cache.saveAuth(response)
-            isAuthenticated = true
-            await AppDelegate.syncDeviceToken()
+            await completeAuthentication()
         } catch {
             AppLogger.auth.warning("username login failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -74,8 +72,7 @@ class AuthViewModel {
         do {
             let response = try await authService.register(username: username, password: password)
             cache.saveAuth(response)
-            isAuthenticated = true
-            await AppDelegate.syncDeviceToken()
+            await completeAuthentication()
         } catch {
             AppLogger.auth.warning("username registration failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -126,8 +123,7 @@ class AuthViewModel {
                     email: credential.email
                 )
                 cache.saveAuth(response)
-                isAuthenticated = true
-                await AppDelegate.syncDeviceToken()
+                await completeAuthentication()
             } catch {
                 AppLogger.auth.error("Apple sign-in API failed", error: error)
                 errorMessage = message(for: error)
@@ -146,13 +142,25 @@ class AuthViewModel {
         do {
             let response = try await authService.signInWithGoogle(idToken: idToken)
             cache.saveAuth(response)
-            isAuthenticated = true
-            await AppDelegate.syncDeviceToken()
+            await completeAuthentication()
         } catch {
             AppLogger.auth.error("Google sign-in API failed", error: error)
             errorMessage = message(for: error)
         }
         isLoading = false
+    }
+
+    func handleGoogleSignInFailure(_ error: Error) {
+        let nsError = error as NSError
+        // GoogleSignIn uses -5 for user-cancelled sign-in. Do not surface cancellations as app errors.
+        guard nsError.code != -5 else { return }
+        AppLogger.auth.error("Google sign-in returned failure", error: error)
+        errorMessage = "Google sign-in failed."
+    }
+
+    func handleMissingGoogleIdentityToken() {
+        AppLogger.auth.error("Google credential missing identity token")
+        errorMessage = "Google sign-in produced no identity token."
     }
 
     func signOut() {
@@ -176,6 +184,12 @@ class AuthViewModel {
         case AppError.serverError:       return "Server error. Please try again."
         default:                         return "Something went wrong. Check your connection."
         }
+    }
+
+    private func completeAuthentication() async {
+        await AppDelegate.syncDeviceToken()
+        _ = await sessionOrchestrator?.recoverActiveSession()
+        isAuthenticated = true
     }
 }
 

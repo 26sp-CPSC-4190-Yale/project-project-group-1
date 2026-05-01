@@ -29,20 +29,25 @@ final class MemberModel: Model, @unchecked Sendable {
     @Field(key: "left_early")
     var leftEarly: Bool
 
+    @Field(key: "co_lock_ready")
+    var coLockReady: Bool
+
     init() {
         // keep non-optional stored properties
         // safe if accessed before a row is loaded.
         self.joinedAt = Date()
         self.leftEarly = false
+        self.coLockReady = false
     }
 
-    init(id: UUID? = nil, userID: UUID, roomID: UUID, config: String? = nil) {
+    init(id: UUID? = nil, userID: UUID, roomID: UUID, config: String? = nil, coLockReady: Bool = false) {
         self.id = id
         self.userID = userID
         self.roomID = roomID
         self.config = config
         self.joinedAt = Date()
         self.leftEarly = false
+        self.coLockReady = coLockReady
     }
 
     var participantStatus: ParticipantStatus {

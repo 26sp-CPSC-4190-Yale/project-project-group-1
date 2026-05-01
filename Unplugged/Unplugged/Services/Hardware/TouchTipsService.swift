@@ -95,6 +95,43 @@ actor TouchTipsService {
         return stream
     }
 
+    // host-side counterpart to startLockedProximityMonitoring: advertises so the locked guest can find us, emits the same LockedProximityReading stream so the host's process gets the same per-reading runtime that keeps NI alive while backgrounded
+    func startHostProximityMaintenance(roomID: UUID) -> AsyncStream<LockedProximityReading> {
+        stopInternal(keepContinuation: false)
+        role = .lockedHost(roomID: roomID)
+        log("host maintenance starting for room \(roomID.uuidString)")
+
+        let stream = AsyncStream<LockedProximityReading> { cont in
+            self.lockedProximityContinuation = cont
+        }
+
+        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
+            log("host maintenance cannot start: precise distance unsupported")
+            emitLockedProximity(distanceMeters: nil, reason: "uwb_unsupported")
+            return stream
+        }
+
+        let peerID = MCPeerID(displayName: "unplugged-\(UUID().uuidString.prefix(6))")
+        localPeerID = peerID
+        let session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
+        session.delegate = bridge
+        mcSession = session
+
+        let info = ["roomID": roomID.uuidString, "v": "1"]
+        let advertiser = MCNearbyServiceAdvertiser(
+            peer: peerID,
+            discoveryInfo: info,
+            serviceType: ProximityConstants.serviceType
+        )
+        advertiser.delegate = bridge
+        self.advertiser = advertiser
+        advertiser.startAdvertisingPeer()
+
+        log("host maintenance advertising for room \(roomID.uuidString) as \(peerID.displayName)")
+        publishLockedSignalLoss(reason: "monitor_started")
+        return stream
+    }
+
     func supportsLockedProximityMonitoring() -> Bool {
         NISession.deviceCapabilities.supportsPreciseDistanceMeasurement
     }
@@ -123,6 +160,7 @@ actor TouchTipsService {
         case host(roomID: UUID)
         case joiner
         case lockedGuest(roomID: UUID)
+        case lockedHost(roomID: UUID)
     }
 
     private var role: Role = .none
@@ -215,7 +253,7 @@ actor TouchTipsService {
                 return
             }
             log("locked monitor found matching host peer \(peer.displayName) for room \(roomID.uuidString)")
-        case .none, .host:
+        case .none, .host, .lockedHost:
             log("found peer \(peer.displayName) ignored for role \(roleLogDescription)")
             return
         }
@@ -257,7 +295,7 @@ actor TouchTipsService {
             niSessions[peer]?.invalidate()
             niSessions[peer] = nil
             peerDiscoveryTokens[peer] = nil
-            if case .lockedGuest = role {
+            if isLockedRole {
                 publishLockedSignalLoss(reason: "mc_\(state.logDescription)")
             }
         }
@@ -270,8 +308,11 @@ actor TouchTipsService {
         let ni = makeNISession(for: peer)
 
         var payload: [String: String] = [:]
-        if case .host(let roomID) = role {
+        switch role {
+        case .host(let roomID), .lockedHost(let roomID):
             payload["roomID"] = roomID.uuidString
+        case .none, .joiner, .lockedGuest:
+            break
         }
         if let token = ni?.discoveryToken,
            let tokenData = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
@@ -290,7 +331,7 @@ actor TouchTipsService {
             log("handshake sent to \(peer.displayName): roomID=\(payload["roomID"] != nil ? "YES" : "NO"), niToken=\(payload["niToken"] != nil ? "YES" : "NO")")
         } catch {
             AppLogger.touchTips.error("handshake send failed", error: error, context: ["peer": peer.displayName])
-            if case .lockedGuest = role {
+            if isLockedRole {
                 publishLockedSignalLoss(reason: "handshake_send_failed")
             }
         }
@@ -324,7 +365,7 @@ actor TouchTipsService {
               let tokenData = Data(base64Encoded: tokenB64),
               let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: tokenData) else {
             log("NI token missing/invalid from \(peer.displayName)")
-            if case .lockedGuest = role {
+            if isLockedRole {
                 publishLockedSignalLoss(reason: "ni_token_missing")
             }
             return
@@ -336,7 +377,7 @@ actor TouchTipsService {
     private func startNIRanging(with token: NIDiscoveryToken, peer: MCPeerID) {
         guard let ni = makeNISession(for: peer) else {
             log("NI ranging skipped for \(peer.displayName): precise distance unsupported")
-            if case .lockedGuest = role {
+            if isLockedRole {
                 publishLockedSignalLoss(reason: "uwb_unsupported")
             }
             return
@@ -357,13 +398,13 @@ actor TouchTipsService {
 
         guard let distance = match else {
             consecutiveCloseCount = 0
-            if case .lockedGuest = role {
+            if isLockedRole {
                 publishLockedSignalLoss(reason: "ni_update_without_distance")
             }
             return
         }
 
-        if case .lockedGuest = role {
+        if isLockedRole {
             emitLockedProximity(distanceMeters: Double(distance))
             return
         }
@@ -383,7 +424,7 @@ actor TouchTipsService {
     private func handleNIRemoved(session: NISession) {
         guard hasActiveNISession(session) else { return }
         consecutiveCloseCount = 0
-        if case .lockedGuest = role {
+        if isLockedRole {
             log("NI peer removed while locked monitor active")
             publishLockedSignalLoss(reason: "ni_peer_removed")
         }
@@ -398,11 +439,11 @@ actor TouchTipsService {
         niSessions.removeAll()
         peerDiscoveryTokens.removeAll()
         consecutiveCloseCount = 0
-        if case .lockedGuest = role {
+        if isLockedRole {
             publishLockedSignalLoss(reason: "ni_invalidated")
         }
-        // host pushes a fresh handshake to connected guests so they pick up the new discovery token instead of ranging against a dead one
-        if case .host = role, let mcSession {
+        // host (lobby or locked) pushes a fresh handshake to connected guests so they pick up the new discovery token instead of ranging against a dead one
+        if isAnyHostRole, let mcSession {
             for peer in mcSession.connectedPeers {
                 log("rebroadcasting handshake to \(peer.displayName) after NI reset")
                 sendHandshake(to: peer)
@@ -417,7 +458,7 @@ actor TouchTipsService {
         niSessions[peer]?.invalidate()
         niSessions[peer] = nil
         peerDiscoveryTokens[peer] = nil
-        if case .lockedGuest = role {
+        if isLockedRole {
             publishLockedSignalLoss(reason: "mc_lost_peer")
         }
     }
@@ -425,7 +466,7 @@ actor TouchTipsService {
     private func handleBrowserFailure(browser: MCNearbyServiceBrowser, _ error: Error) {
         guard browser === self.browser else { return }
         AppLogger.touchTips.error("MC browser failed", error: error, context: ["role": roleLogDescription])
-        if case .lockedGuest = role {
+        if isLockedRole {
             publishLockedSignalLoss(reason: "browser_failed")
         }
     }
@@ -433,12 +474,15 @@ actor TouchTipsService {
     private func handleAdvertiserFailure(advertiser: MCNearbyServiceAdvertiser, _ error: Error) {
         guard advertiser === self.advertiser else { return }
         AppLogger.touchTips.error("MC advertiser failed", error: error, context: ["role": roleLogDescription])
+        if isLockedRole {
+            publishLockedSignalLoss(reason: "advertiser_failed")
+        }
     }
 
     private func handleNISuspended(session: NISession) {
         guard hasActiveNISession(session) else { return }
         log("NI suspended for role \(roleLogDescription)")
-        if case .lockedGuest = role {
+        if isLockedRole {
             publishLockedSignalLoss(reason: "ni_suspended")
         }
     }
@@ -480,6 +524,22 @@ actor TouchTipsService {
         return false
     }
 
+    private var isLockedHost: Bool {
+        if case .lockedHost = role { return true }
+        return false
+    }
+
+    private var isLockedRole: Bool {
+        isLockedGuest || isLockedHost
+    }
+
+    private var isAnyHostRole: Bool {
+        switch role {
+        case .host, .lockedHost: return true
+        case .none, .joiner, .lockedGuest: return false
+        }
+    }
+
     private func makeNISession(for peer: MCPeerID) -> NISession? {
         guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else { return nil }
         if let existing = niSessions[peer] {
@@ -517,7 +577,7 @@ actor TouchTipsService {
     }
 
     private func publishLockedSignalLoss(reason: String) {
-        guard case .lockedGuest = role else { return }
+        guard isLockedRole else { return }
         guard let disposition = Self.lockedNoDistanceDisposition(for: reason) else {
             log("locked monitor observed transient signal gap, preserving last distance, reason: \(reason)")
             return
@@ -544,7 +604,7 @@ actor TouchTipsService {
 
     private func flushPendingLockedNoDistance(reason: String) {
         pendingLockedNoDistanceTask = nil
-        guard case .lockedGuest = role else { return }
+        guard isLockedRole else { return }
         emitLockedProximity(distanceMeters: nil, reason: reason)
     }
 
@@ -558,6 +618,8 @@ actor TouchTipsService {
             return "joiner"
         case .lockedGuest(let roomID):
             return "lockedGuest(\(roomID.uuidString))"
+        case .lockedHost(let roomID):
+            return "lockedHost(\(roomID.uuidString))"
         }
     }
 
@@ -621,7 +683,8 @@ extension TouchTipsService {
              "ni_suspended",
              "handshake_send_failed",
              "ni_token_missing",
-             "browser_failed":
+             "browser_failed",
+             "advertiser_failed":
             return .delayed(LockedSessionProximityPolicy.transientSignalLossGraceInterval)
         default:
             return .immediate

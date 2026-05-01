@@ -3,8 +3,6 @@ import UnpluggedShared
 
 struct CreateRoomView: View {
     let sessions: SessionAPIService
-    let touchTips: TouchTipsService
-    let userID: UUID
     var onCreateRoom: (SessionResponse) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -55,8 +53,8 @@ struct CreateRoomView: View {
         ScrollView {
             VStack(spacing: .spacingLg) {
                 RoomNameField(viewModel: viewModel)
-
                 DurationSection(value: $viewModel.duration)
+                LockModeSection(viewModel: viewModel)
 
                 Spacer(minLength: .spacingXl)
 
@@ -68,6 +66,25 @@ struct CreateRoomView: View {
             }
             .padding(.horizontal, .spacingLg)
             .padding(.top, .spacingMd)
+        }
+    }
+}
+
+private struct LockModeSection: View {
+    @Bindable var viewModel: CreateRoomViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Lock Mode")
+                .font(.subheadline)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+
+            Picker("Lock Mode", selection: $viewModel.lockMode) {
+                Text("Standard").tag(SessionLockMode.standard)
+                Text("Co-Lock").tag(SessionLockMode.coLock)
+            }
+            .pickerStyle(.segmented)
+            .tint(Color.secondaryColor)
         }
     }
 }

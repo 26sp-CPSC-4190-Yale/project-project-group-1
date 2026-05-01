@@ -151,18 +151,20 @@ struct StatsService {
         )
     }
 
-    // earliest jailbreak wins as the exit anchor, result is clamped into [0, planned] to absorb clock drift and overrun
+    // earliest jailbreak wins as the exit anchor; finite sessions clamp to planned duration, unlimited sessions report elapsed time.
     static func focusedSeconds(room: RoomModel, earliestLeaveAt: Date?) -> Int {
         guard let lockedAt = room.lockedAt else { return 0 }
-        let planned = max(0, room.durationSeconds ?? 0)
+        let planned = room.durationSeconds.map { max(0, $0) }
         let endAnchor: Date
         if let leave = earliestLeaveAt {
             endAnchor = min(leave, room.endedAt ?? leave)
         } else {
             endAnchor = room.endedAt ?? lockedAt
         }
-        let elapsed = Int(endAnchor.timeIntervalSince(lockedAt).rounded())
-        return max(0, min(elapsed, planned))
+        let rawElapsed = endAnchor.timeIntervalSince(lockedAt)
+        let elapsed = rawElapsed > 0 ? max(1, Int(rawElapsed.rounded())) : 0
+        guard let planned else { return elapsed }
+        return min(elapsed, planned)
     }
 
     // ties share the same rank, matching buildLeaderboard's behavior
@@ -237,17 +239,15 @@ struct StatsService {
 
         let users = try await UserModel.query(on: db)
             .filter(\.$id ~~ userIDs)
+            .filter(\.$deletedAt == nil)
             .all()
         let usernames = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, String)? in
             guard let id = u.id else { return nil }
             return (id, u.username)
         })
 
-        var focusedByUser: [UUID: Int] = [:]
-        for userID in userIDs {
-            let stats = try await getStats(for: userID, on: db)
-            focusedByUser[userID] = stats.totalMinutes
-        }
+        let visibleUserIDs = Array(usernames.keys)
+        let focusedByUser = try await focusedMinutesByUser(visibleUserIDs, on: db)
 
         let sorted = focusedByUser
             .sorted { lhs, rhs in
@@ -279,5 +279,53 @@ struct StatsService {
             )
         }
         return entries
+    }
+
+    private static func focusedMinutesByUser(_ userIDs: [UUID], on db: Database) async throws -> [UUID: Int] {
+        let scopeIDs = Set(userIDs)
+        guard !scopeIDs.isEmpty else { return [:] }
+
+        let endedRooms = try await RoomModel.query(on: db)
+            .filter(\.$endedAt != nil)
+            .all()
+        let endedRoomIDs = endedRooms.compactMap { try? $0.requireID() }
+        guard !endedRoomIDs.isEmpty else {
+            return Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
+        }
+
+        let memberships = try await MemberModel.query(on: db)
+            .filter(\.$roomID ~~ endedRoomIDs)
+            .filter(\.$userID ~~ Array(scopeIDs))
+            .all()
+        let jailbreaks = try await JailbreakModel.query(on: db)
+            .filter(\.$sessionID ~~ endedRoomIDs)
+            .filter(\.$userID ~~ Array(scopeIDs))
+            .all()
+
+        var earliestLeave: [UUID: [UUID: Date]] = [:]
+        for jailbreak in jailbreaks {
+            var byRoom = earliestLeave[jailbreak.userID] ?? [:]
+            if let previous = byRoom[jailbreak.sessionID], previous <= jailbreak.detectedAt {
+                continue
+            }
+            byRoom[jailbreak.sessionID] = jailbreak.detectedAt
+            earliestLeave[jailbreak.userID] = byRoom
+        }
+
+        let roomsByID = Dictionary(uniqueKeysWithValues: endedRooms.compactMap { room -> (UUID, RoomModel)? in
+            guard let id = room.id else { return nil }
+            return (id, room)
+        })
+
+        var minutes = Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
+        for member in memberships {
+            guard let room = roomsByID[member.roomID] else { continue }
+            let focused = focusedSeconds(
+                room: room,
+                earliestLeaveAt: earliestLeave[member.userID]?[member.roomID]
+            )
+            minutes[member.userID, default: 0] += focused / 60
+        }
+        return minutes
     }
 }

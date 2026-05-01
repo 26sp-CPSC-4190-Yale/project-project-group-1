@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import AudioToolbox
 import UnpluggedShared
 
 struct ActiveRoomView: View {
@@ -84,7 +83,18 @@ struct ActiveRoomView: View {
         }
         .onChange(of: orchestrator.participants.count) { oldCount, newCount in
             guard newCount > oldCount else { return }
-            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            deps.audio.play(.participantJoined)
+        }
+        .onChange(of: orchestrator.phase) { oldPhase, newPhase in
+            guard oldPhase != newPhase else { return }
+            switch newPhase {
+            case .locked:
+                deps.audio.play(.sessionLocked)
+            case .ended:
+                deps.audio.play(.sessionEnded)
+            case .idle, .lobby:
+                break
+            }
         }
         .onChange(of: orchestrator.didLeaveCurrentSessionForProximity) { _, didLeave in
             guard didLeave else { return }
@@ -97,10 +107,11 @@ struct ActiveRoomView: View {
                 Task { await deps.touchTips.stop() }
             }
         }
-        .sheet(isPresented: $viewModel.showRecap) {
+        .fullScreenCover(isPresented: $viewModel.showRecap, onDismiss: closeAfterRecap) {
             if let id = orchestrator.currentSession?.session.id {
-                RecapView(sessionID: id)
+                RecapView(sessionID: id, onDone: closeAfterRecap)
                     .environment(deps)
+                    .interactiveDismissDisabled()
             }
         }
         .alert("Error",
@@ -112,38 +123,42 @@ struct ActiveRoomView: View {
         } message: {
             Text(orchestrator.errorMessage ?? "")
         }
-        .confirmationDialog("End Room?", isPresented: $viewModel.showEndConfirmation, titleVisibility: .visible) {
-            Button("End for Everyone", role: .destructive) {
-                Task { await viewModel.end(orchestrator: orchestrator) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will end the session for all participants.")
+        .confirmationPanel(
+            isPresented: $viewModel.showEndConfirmation,
+            title: "End Room?",
+            message: "This will end the session for all participants.",
+            confirmTitle: "End for Everyone",
+            systemImage: "xmark.circle.fill"
+        ) {
+            Task { await viewModel.end(orchestrator: orchestrator) }
         }
-        .confirmationDialog("Close Room?", isPresented: $viewModel.showCloseConfirmation, titleVisibility: .visible) {
-            Button("Close Room", role: .destructive) {
-                Task {
-                    await viewModel.end(orchestrator: orchestrator)
-                    await orchestrator.teardown()
-                    onClose()
-                    dismiss()
-                }
+        .confirmationPanel(
+            isPresented: $viewModel.showCloseConfirmation,
+            title: "Close Room?",
+            message: "This will end the room for anyone who has joined.",
+            confirmTitle: "Close Room",
+            systemImage: "xmark.circle.fill"
+        ) {
+            Task {
+                await viewModel.end(orchestrator: orchestrator)
+                await orchestrator.teardown()
+                onClose()
+                dismiss()
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will end the room for anyone who has joined.")
         }
-        .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
-            Button("Leave Room", role: .destructive) {
-                Task {
-                    await orchestrator.participantLeave()
-                    onClose()
-                    dismiss()
-                }
+        .confirmationPanel(
+            isPresented: $viewModel.showLeaveConfirmation,
+            title: "Leave Room?",
+            message: "Leaving unlocks your apps right away. The session will keep running for everyone else.",
+            confirmTitle: "Leave Room",
+            cancelTitle: "Stay",
+            systemImage: "rectangle.portrait.and.arrow.right"
+        ) {
+            Task {
+                await orchestrator.participantLeave()
+                onClose()
+                dismiss()
             }
-            Button("Stay", role: .cancel) {}
-        } message: {
-            Text("Leaving unlocks your apps right away. The session will keep running for everyone else.")
         }
         .sheet(item: $reportTarget) { target in
             ReportUserSheet(username: target.username) { reason, details in
@@ -175,6 +190,9 @@ struct ActiveRoomView: View {
         isHost: Bool
     ) -> Bool {
         guard phase != .ended else { return false }
+        if deps.sessionOrchestrator.currentSession?.session.lockMode == .coLock, phase == .locked {
+            return false
+        }
         if isHost {
             return phase == .idle || phase == .lobby
         }
@@ -188,11 +206,8 @@ struct ActiveRoomView: View {
         Button {
             if isHost {
                 viewModel.showCloseConfirmation = true
-            } else if phase == .locked {
-                viewModel.showLeaveConfirmation = true
             } else {
-                onClose()
-                dismiss()
+                viewModel.showLeaveConfirmation = true
             }
         } label: {
             Image(systemName: "xmark")
@@ -238,6 +253,12 @@ struct ActiveRoomView: View {
         }
     }
 
+    private func closeAfterRecap() {
+        viewModel.showRecap = false
+        onClose()
+        dismiss()
+    }
+
     @ViewBuilder
     private func content(phase: SessionOrchestrator.LifecyclePhase,
                          orchestrator: SessionOrchestrator) -> some View {
@@ -245,7 +266,10 @@ struct ActiveRoomView: View {
         case .idle, .lobby:
             lobbyContent
         case .locked:
-            if let endsAt = orchestrator.countdownEndsAt {
+            if let session = orchestrator.currentSession?.session,
+               session.durationSeconds == nil {
+                UnlimitedLockView(startedAt: session.lockedAt ?? session.startedAt ?? Date())
+            } else if let endsAt = orchestrator.countdownEndsAt {
                 CountdownView(endsAt: endsAt)
             } else {
                 ProgressView()
@@ -313,6 +337,20 @@ struct ActiveRoomView: View {
                             participantStatusBadge(participant.status)
                             if participant.isHost {
                                 Text("Host")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                            }
+                            if let status = orchestrator.currentSession?.session.coLockStatus,
+                               status.startReadyUserIDs.contains(participant.userID),
+                               orchestrator.phase != .locked {
+                                Text("Ready")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.tertiaryColor.opacity(0.5))
+                            }
+                            if let status = orchestrator.currentSession?.session.coLockStatus,
+                               status.releaseApprovalUserIDs.contains(participant.userID),
+                               orchestrator.phase == .locked {
+                                Text("Approved")
                                     .font(.caption)
                                     .foregroundStyle(Color.tertiaryColor.opacity(0.5))
                             }
@@ -387,6 +425,8 @@ struct ActiveRoomView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PrimaryButtonStyle())
+            } else if orchestrator.currentSession?.session.lockMode == .coLock {
+                coLockFooter(phase: phase, orchestrator: orchestrator)
             } else if isHost {
                 switch phase {
                 case .idle, .lobby:
@@ -414,5 +454,92 @@ struct ActiveRoomView: View {
         }
         .padding(.horizontal, .spacingLg)
         .padding(.bottom, .spacingMd)
+    }
+
+    @ViewBuilder
+    private func coLockFooter(phase: SessionOrchestrator.LifecyclePhase,
+                              orchestrator: SessionOrchestrator) -> some View {
+        let status = orchestrator.currentSession?.session.coLockStatus
+        let userID = deps.cache.readUser()?.id
+        let isReady = userID.map { status?.startReadyUserIDs.contains($0) ?? false } ?? false
+        let everyoneReady = (status?.requiredApprovals ?? 0) > 0
+            && (status?.startReadyUserIDs.count ?? 0) >= (status?.requiredApprovals ?? 0)
+        let releaseRequester = status?.releaseRequestedBy
+        let approvedRelease = userID.map { status?.releaseApprovalUserIDs.contains($0) ?? false } ?? false
+
+        switch phase {
+        case .idle, .lobby:
+            if everyoneReady {
+                Button {
+                    Task { await viewModel.start(orchestrator: orchestrator) }
+                } label: {
+                    Text("Start Co-Lock")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            } else {
+                Button {
+                    Task { await viewModel.setReady(!isReady, orchestrator: orchestrator) }
+                } label: {
+                    Text(isReady ? "Set Not Ready" : "Ready")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+        case .locked:
+            if let releaseRequester {
+                if releaseRequester == userID || approvedRelease {
+                    Text(releaseRequester == userID ? "Release Requested" : "Release Approved")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, .spacingMd)
+                } else {
+                    Button {
+                        Task { await viewModel.approveRelease(orchestrator: orchestrator) }
+                    } label: {
+                        Text("Approve Release")
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            } else {
+                Button {
+                    Task { await viewModel.requestRelease(orchestrator: orchestrator) }
+                } label: {
+                    Text("Request Release")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(DestructiveButtonStyle())
+            }
+        case .ended:
+            EmptyView()
+        }
+    }
+}
+
+private struct UnlimitedLockView: View {
+    let startedAt: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            let elapsed = max(0, timeline.date.timeIntervalSince(startedAt))
+            VStack(spacing: .spacingLg) {
+                Image(systemName: "infinity")
+                    .font(.system(size: 48, weight: .semibold, design: .rounded))
+                    .foregroundColor(.tertiaryColor)
+                Text(elapsed.hms)
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .foregroundColor(.tertiaryColor)
+                    .monospacedDigit()
+                Text("locked in")
+                    .font(.captionFont)
+                    .foregroundColor(.tertiaryColor.opacity(0.6))
+            }
+        }
     }
 }

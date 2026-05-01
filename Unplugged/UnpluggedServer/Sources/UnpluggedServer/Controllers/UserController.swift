@@ -13,6 +13,7 @@ struct UserController: RouteCollection {
         users.get("search", use: searchUsers)
         users.patch("me", use: updateMe)
         users.put("device-token", use: registerDeviceToken)
+        users.delete("device-token", use: clearDeviceToken)
         users.delete("me", use: deleteMe)
         users.get("blocks", use: listBlocks)
         users.post(":userID", "block", use: blockUser)
@@ -63,6 +64,7 @@ struct UserController: RouteCollection {
 
         let users = try await UserModel.query(on: req.db)
             .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), "%\(query)%")
+            .filter(\.$deletedAt == nil)
             .filter(\.$id != userID)
             .limit(20)
             .all()
@@ -87,14 +89,11 @@ struct UserController: RouteCollection {
             throw Abort(.notFound)
         }
 
-        let existing = try await UserModel.query(on: req.db)
-            .filter(\.$username == body.username)
-            .first()
-        if let existing, existing.id != userID {
+        if try await UserVisibilityService.usernameExists(body.username, excluding: userID, on: req.db) {
             throw Abort(.conflict, reason: "Username already taken.")
         }
 
-        user.username = body.username
+        user.username = InputValidation.normalizedUsername(body.username)
         try await user.save(on: req.db)
         return User(id: userID, username: user.username, createdAt: user.createdAt ?? Date())
     }
@@ -145,6 +144,9 @@ struct UserController: RouteCollection {
         }
         guard blockedID != blockerID else {
             throw Abort(.badRequest, reason: "Cannot block yourself.")
+        }
+        guard try await UserVisibilityService.visibleUser(blockedID, on: req.db) != nil else {
+            throw Abort(.notFound)
         }
 
         let existing = try await UserBlockModel.query(on: req.db)
@@ -202,6 +204,7 @@ struct UserController: RouteCollection {
 
         let users = try await UserModel.query(on: req.db)
             .filter(\.$id ~~ blockedIDs)
+            .filter(\.$deletedAt == nil)
             .all()
         let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
             guard let id = u.id else { return nil }
@@ -230,6 +233,9 @@ struct UserController: RouteCollection {
         }
         guard reportedID != reporterID else {
             throw Abort(.badRequest, reason: "Cannot report yourself.")
+        }
+        guard try await UserVisibilityService.visibleUser(reportedID, on: req.db) != nil else {
+            throw Abort(.notFound)
         }
 
         let body = try req.content.decode(ReportUserRequest.self)
@@ -263,7 +269,7 @@ struct UserController: RouteCollection {
         let userID = try payload.userID
 
         let body = try req.content.decode(DeviceTokenRequest.self)
-        guard let normalizedToken = Self.normalizedAPNsToken(body.deviceToken) else {
+        guard let normalizedToken = InputValidation.normalizedAPNsToken(body.deviceToken) else {
             throw Abort(.badRequest, reason: "Invalid APNs device token.")
         }
 
@@ -291,24 +297,19 @@ struct UserController: RouteCollection {
         ])
         return .noContent
     }
-}
 
-private extension UserController {
-    static func normalizedAPNsToken(_ raw: String) -> String? {
-        let normalized = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .filter { !$0.isWhitespace && $0 != "<" && $0 != ">" }
-        let isHex = normalized.unicodeScalars.allSatisfy {
-            CharacterSet(charactersIn: "0123456789abcdef").contains($0)
+    @Sendable
+    func clearDeviceToken(req: Request) async throws -> HTTPStatus {
+        let payload = try req.auth.require(UserPayload.self)
+        let userID = try payload.userID
+
+        guard let user = try await UserModel.find(userID, on: req.db) else {
+            throw Abort(.notFound)
         }
 
-        // APNs tokens are opaque and not guaranteed to stay fixed at 32 bytes.
-        guard normalized.count >= 32,
-              normalized.count.isMultiple(of: 2),
-              isHex else {
-            return nil
-        }
-        return normalized
+        user.deviceToken = nil
+        try await user.save(on: req.db)
+        req.logger.info("device token cleared", metadata: ["user_id": "\(userID)"])
+        return .noContent
     }
 }

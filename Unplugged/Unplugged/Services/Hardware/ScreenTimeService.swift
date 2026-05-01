@@ -8,10 +8,10 @@ import DeviceActivity
 
 // all calls no-op and isAvailable is false when the FamilyControls entitlement is missing, on simulator, or permission is denied
 final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
-    static let appGroup = "group.com.unplugged.app.shared"
+    static let appGroup = ScreenTimeShared.appGroupID
     static let allowlistKey = "emergencyAllowlist"
-    static let monitorName = "unpluggedSession"
-    static let storeName = "unpluggedSession"
+    static let monitorName = ScreenTimeShared.deviceActivityName
+    static let storeName = ScreenTimeShared.managedSettingsStoreName
 
     private let groupDefaults: UserDefaults?
 
@@ -118,8 +118,11 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
         let now = Date()
-        // DeviceActivitySchedule requires >= 15 min window, pad short sessions to 16, the normal unlock flow clears the shield at the real endsAt well before the monitor fires
-        let scheduledEndsAt = max(endsAt, now.addingTimeInterval(16 * 60))
+        // DeviceActivitySchedule is time-of-day based; keep very long/unlimited locks inside the next day.
+        // The ManagedSettings shield remains until the app explicitly unlocks on session end.
+        let minimumEndsAt = now.addingTimeInterval(16 * 60)
+        let maximumScheduledEndsAt = now.addingTimeInterval(23 * 60 * 60)
+        let scheduledEndsAt = min(max(endsAt, minimumEndsAt), maximumScheduledEndsAt)
         let calendar = Calendar.current
         let start = calendar.dateComponents([.hour, .minute, .second], from: now)
         let end = calendar.dateComponents([.hour, .minute, .second], from: scheduledEndsAt)
@@ -158,14 +161,14 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
             )
         }
 
-        // ActivityCategoryPolicy does not cover Apple's built-in apps, blockedApplications is the only API that can stop them, home-screen reorder is the tradeoff
-        let blockedSystemApplications: Set<Application> = Set(
+        let blockedSystemApplications = Set(
             EmergencySystemApplication.allCases
                 .filter { !allowedSystemBundleIDs.contains($0.bundleIdentifier) }
                 .map { Application(bundleIdentifier: $0.bundleIdentifier) }
         )
 
-        // yield between FamilyControls writes to keep the main thread responsive during the IPC burst
+        // Apple system apps are not available as FamilyActivity tokens here, so bundle-ID blocking is
+        // the only available enforcement path for them. iOS owns Home Screen layout restoration.
         AppLogger.measureMainThreadWork(
             "ScreenTimeService.blockedApplications.set",
             category: .screenTime,
@@ -227,51 +230,11 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         guard isAvailable else { return }
 
         AppLogger.measureMainThreadWork(
-            "ScreenTimeService.blockedApplications.clear",
+            "ScreenTimeService.clearAllSettingsAfterUnlock",
             category: .screenTime,
             warnAfter: 0.03
         ) {
-            store.application.blockedApplications = nil
-        }
-        await Task.yield()
-        AppLogger.measureMainThreadWork(
-            "ScreenTimeService.shieldApplications.clear",
-            category: .screenTime,
-            warnAfter: 0.03
-        ) {
-            store.shield.applications = nil
-        }
-        await Task.yield()
-        AppLogger.measureMainThreadWork(
-            "ScreenTimeService.applicationCategories.clear",
-            category: .screenTime,
-            warnAfter: 0.03
-        ) {
-            store.shield.applicationCategories = nil
-        }
-        await Task.yield()
-        AppLogger.measureMainThreadWork(
-            "ScreenTimeService.shieldWebDomains.clear",
-            category: .screenTime,
-            warnAfter: 0.03
-        ) {
-            store.shield.webDomains = nil
-        }
-        await Task.yield()
-        AppLogger.measureMainThreadWork(
-            "ScreenTimeService.webDomainCategories.clear",
-            category: .screenTime,
-            warnAfter: 0.03
-        ) {
-            store.shield.webDomainCategories = nil
-        }
-        await Task.yield()
-        AppLogger.measureMainThreadWork(
-            "ScreenTimeService.webContentFilter.clear",
-            category: .screenTime,
-            warnAfter: 0.03
-        ) {
-            store.webContent.blockedByFilter = nil
+            store.clearAllSettings()
         }
         await Task.yield()
         AppLogger.measureMainThreadWork(

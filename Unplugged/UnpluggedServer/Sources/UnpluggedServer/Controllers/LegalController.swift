@@ -1,6 +1,5 @@
 import Vapor
 
-// TODO copy is placeholder, replace before App Store submission
 // routes are intentionally unauthenticated, the client footer and App Store reviewers need them without a token
 struct LegalController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
@@ -13,9 +12,13 @@ struct LegalController: RouteCollection {
     func privacy(req: Request) async throws -> Response {
         htmlResponse(title: "Privacy Policy", bodyHTML: """
             <h1>Privacy Policy</h1>
-            <p><em>Last updated: placeholder</em></p>
-            <p>This is a placeholder for the Privacy Policy. The real text will describe what data Unplugged collects, how it is used, how long it is retained, and the choices users have over their data.</p>
-            <p>Contact: placeholder@unplugged.name</p>
+            <p><em>Last updated: April 29, 2026</em></p>
+            <p>Unplugged helps people start shared lock-in sessions, limit app access during a session, and review their session history.</p>
+            <p>We collect account identifiers, usernames, authentication data, device tokens for notifications, friend and block relationships, session membership, session timing, co-lock approvals, early-leave reports, optional session descriptions, optional memory photos, optional location coordinates, optional weather summaries, and Screen Time permission state needed to run the app.</p>
+            <p>Optional location, weather, and photo features are not required to create, join, or complete a session. If permission is denied or a user skips a memory photo, the session continues normally.</p>
+            <p>We use this data to provide account access, friend features, push notifications, session locking, Live Activities, recaps, share cards, safety/reporting tools, and abuse prevention. We do not sell personal data or use it for third-party advertising.</p>
+            <p>Users can delete their account in the app. Deletion disables login, clears the stored device token, and hides the account from public social surfaces, subject to retention needed for security, abuse prevention, and legal obligations.</p>
+            <p>Contact: <a href="mailto:unplugged.ios.devs@gmail.com">unplugged.ios.devs@gmail.com</a></p>
             """)
     }
 
@@ -23,9 +26,12 @@ struct LegalController: RouteCollection {
     func terms(req: Request) async throws -> Response {
         htmlResponse(title: "Terms of Service", bodyHTML: """
             <h1>Terms of Service</h1>
-            <p><em>Last updated: placeholder</em></p>
-            <p>This is a placeholder for the Terms of Service. The real text will cover acceptable use, account responsibilities, limitations of liability, and the governing law.</p>
-            <p>Contact: placeholder@unplugged.name</p>
+            <p><em>Last updated: April 29, 2026</em></p>
+            <p>By using Unplugged, you agree to use the app responsibly, provide accurate account information, and only create or join sessions with people who consent to participate.</p>
+            <p>You are responsible for your account and for choosing emergency app allowlists that keep your device usable for safety, health, travel, and other essential needs.</p>
+            <p>Do not misuse friend, report, notification, photo, or co-lock features to harass, impersonate, pressure, or track another person. Uploaded session photos must be lawful and must not include content you do not have the right to share.</p>
+            <p>Screen Time, Nearby Interaction, Live Activities, push notifications, WeatherKit, and location services depend on Apple platform permissions, device support, connectivity, and operating-system behavior. Unplugged is provided as-is and cannot guarantee uninterrupted blocking or notification delivery.</p>
+            <p>Contact: <a href="mailto:unplugged.ios.devs@gmail.com">unplugged.ios.devs@gmail.com</a></p>
             """)
     }
 

@@ -20,6 +20,7 @@ enum TestAppFactory {
 
     static func make() async throws -> Application {
         let app = try await Application.make(.testing)
+        app.routes.defaultMaxBodySize = "4mb"
         app.databases.use(.sqlite(.memory), as: .sqlite)
         await app.jwt.keys.add(
             hmac: HMACKey(key: SymmetricKey(data: Data(jwtSecret.utf8))),
@@ -30,13 +31,13 @@ enum TestAppFactory {
         app.migrations.add(TestCreateRooms())
         app.migrations.add(TestCreateMembers())
         app.migrations.add(TestCreateFriendships())
-        app.migrations.add(TestCreateGroups())
-        app.migrations.add(TestCreateGroupMembers())
         app.migrations.add(TestCreateJailbreaks())
         app.migrations.add(TestCreateMedals())
         app.migrations.add(TestCreateUserMedalPivot())
         app.migrations.add(TestCreateUserBlocks())
         app.migrations.add(TestCreateUserReports())
+        app.migrations.add(TestCreateSessionMemoryPhotos())
+        app.migrations.add(TestCreateCoLockReleaseApprovals())
 
         try await app.autoMigrate()
         try routes(app)
@@ -180,7 +181,13 @@ struct TestCreateRooms: AsyncMigration {
             .field("longitude", .double)
             .field("code", .string)
             .field("title", .string)
+            .field("description", .string)
             .field("duration_seconds", .int)
+            .field("lock_mode", .string)
+            .field("weather_summary", .string)
+            .field("weather_temperature_f", .double)
+            .field("weather_symbol", .string)
+            .field("weather_captured_at", .datetime)
             .field("locked_at", .datetime)
             .field("ended_at", .datetime)
             .unique(on: "code")
@@ -202,6 +209,7 @@ struct TestCreateMembers: AsyncMigration {
             .field("joined_at", .datetime, .required)
             .field("left_at", .datetime)
             .field("left_early", .bool, .required)
+            .field("co_lock_ready", .bool, .required)
             .create()
     }
 
@@ -223,36 +231,6 @@ struct TestCreateFriendships: AsyncMigration {
 
     func revert(on database: Database) async throws {
         try await database.schema(FriendshipModel.schema).delete()
-    }
-}
-
-struct TestCreateGroups: AsyncMigration {
-    func prepare(on database: Database) async throws {
-        try await database.schema(GroupModel.schema)
-            .id()
-            .field("name", .string, .required)
-            .field("owner_id", .uuid, .required)
-            .field("created_at", .datetime)
-            .create()
-    }
-
-    func revert(on database: Database) async throws {
-        try await database.schema(GroupModel.schema).delete()
-    }
-}
-
-struct TestCreateGroupMembers: AsyncMigration {
-    func prepare(on database: Database) async throws {
-        try await database.schema(GroupMemberModel.schema)
-            .id()
-            .field("group_id", .uuid, .required)
-            .field("user_id", .uuid, .required)
-            .field("joined_at", .datetime, .required)
-            .create()
-    }
-
-    func revert(on database: Database) async throws {
-        try await database.schema(GroupMemberModel.schema).delete()
     }
 }
 
@@ -331,5 +309,40 @@ struct TestCreateUserReports: AsyncMigration {
 
     func revert(on database: Database) async throws {
         try await database.schema(UserReportModel.schema).delete()
+    }
+}
+
+struct TestCreateSessionMemoryPhotos: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema(SessionMemoryPhotoModel.schema)
+            .id()
+            .field("session_id", .uuid, .required)
+            .field("uploader_id", .uuid, .required)
+            .field("mime_type", .string, .required)
+            .field("image_data", .data, .required)
+            .field("thumbnail_data", .data)
+            .field("created_at", .datetime)
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema(SessionMemoryPhotoModel.schema).delete()
+    }
+}
+
+struct TestCreateCoLockReleaseApprovals: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema(CoLockReleaseApprovalModel.schema)
+            .id()
+            .field("room_id", .uuid, .required)
+            .field("requester_id", .uuid, .required)
+            .field("approver_id", .uuid, .required)
+            .field("created_at", .datetime)
+            .unique(on: "room_id", "requester_id", "approver_id")
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema(CoLockReleaseApprovalModel.schema).delete()
     }
 }

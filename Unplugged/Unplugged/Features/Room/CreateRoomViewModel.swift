@@ -9,6 +9,7 @@ class CreateRoomViewModel {
 
     // lives here so subviews can read it without invalidating CreateRoomView.body on every keystroke, which was re-rendering the duration picker
     var roomName: String = ""
+    var lockMode: SessionLockMode = .standard
 
     var isCreating = false
     var createdSession: SessionResponse?
@@ -19,7 +20,9 @@ class CreateRoomViewModel {
     }
 
     var canCreate: Bool {
-        !trimmedRoomName.isEmpty && !isCreating
+        InputValidation.isValidSessionTitle(trimmedRoomName)
+            && InputValidation.isValidDurationSeconds(duration.durationSeconds)
+            && !isCreating
     }
 
     func createRoom(title: String, sessions: SessionAPIService) async {
@@ -34,7 +37,7 @@ class CreateRoomViewModel {
             createdSession = try await sessions.createSession(
                 title: title,
                 durationSeconds: duration.durationSeconds,
-                location: nil
+                lockMode: lockMode
             )
         } catch is CancellationError {
             createdSession = nil

@@ -18,6 +18,7 @@ final class ActiveRoomViewModel {
     }
 
     func isHost(orchestrator: SessionOrchestrator) -> Bool {
+        guard orchestrator.currentSession?.session.lockMode != .coLock else { return false }
         return isHost
     }
 
@@ -56,5 +57,17 @@ final class ActiveRoomViewModel {
 
     func end(orchestrator: SessionOrchestrator) async {
         await orchestrator.hostEnd()
+    }
+
+    func setReady(_ isReady: Bool, orchestrator: SessionOrchestrator) async {
+        await orchestrator.setCoLockReady(isReady)
+    }
+
+    func requestRelease(orchestrator: SessionOrchestrator) async {
+        await orchestrator.requestCoLockRelease()
+    }
+
+    func approveRelease(orchestrator: SessionOrchestrator) async {
+        await orchestrator.approveCoLockRelease()
     }
 }

@@ -18,23 +18,21 @@ struct AuthController: RouteCollection {
     func register(req: Request) async throws -> AuthResponse {
         let body = try req.content.decode(RegisterRequest.self)
 
-        guard InputValidation.isValidUsername(body.username) else {
+        let username = InputValidation.normalizedUsername(body.username)
+        guard InputValidation.isValidUsername(username) else {
             throw Abort(.badRequest, reason: "Username must be 3-20 characters, letters/numbers only.")
         }
         guard InputValidation.isValidPassword(body.password) else {
             throw Abort(.badRequest, reason: InputValidation.passwordRequirementsMessage)
         }
 
-        let existing = try await UserModel.query(on: req.db)
-            .filter(\.$username == body.username)
-            .first()
-        guard existing == nil else {
+        guard try await !UserVisibilityService.usernameExists(username, on: req.db) else {
             throw Abort(.conflict, reason: "Username already taken.")
         }
 
         let hash = try await req.password.async.hash(body.password)
         let user = UserModel()
-        user.username = body.username
+        user.username = username
         user.passwordHash = hash
         try await user.save(on: req.db)
 
@@ -52,12 +50,13 @@ struct AuthController: RouteCollection {
         let body = try req.content.decode(LoginRequest.self)
 
         // per-username throttle blocks credential stuffing that rotates IPs, the per-IP middleware is not enough
-        guard await RateLimit.shared.allowUsername(body.username) else {
+        let username = InputValidation.normalizedUsername(body.username)
+        guard await RateLimit.shared.allowUsername(username) else {
             throw Abort(.tooManyRequests, reason: "Too many login attempts. Try again in a minute.")
         }
 
         guard let user = try await UserModel.query(on: req.db)
-            .filter(\.$username == body.username)
+            .filter(\.$username, caseInsensitiveLikeOperator(for: req.db), username)
             .first()
         else {
             throw Abort(.unauthorized, reason: "Invalid credentials.")
@@ -212,7 +211,7 @@ struct AuthController: RouteCollection {
     private func uniqueUsername(_ base: String, on db: Database) async throws -> String {
         var candidate = base
         var counter = 1
-        while try await UserModel.query(on: db).filter(\.$username == candidate).first() != nil {
+        while try await UserVisibilityService.usernameExists(candidate, on: db) {
             let suffix = String(counter)
             let trimmed = String(base.prefix(max(0, 20 - suffix.count)))
             candidate = trimmed + suffix

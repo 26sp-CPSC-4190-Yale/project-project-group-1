@@ -11,6 +11,9 @@
 		19E649502F99EF3F00281855 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 19E6494F2F99EF3F00281855 /* GoogleSignIn */; };
 		19E649522F99EF3F00281855 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 19E649512F99EF3F00281855 /* GoogleSignInSwift */; };
 		A1B2C3D42FABC00100000001 /* UnpluggedLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000012FAC000100000001 /* UnpluggedShieldActionExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B10000212FAC000100000021 /* UnpluggedShieldActionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000022FAC000100000002 /* UnpluggedShieldConfigurationExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B10000222FAC000100000022 /* UnpluggedShieldConfigurationExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000032FAC000100000003 /* UnpluggedDeviceActivityMonitorExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B10000232FAC000100000023 /* UnpluggedDeviceActivityMonitorExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +23,27 @@
 			proxyType = 1;
 			remoteGlobalIDString = A1B2C3DC2FABC00100000001;
 			remoteInfo = UnpluggedLiveActivityExtension;
+		};
+		B10000112FAC000100000011 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF5125AA2F63055A00B3F774 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000612FAC000100000061;
+			remoteInfo = UnpluggedShieldActionExtension;
+		};
+		B10000122FAC000100000012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF5125AA2F63055A00B3F774 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000622FAC000100000062;
+			remoteInfo = UnpluggedShieldConfigurationExtension;
+		};
+		B10000132FAC000100000013 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF5125AA2F63055A00B3F774 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000632FAC000100000063;
+			remoteInfo = UnpluggedDeviceActivityMonitorExtension;
 		};
 		FF5125C02F63055C00B3F774 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -45,6 +69,9 @@
 			dstSubfolderSpec = 13;
 			files = (
 				A1B2C3D42FABC00100000001 /* UnpluggedLiveActivityExtension.appex in Embed App Extensions */,
+				B10000012FAC000100000001 /* UnpluggedShieldActionExtension.appex in Embed App Extensions */,
+				B10000022FAC000100000002 /* UnpluggedShieldConfigurationExtension.appex in Embed App Extensions */,
+				B10000032FAC000100000003 /* UnpluggedDeviceActivityMonitorExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -53,6 +80,9 @@
 
 /* Begin PBXFileReference section */
 		A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnpluggedLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000212FAC000100000021 /* UnpluggedShieldActionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnpluggedShieldActionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000222FAC000100000022 /* UnpluggedShieldConfigurationExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnpluggedShieldConfigurationExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000232FAC000100000023 /* UnpluggedDeviceActivityMonitorExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnpluggedDeviceActivityMonitorExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125B22F63055A00B3F774 /* Unplugged.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unplugged.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnpluggedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -66,6 +96,27 @@
 				Info.plist,
 			);
 			target = A1B2C3DC2FABC00100000001 /* UnpluggedLiveActivityExtension */;
+		};
+		B10000312FAC000100000031 /* Exceptions for "UnpluggedShieldActionExtension" folder in "UnpluggedShieldActionExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000612FAC000100000061 /* UnpluggedShieldActionExtension */;
+		};
+		B10000322FAC000100000032 /* Exceptions for "UnpluggedShieldConfigurationExtension" folder in "UnpluggedShieldConfigurationExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000622FAC000100000062 /* UnpluggedShieldConfigurationExtension */;
+		};
+		B10000332FAC000100000033 /* Exceptions for "UnpluggedDeviceActivityMonitorExtension" folder in "UnpluggedDeviceActivityMonitorExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000632FAC000100000063 /* UnpluggedDeviceActivityMonitorExtension */;
 		};
 		FF46B4322F894E8C0074BAA4 /* Exceptions for "Unplugged" folder in "Unplugged" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -88,6 +139,35 @@
 		A1B2C3DA2FABC00100000001 /* UnpluggedLiveActivityShared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = UnpluggedLiveActivityShared;
+			sourceTree = "<group>";
+		};
+		B10000412FAC000100000041 /* UnpluggedScreenTimeShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = UnpluggedScreenTimeShared;
+			sourceTree = "<group>";
+		};
+		B10000422FAC000100000042 /* UnpluggedShieldActionExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B10000312FAC000100000031 /* Exceptions for "UnpluggedShieldActionExtension" folder in "UnpluggedShieldActionExtension" target */,
+			);
+			path = UnpluggedShieldActionExtension;
+			sourceTree = "<group>";
+		};
+		B10000432FAC000100000043 /* UnpluggedShieldConfigurationExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B10000322FAC000100000032 /* Exceptions for "UnpluggedShieldConfigurationExtension" folder in "UnpluggedShieldConfigurationExtension" target */,
+			);
+			path = UnpluggedShieldConfigurationExtension;
+			sourceTree = "<group>";
+		};
+		B10000442FAC000100000044 /* UnpluggedDeviceActivityMonitorExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B10000332FAC000100000033 /* Exceptions for "UnpluggedDeviceActivityMonitorExtension" folder in "UnpluggedDeviceActivityMonitorExtension" target */,
+			);
+			path = UnpluggedDeviceActivityMonitorExtension;
 			sourceTree = "<group>";
 		};
 		FF5125B42F63055A00B3F774 /* Unplugged */ = {
@@ -117,6 +197,27 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1B2C3DB2FABC00100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000512FAC000100000051 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000522FAC000100000052 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000532FAC000100000053 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -165,6 +266,10 @@
 				FF5125B42F63055A00B3F774 /* Unplugged */,
 				A1B2C3DA2FABC00100000001 /* UnpluggedLiveActivityShared */,
 				A1B2C3D92FABC00100000001 /* UnpluggedLiveActivityExtension */,
+				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000422FAC000100000042 /* UnpluggedShieldActionExtension */,
+				B10000432FAC000100000043 /* UnpluggedShieldConfigurationExtension */,
+				B10000442FAC000100000044 /* UnpluggedDeviceActivityMonitorExtension */,
 				FF5125C22F63055C00B3F774 /* UnpluggedTests */,
 				FF5125CC2F63055C00B3F774 /* UnpluggedUITests */,
 				19E6494E2F99EF3F00281855 /* Frameworks */,
@@ -177,6 +282,9 @@
 			children = (
 				FF5125B22F63055A00B3F774 /* Unplugged.app */,
 				A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */,
+				B10000212FAC000100000021 /* UnpluggedShieldActionExtension.appex */,
+				B10000222FAC000100000022 /* UnpluggedShieldConfigurationExtension.appex */,
+				B10000232FAC000100000023 /* UnpluggedDeviceActivityMonitorExtension.appex */,
 				FF5125BF2F63055C00B3F774 /* UnpluggedTests.xctest */,
 				FF5125C92F63055C00B3F774 /* UnpluggedUITests.xctest */,
 			);
@@ -209,6 +317,75 @@
 			productReference = A1B2C3D72FABC00100000001 /* UnpluggedLiveActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		B10000612FAC000100000061 /* UnpluggedShieldActionExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000B12FAC0001000000B1 /* Build configuration list for PBXNativeTarget "UnpluggedShieldActionExtension" */;
+			buildPhases = (
+				B10000812FAC000100000081 /* Sources */,
+				B10000512FAC000100000051 /* Frameworks */,
+				B10000712FAC000100000071 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000422FAC000100000042 /* UnpluggedShieldActionExtension */,
+			);
+			name = UnpluggedShieldActionExtension;
+			packageProductDependencies = (
+			);
+			productName = UnpluggedShieldActionExtension;
+			productReference = B10000212FAC000100000021 /* UnpluggedShieldActionExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		B10000622FAC000100000062 /* UnpluggedShieldConfigurationExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000B22FAC0001000000B2 /* Build configuration list for PBXNativeTarget "UnpluggedShieldConfigurationExtension" */;
+			buildPhases = (
+				B10000822FAC000100000082 /* Sources */,
+				B10000522FAC000100000052 /* Frameworks */,
+				B10000722FAC000100000072 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000432FAC000100000043 /* UnpluggedShieldConfigurationExtension */,
+			);
+			name = UnpluggedShieldConfigurationExtension;
+			packageProductDependencies = (
+			);
+			productName = UnpluggedShieldConfigurationExtension;
+			productReference = B10000222FAC000100000022 /* UnpluggedShieldConfigurationExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		B10000632FAC000100000063 /* UnpluggedDeviceActivityMonitorExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000B32FAC0001000000B3 /* Build configuration list for PBXNativeTarget "UnpluggedDeviceActivityMonitorExtension" */;
+			buildPhases = (
+				B10000832FAC000100000083 /* Sources */,
+				B10000532FAC000100000053 /* Frameworks */,
+				B10000732FAC000100000073 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000442FAC000100000044 /* UnpluggedDeviceActivityMonitorExtension */,
+			);
+			name = UnpluggedDeviceActivityMonitorExtension;
+			packageProductDependencies = (
+			);
+			productName = UnpluggedDeviceActivityMonitorExtension;
+			productReference = B10000232FAC000100000023 /* UnpluggedDeviceActivityMonitorExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		FF5125B12F63055A00B3F774 /* Unplugged */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FF5125D32F63055C00B3F774 /* Build configuration list for PBXNativeTarget "Unplugged" */;
@@ -222,9 +399,13 @@
 			);
 			dependencies = (
 				A1B2C3DF2FABC00100000001 /* PBXTargetDependency */,
+				B10000912FAC000100000091 /* PBXTargetDependency */,
+				B10000922FAC000100000092 /* PBXTargetDependency */,
+				B10000932FAC000100000093 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1B2C3DA2FABC00100000001 /* UnpluggedLiveActivityShared */,
+				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
 				FF5125B42F63055A00B3F774 /* Unplugged */,
 			);
 			name = Unplugged;
@@ -296,6 +477,15 @@
 					A1B2C3DC2FABC00100000001 = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					B10000612FAC000100000061 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					B10000622FAC000100000062 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					B10000632FAC000100000063 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					FF5125B12F63055A00B3F774 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -328,6 +518,9 @@
 			projectRoot = "";
 			targets = (
 				A1B2C3DC2FABC00100000001 /* UnpluggedLiveActivityExtension */,
+				B10000612FAC000100000061 /* UnpluggedShieldActionExtension */,
+				B10000622FAC000100000062 /* UnpluggedShieldConfigurationExtension */,
+				B10000632FAC000100000063 /* UnpluggedDeviceActivityMonitorExtension */,
 				FF5125B12F63055A00B3F774 /* Unplugged */,
 				FF5125BE2F63055C00B3F774 /* UnpluggedTests */,
 				FF5125C82F63055C00B3F774 /* UnpluggedUITests */,
@@ -337,6 +530,27 @@
 
 /* Begin PBXResourcesBuildPhase section */
 		A1B2C3DD2FABC00100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000712FAC000100000071 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000722FAC000100000072 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000732FAC000100000073 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -374,6 +588,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000812FAC000100000081 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000822FAC000100000082 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000832FAC000100000083 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF5125AE2F63055A00B3F774 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -402,6 +637,21 @@
 			isa = PBXTargetDependency;
 			target = A1B2C3DC2FABC00100000001 /* UnpluggedLiveActivityExtension */;
 			targetProxy = A1B2C3D62FABC00100000001 /* PBXContainerItemProxy */;
+		};
+		B10000912FAC000100000091 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000612FAC000100000061 /* UnpluggedShieldActionExtension */;
+			targetProxy = B10000112FAC000100000011 /* PBXContainerItemProxy */;
+		};
+		B10000922FAC000100000092 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000622FAC000100000062 /* UnpluggedShieldConfigurationExtension */;
+			targetProxy = B10000122FAC000100000012 /* PBXContainerItemProxy */;
+		};
+		B10000932FAC000100000093 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000632FAC000100000063 /* UnpluggedDeviceActivityMonitorExtension */;
+			targetProxy = B10000132FAC000100000013 /* PBXContainerItemProxy */;
 		};
 		FF5125C12F63055C00B3F774 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -471,6 +721,192 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B10000A12FAC0001000000A1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedShieldActionExtension/UnpluggedShieldActionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedShieldActionExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.shieldaction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000A22FAC0001000000A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedShieldActionExtension/UnpluggedShieldActionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedShieldActionExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.shieldaction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B10000A32FAC0001000000A3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedShieldConfigurationExtension/UnpluggedShieldConfigurationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedShieldConfigurationExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.shieldconfiguration;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000A42FAC0001000000A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedShieldConfigurationExtension/UnpluggedShieldConfigurationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedShieldConfigurationExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.shieldconfiguration;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B10000A52FAC0001000000A5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedDeviceActivityMonitorExtension/UnpluggedDeviceActivityMonitorExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedDeviceActivityMonitorExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.deviceactivitymonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000A62FAC0001000000A6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = UnpluggedDeviceActivityMonitorExtension/UnpluggedDeviceActivityMonitorExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q3936N34LZ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnpluggedDeviceActivityMonitorExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.unplugged.deviceactivitymonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -602,7 +1038,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.Release.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q3936N34LZ;
@@ -646,7 +1082,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Unplugged/Unplugged.Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q3936N34LZ;
@@ -777,6 +1213,33 @@
 			buildConfigurations = (
 				A1B2C3E02FABC00100000001 /* Debug */,
 				A1B2C3E12FABC00100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000B12FAC0001000000B1 /* Build configuration list for PBXNativeTarget "UnpluggedShieldActionExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000A12FAC0001000000A1 /* Debug */,
+				B10000A22FAC0001000000A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000B22FAC0001000000B2 /* Build configuration list for PBXNativeTarget "UnpluggedShieldConfigurationExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000A32FAC0001000000A3 /* Debug */,
+				B10000A42FAC0001000000A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B10000B32FAC0001000000B3 /* Build configuration list for PBXNativeTarget "UnpluggedDeviceActivityMonitorExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000A52FAC0001000000A5 /* Debug */,
+				B10000A62FAC0001000000A6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

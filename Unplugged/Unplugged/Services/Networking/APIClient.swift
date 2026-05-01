@@ -10,6 +10,7 @@ extension URLSession: HTTPSession {}
 struct APIClient {
     private let baseURL: String
     private let cachedToken: () -> String?
+    private let authToken: () async -> String?
     private let session: any HTTPSession
 
     private static func makeDefaultSession() -> URLSession {
@@ -26,6 +27,7 @@ struct APIClient {
         self.init(
             baseURL: Config.baseURL,
             cachedToken: { cache.readCachedToken() },
+            authToken: { await cache.readTokenAsync() },
             session: Self.makeDefaultSession()
         )
     }
@@ -33,15 +35,17 @@ struct APIClient {
     init(
         baseURL: String = Config.baseURL,
         cachedToken: @escaping () -> String? = { nil },
+        authToken: (() async -> String?)? = nil,
         session: any HTTPSession = APIClient.makeDefaultSession()
     ) {
         self.baseURL = baseURL
         self.cachedToken = cachedToken
+        self.authToken = authToken ?? { cachedToken() }
         self.session = session
     }
 
     func send<T: Decodable>(_ route: APIRouter) async throws -> T {
-        let request = try buildRequest(route)
+        let request = try await buildRequest(route)
         let (data, response) = try await performRequest(request, route: route)
         try validate(response, with: data, route: route)
         let decoder = Self.makeDecoder()
@@ -62,7 +66,7 @@ struct APIClient {
     }
 
     func sendVoid(_ route: APIRouter) async throws {
-        let request = try buildRequest(route)
+        let request = try await buildRequest(route)
         let (data, response) = try await performRequest(request, route: route)
         try validate(response, with: data, route: route)
     }
@@ -91,10 +95,35 @@ struct APIClient {
         }
     }
 
-    private func buildRequest(_ route: APIRouter) throws -> URLRequest {
-        guard let url = URL(string: baseURL + route.path) else {
+    private func buildRequest(_ route: APIRouter) async throws -> URLRequest {
+        guard var components = URLComponents(string: baseURL),
+              let routeComponents = URLComponents(string: route.path) else {
             AppLogger.network.critical(
                 "invalid URL for route",
+                context: ["base": baseURL, "path": route.path]
+            )
+            throw AppError.serverError
+        }
+
+        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let routePath = routeComponents.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let combinedPath: String
+        switch (basePath.isEmpty, routePath.isEmpty) {
+        case (true, true):
+            combinedPath = "/"
+        case (true, false):
+            combinedPath = "/\(routePath)"
+        case (false, true):
+            combinedPath = "/\(basePath)"
+        case (false, false):
+            combinedPath = "/\(basePath)/\(routePath)"
+        }
+        components.path = combinedPath
+        components.queryItems = routeComponents.queryItems
+
+        guard let url = components.url else {
+            AppLogger.network.critical(
+                "invalid URL components for route",
                 context: ["base": baseURL, "path": route.path]
             )
             throw AppError.serverError
@@ -107,8 +136,21 @@ struct APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
-        if route.requiresAuth, let token = cachedToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if route.requiresAuth {
+            let token: String?
+            if let cached = cachedToken() {
+                token = cached
+            } else {
+                token = await authToken()
+            }
+            if let token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            } else {
+                AppLogger.network.warning(
+                    "authenticated request missing token",
+                    context: ["path": route.path]
+                )
+            }
         }
 
         if let body = route.body {
