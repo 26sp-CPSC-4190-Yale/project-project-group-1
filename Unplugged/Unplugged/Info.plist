@@ -19,8 +19,10 @@
 	<string>Unplugged uses Ultra Wideband to confirm your friend's phone is right next to yours before pairing.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Unplugged uses Bluetooth to find friends nearby when you're joining a session.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Unplugged uses the camera only when you take a photo for a completed session memento.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Unplugged uses your location only when you add location and weather to a completed session memento.</string>
+	<string>Unplugged uses your location only when you add location or weather to a completed session memento.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSSupportsLiveActivities</key>

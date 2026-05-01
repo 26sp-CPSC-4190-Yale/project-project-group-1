@@ -99,25 +99,22 @@ struct FriendProfileView: View {
         .refreshable {
             await viewModel.load(service: deps.friends, friendID: friend.id)
         }
-        .confirmationDialog(
-            "Remove this friend?",
+        .confirmationPanel(
             isPresented: $confirmRemoveFriend,
-            titleVisibility: .visible
+            title: "Remove Friend?",
+            message: "This will remove \(friend.username) from your friends list.",
+            confirmTitle: "Remove",
+            systemImage: "person.crop.circle.badge.xmark"
         ) {
-            Button("Remove Friend", role: .destructive) {
-                Task {
-                    let removed = await viewModel.removeFriend(
-                        service: deps.friends,
-                        friendID: friend.id
-                    )
-                    guard removed else { return }
-                    NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
-                    dismiss()
-                }
+            Task {
+                let removed = await viewModel.removeFriend(
+                    service: deps.friends,
+                    friendID: friend.id
+                )
+                guard removed else { return }
+                NotificationCenter.default.post(name: .unpluggedFriendsDidChange, object: nil)
+                dismiss()
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will remove \(friend.username) from your friends list.")
         }
         .errorAlert($viewModel.error)
     }
@@ -141,28 +138,33 @@ struct FriendProfileView: View {
             }
 
             if friend.status == "accepted" {
-                Button {
-                    Task {
-                        await viewModel.sendNudge(service: deps.friends, friendID: friend.id)
-                    }
-                } label: {
-                    Group {
-                        if viewModel.isSendingNudge {
-                            ProgressView()
-                                .tint(.primaryColor)
-                        } else {
-                            Label("Nudge", systemImage: "bell.badge.fill")
+                HStack(spacing: .spacingSm) {
+                    Button {
+                        Task {
+                            await viewModel.sendNudge(service: deps.friends, friendID: friend.id)
+                        }
+                    } label: {
+                        Group {
+                            if viewModel.isSendingNudge {
+                                ProgressView()
+                                    .tint(.tertiaryColor)
+                            } else {
+                                Label("Nudge", systemImage: "bell.badge.fill")
+                            }
                         }
                     }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.top, .spacingSm)
+                    .buttonStyle(GlassPillButtonStyle(tint: .secondaryColor))
+                    .disabled(viewModel.isSendingNudge)
 
-                Button("Remove Friend", role: .destructive) {
-                    confirmRemoveFriend = true
+                    Button(role: .destructive) {
+                        confirmRemoveFriend = true
+                    } label: {
+                        Label("Remove", systemImage: "person.badge.minus")
+                    }
+                    .buttonStyle(GlassPillButtonStyle(tint: .destructiveColor))
+                    .disabled(viewModel.isRemovingFriend)
                 }
-                .buttonStyle(DestructiveButtonStyle())
-                .disabled(viewModel.isRemovingFriend)
+                .padding(.top, .spacingSm)
             }
         }
     }

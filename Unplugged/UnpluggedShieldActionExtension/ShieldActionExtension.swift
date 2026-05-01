@@ -27,7 +27,7 @@ final class ShieldActionExtension: ShieldActionDelegate {
     }
 
     private func handle(action: ShieldAction, completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        guard action == .primaryButtonPressed || action == .secondaryButtonPressed else {
+        guard action == .secondaryButtonPressed else {
             completionHandler(.close)
             return
         }

@@ -312,6 +312,8 @@ struct FriendController: RouteCollection {
 
         let otherUser = try await UserVisibilityService.visibleUser(friendship.user1ID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
+        let accepter = try await UserVisibilityService.visibleUser(userID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
             req.logger.warning("friend accept by request id was already accepted", metadata: [
@@ -338,7 +340,7 @@ struct FriendController: RouteCollection {
         await NotificationService.send(
             to: friendship.user1ID,
             title: "Friend Request Accepted",
-            body: "\(otherUser.username) accepted your friend request.",
+            body: Self.friendAcceptedNotificationBody(accepter: accepter),
             type: NotificationService.NotificationType.friendAccepted,
             on: req.db,
             application: req.application
@@ -416,6 +418,8 @@ struct FriendController: RouteCollection {
 
         let otherUser = try await UserVisibilityService.visibleUser(requesterID, on: req.db)
             ?? { throw Abort(.internalServerError) }()
+        let accepter = try await UserVisibilityService.visibleUser(userID, on: req.db)
+            ?? { throw Abort(.internalServerError) }()
 
         if friendship.status == "accepted" {
             req.logger.warning("friend accept by user id was already accepted", metadata: [
@@ -440,7 +444,7 @@ struct FriendController: RouteCollection {
         await NotificationService.send(
             to: requesterID,
             title: "Friend Request Accepted",
-            body: "\(otherUser.username) accepted your friend request.",
+            body: Self.friendAcceptedNotificationBody(accepter: accepter),
             type: NotificationService.NotificationType.friendAccepted,
             on: req.db,
             application: req.application
@@ -670,6 +674,10 @@ struct FriendController: RouteCollection {
             on: db,
             application: application
         )
+    }
+
+    static func friendAcceptedNotificationBody(accepter: UserModel) -> String {
+        "\(accepter.username) accepted your friend request."
     }
 
     // unplugged if actively participating in a locked, unexpired room; online only after a recent foreground heartbeat

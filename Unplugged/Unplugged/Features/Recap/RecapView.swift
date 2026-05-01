@@ -1,9 +1,7 @@
 import CoreLocation
-import CoreTransferable
 import SwiftUI
 import PhotosUI
 import UIKit
-import UniformTypeIdentifiers
 import UnpluggedShared
 
 struct RecapView: View {
@@ -14,10 +12,14 @@ struct RecapView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = RecapViewModel()
     @State private var selectedMemoryPhoto: PhotosPickerItem?
+    @State private var showingPhotoLibrary = false
+    @State private var showingCamera = false
     @State private var isUploadingPhoto = false
-    @State private var renderedShareCard: RenderedShareCard?
+    @State private var isPreparingShareCard = false
+    @State private var shareSheetItem: ShareSheetItem?
     @State private var mementoDescription = ""
     @State private var includeLocation = false
+    @State private var includeWeather = false
     @State private var didInitializeMemento = false
     @State private var isSavingMemento = false
     @State private var mementoNotice: String?
@@ -82,6 +84,22 @@ struct RecapView: View {
             guard let newItem else { return }
             Task { await uploadMemoryPhoto(newItem) }
         }
+        .photosPicker(isPresented: $showingPhotoLibrary, selection: $selectedMemoryPhoto, matching: .images)
+        .sheet(isPresented: $showingCamera) {
+            CameraCaptureView(
+                onCapture: { image in
+                    showingCamera = false
+                    Task { await uploadCapturedMemoryPhoto(image) }
+                },
+                onCancel: {
+                    showingCamera = false
+                }
+            )
+            .ignoresSafeArea()
+        }
+        .sheet(item: $shareSheetItem) { item in
+            ShareSheet(items: [item.url])
+        }
     }
 
     @ViewBuilder
@@ -125,11 +143,19 @@ struct RecapView: View {
 
     private func stats(for recap: SessionRecapResponse) -> some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .spacingMd) {
-            StatBadge(
-                value: plannedDurationLabel(for: recap),
-                label: "Planned",
-                valueSize: 22
-            )
+            if recap.durationSeconds == nil {
+                StatBadge(
+                    value: TimeInterval(recap.actualFocusedSeconds).humanReadable,
+                    label: "Locked In",
+                    valueSize: 22
+                )
+            } else {
+                StatBadge(
+                    value: plannedDurationLabel(for: recap),
+                    label: "Planned",
+                    valueSize: 22
+                )
+            }
             StatBadge(
                 value: "\(recap.participants.count)",
                 label: "Members",
@@ -140,54 +166,43 @@ struct RecapView: View {
                 label: "Breaks",
                 valueSize: 22
             )
-            StatBadge(
-                value: "\(Int((recap.completionRate * 100).rounded()))%",
-                label: "Completion",
-                valueSize: 22
-            )
+            if recap.durationSeconds != nil {
+                StatBadge(
+                    value: "\(Int((recap.completionRate * 100).rounded()))%",
+                    label: "Completion",
+                    valueSize: 22
+                )
+            }
         }
     }
 
     private func actionRow(for recap: SessionRecapResponse) -> some View {
-        HStack(spacing: .spacingSm) {
-            if let renderedShareCard {
-                ShareLink(
-                    item: renderedShareCard.item,
-                    preview: SharePreview(
-                        recap.title ?? "Unplugged Session",
-                        image: Image(uiImage: renderedShareCard.preview)
-                    )
-                ) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
+        Button {
+            Task { await prepareShareCard(for: recap) }
+        } label: {
+            HStack(spacing: .spacingSm) {
+                if isPreparingShareCard {
+                    ProgressView()
+                        .tint(.tertiaryColor)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
                 }
-                .buttonStyle(SecondaryButtonStyle())
-            } else {
-                Button {} label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(true)
-            }
-
-            PhotosPicker(selection: $selectedMemoryPhoto, matching: .images) {
-                Label(isUploadingPhoto ? "Uploading" : "Add Photo", systemImage: "photo.badge.plus")
+                Text(isPreparingShareCard ? "Preparing Share Card" : "Share Card")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(SecondaryButtonStyle())
-            .disabled(isUploadingPhoto)
         }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(isPreparingShareCard)
     }
 
     private func mementoEditor(for recap: SessionRecapResponse) -> some View {
         VStack(alignment: .leading, spacing: .spacingMd) {
             HStack {
-                Text("Memento")
+                Text("Add to Share Card")
                     .font(.headlineFont)
                     .foregroundColor(.tertiaryColor)
                 Spacer()
-                if isSavingMemento {
+                if isSavingMemento || isUploadingPhoto {
                     ProgressView()
                         .tint(.tertiaryColor)
                 }
@@ -222,7 +237,30 @@ struct RecapView: View {
                 .buttonStyle(SecondaryButtonStyle())
                 .disabled(isSavingMemento)
 
-                locationToggle()
+                Menu {
+                    Button {
+                        showingPhotoLibrary = true
+                    } label: {
+                        Label("Choose Photo", systemImage: "photo.on.rectangle")
+                    }
+
+                    if Self.isCameraAvailable {
+                        Button {
+                            showingCamera = true
+                        } label: {
+                            Label("Take Photo", systemImage: "camera.fill")
+                        }
+                    }
+                } label: {
+                    Label(isUploadingPhoto ? "Uploading" : "Add Photo", systemImage: "photo.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(isUploadingPhoto)
+            }
+
+            if canAddFreshLocationWeather {
+                mementoToggleRows()
             }
 
             if let mementoNotice {
@@ -241,27 +279,83 @@ struct RecapView: View {
         }
     }
 
-    private func locationToggle() -> some View {
-        Toggle(isOn: Binding(
-            get: { includeLocation },
-            set: { newValue in
-                let previous = includeLocation
-                includeLocation = newValue
-                Task {
-                    let saved = await saveLocationPreference(newValue)
-                    if !saved {
-                        includeLocation = previous
-                    }
-                }
-            }
-        )) {
-            Label("Location & Weather", systemImage: "location.fill")
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+    private func mementoToggleRows() -> some View {
+        VStack(spacing: .spacingSm) {
+            mementoToggleRow(
+                title: "Location",
+                subtitle: "Adds a location chip to the share card",
+                systemImage: "location.fill",
+                isOn: Binding(
+                    get: { includeLocation },
+                    set: { setLocationIncluded($0) }
+                )
+            )
+
+            mementoToggleRow(
+                title: "Weather",
+                subtitle: "Adds current weather to the share card",
+                systemImage: "cloud.sun.fill",
+                isOn: Binding(
+                    get: { includeWeather },
+                    set: { setWeatherIncluded($0) }
+                )
+            )
         }
-        .toggleStyle(.button)
-        .tint(includeLocation ? Color.secondaryColor : Color.surfaceColor)
+    }
+
+    private func mementoToggleRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.tertiaryColor)
+                    Text(subtitle)
+                        .font(.captionFont)
+                        .foregroundStyle(Color.tertiaryColor.opacity(0.58))
+                        .lineLimit(2)
+                }
+            } icon: {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.secondaryColor)
+                    .frame(width: 22)
+            }
+        }
+        .toggleStyle(.switch)
+        .tint(Color.secondaryColor)
         .disabled(isSavingMemento)
+        .padding(.horizontal, .spacingMd)
+        .padding(.vertical, 10)
+        .background(Color.primaryColor.opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: .cornerRadiusSm))
+    }
+
+    private func setLocationIncluded(_ newValue: Bool) {
+        let previous = includeLocation
+        includeLocation = newValue
+        Task {
+            let saved = await saveLocationPreference(newValue)
+            if !saved {
+                includeLocation = previous
+            }
+        }
+    }
+
+    private func setWeatherIncluded(_ newValue: Bool) {
+        let previous = includeWeather
+        includeWeather = newValue
+        Task {
+            let saved = await saveWeatherPreference(newValue)
+            if !saved {
+                includeWeather = previous
+            }
+        }
     }
 
     private func participants(for recap: SessionRecapResponse) -> some View {
@@ -292,9 +386,19 @@ struct RecapView: View {
 
     private func jailbreaks(for recap: SessionRecapResponse) -> some View {
         VStack(alignment: .leading, spacing: .spacingSm) {
-            Text("Breaks from focus")
-                .font(.headlineFont)
-                .foregroundColor(.tertiaryColor)
+            HStack {
+                Text("Breaks from focus")
+                    .font(.headlineFont)
+                    .foregroundColor(.tertiaryColor)
+                Spacer()
+                Text("\(recap.jailbreaks.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.tertiaryColor.opacity(0.7))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.surfaceColor)
+                    .clipShape(Capsule())
+            }
 
             ForEach(recap.jailbreaks) { entry in
                 VStack(alignment: .leading, spacing: 2) {
@@ -302,7 +406,7 @@ struct RecapView: View {
                         .font(.bodyFont)
                         .foregroundColor(.tertiaryColor)
                     if let reason = entry.reason {
-                        Text(reason)
+                        Text(jailbreakReasonLabel(reason))
                             .font(.captionFont)
                             .foregroundColor(.tertiaryColor.opacity(0.6))
                     }
@@ -315,9 +419,31 @@ struct RecapView: View {
         }
     }
 
+    private var canAddFreshLocationWeather: Bool {
+        onDone != nil
+    }
+
     private func plannedDurationLabel(for recap: SessionRecapResponse) -> String {
         guard let duration = recap.durationSeconds else { return "Unlimited" }
         return TimeInterval(duration).humanReadable
+    }
+
+    private func jailbreakReasonLabel(_ reason: String) -> String {
+        switch reason {
+        case SessionExitReason.leftVoluntarily:
+            return "Left the room"
+        case SessionExitReason.leftDueToProximity:
+            return "Moved too far away"
+        case SessionExitReason.screenTimeAuthorizationCleared:
+            return "Cleared Screen Time permission"
+        case SessionExitReason.shieldActionAttempt:
+            return "Tried to open a blocked app"
+        default:
+            return reason
+                .split(separator: "_")
+                .map { word in word.prefix(1).uppercased() + String(word.dropFirst()) }
+                .joined(separator: " ")
+        }
     }
 
     private func memoryPhotos(_ photos: [SessionMemoryPhotoResponse]) -> some View {
@@ -368,23 +494,43 @@ struct RecapView: View {
         }
     }
 
+    private func uploadCapturedMemoryPhoto(_ image: UIImage) async {
+        isUploadingPhoto = true
+        defer { isUploadingPhoto = false }
+        do {
+            guard let upload = Self.makeUploadPayload(from: image) else {
+                viewModel.error = "Couldn't read that photo."
+                return
+            }
+            _ = try await deps.sessions.uploadPhoto(
+                id: sessionID,
+                imageData: upload.imageData,
+                thumbnailData: upload.thumbnailData,
+                mimeType: "image/jpeg"
+            )
+            await loadRecap()
+        } catch {
+            viewModel.error = "Couldn't upload photo."
+        }
+    }
+
     private func loadRecap() async {
         await viewModel.load(sessionID: sessionID, service: deps.recap)
         guard let recap = viewModel.recap else { return }
         initializeMementoIfNeeded(from: recap)
-        renderShareCard(for: recap)
     }
 
     private func initializeMementoIfNeeded(from recap: SessionRecapResponse) {
         guard !didInitializeMemento else { return }
         mementoDescription = recap.description ?? ""
         includeLocation = recap.latitude != nil && recap.longitude != nil
+        includeWeather = recap.weather != nil
         didInitializeMemento = true
     }
 
     private func saveDescription(for recap: SessionRecapResponse) async {
         let coordinate = includeLocation ? coordinate(from: recap) : nil
-        let weather = includeLocation ? recap.weather : nil
+        let weather = includeWeather ? recap.weather : nil
         await saveMemento(location: coordinate, weather: weather, notice: nil)
     }
 
@@ -394,8 +540,8 @@ struct RecapView: View {
                 let snapshot = try await deps.location.mementoSnapshot(requestPermissionIfNeeded: true)
                 return await saveMemento(
                     location: snapshot.coordinate,
-                    weather: snapshot.weather,
-                    notice: snapshot.warning
+                    weather: includeWeather ? snapshot.weather ?? viewModel.recap?.weather : nil,
+                    notice: includeWeather ? snapshot.warning ?? "Location added." : "Location added."
                 )
             } catch {
                 viewModel.error = Self.errorMessage(for: error)
@@ -403,7 +549,37 @@ struct RecapView: View {
             }
         }
 
-        return await saveMemento(location: nil, weather: nil, notice: "Location and weather removed.")
+        return await saveMemento(
+            location: nil,
+            weather: includeWeather ? viewModel.recap?.weather : nil,
+            notice: "Location removed."
+        )
+    }
+
+    private func saveWeatherPreference(_ enabled: Bool) async -> Bool {
+        if enabled {
+            do {
+                let snapshot = try await deps.location.mementoSnapshot(requestPermissionIfNeeded: true)
+                guard let weather = snapshot.weather else {
+                    viewModel.error = snapshot.warning ?? "Couldn't load weather. Try again in a moment."
+                    return false
+                }
+                return await saveMemento(
+                    location: includeLocation ? snapshot.coordinate : coordinate(from: viewModel.recap),
+                    weather: weather,
+                    notice: "Weather added."
+                )
+            } catch {
+                viewModel.error = Self.errorMessage(for: error)
+                return false
+            }
+        }
+
+        return await saveMemento(
+            location: includeLocation ? coordinate(from: viewModel.recap) : nil,
+            weather: nil,
+            notice: "Weather removed."
+        )
     }
 
     @discardableResult
@@ -425,9 +601,6 @@ struct RecapView: View {
             )
             mementoNotice = notice
             await viewModel.load(sessionID: sessionID, service: deps.recap)
-            if let recap = viewModel.recap {
-                renderShareCard(for: recap)
-            }
             return true
         } catch {
             viewModel.error = "Couldn't save memento."
@@ -445,28 +618,44 @@ struct RecapView: View {
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    private func renderShareCard(for recap: SessionRecapResponse) {
-        let renderer = ImageRenderer(
-            content: ShareRecapCard(recap: recap)
-                .frame(width: 390)
-                .padding(24)
-                .background(Color.primaryColor)
-        )
-        renderer.scale = UIScreen.main.scale
-        guard let image = renderer.uiImage,
-              let data = image.pngData() else {
-            renderedShareCard = nil
-            return
+    private func coordinate(from recap: SessionRecapResponse?) -> CLLocationCoordinate2D? {
+        guard let recap else { return nil }
+        return coordinate(from: recap)
+    }
+
+    private func prepareShareCard(for recap: SessionRecapResponse) async {
+        guard !isPreparingShareCard else { return }
+        isPreparingShareCard = true
+        defer { isPreparingShareCard = false }
+
+        do {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            let data = try await ShareRecapImageRenderer.renderPNGData(for: recap)
+            let url = try await Self.writeShareCardPNG(data, sessionID: recap.sessionID)
+            shareSheetItem = ShareSheetItem(url: url)
+        } catch {
+            viewModel.error = "Couldn't prepare share card."
         }
-        renderedShareCard = RenderedShareCard(
-            item: ShareRecapCardImage(data: data),
-            preview: image
-        )
+    }
+
+    private static func writeShareCardPNG(_ data: Data, sessionID: UUID) async throws -> URL {
+        try await Task.detached(priority: .utility) {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("UnpluggedShareCards", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("unplugged-\(sessionID.uuidString).png")
+            try data.write(to: url, options: .atomic)
+            return url
+        }.value
     }
 
     private static func errorMessage(for error: Error) -> String {
         let message = (error as NSError).localizedDescription
-        return message.isEmpty ? "Couldn't update location and weather." : message
+        return message.isEmpty ? "Couldn't update memento." : message
+    }
+
+    private static var isCameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
     }
 
     private static func makeUploadPayload(from image: UIImage) -> (imageData: Data, thumbnailData: Data?)? {
@@ -496,17 +685,63 @@ struct RecapView: View {
     }
 }
 
-private struct RenderedShareCard {
-    let item: ShareRecapCardImage
-    let preview: UIImage
+private struct ShareSheetItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
-private struct ShareRecapCardImage: Transferable {
-    let data: Data
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    var onCapture: (UIImage) -> Void
+    var onCancel: () -> Void
 
-    static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .png) { card in
-            card.data
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let controller = UIImagePickerController()
+        controller.sourceType = .camera
+        controller.cameraCaptureMode = .photo
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCapture: onCapture, onCancel: onCancel)
+    }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        private let onCapture: (UIImage) -> Void
+        private let onCancel: () -> Void
+
+        init(onCapture: @escaping (UIImage) -> Void, onCancel: @escaping () -> Void) {
+            self.onCapture = onCapture
+            self.onCancel = onCancel
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            guard let image = info[.originalImage] as? UIImage else {
+                onCancel()
+                return
+            }
+            onCapture(image)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            onCancel()
         }
     }
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.popoverPresentationController?.sourceView = controller.view
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

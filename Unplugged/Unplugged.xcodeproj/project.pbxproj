@@ -97,18 +97,10 @@
 			);
 			target = A1B2C3DC2FABC00100000001 /* UnpluggedLiveActivityExtension */;
 		};
-		FF46B4322F894E8C0074BAA4 /* Exceptions for "Unplugged" folder in "Unplugged" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = FF5125B12F63055A00B3F774 /* Unplugged */;
-		};
 		B10000312FAC000100000031 /* Exceptions for "UnpluggedShieldActionExtension" folder in "UnpluggedShieldActionExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				UnpluggedShieldActionExtension.entitlements,
 			);
 			target = B10000612FAC000100000061 /* UnpluggedShieldActionExtension */;
 		};
@@ -116,7 +108,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				UnpluggedShieldConfigurationExtension.entitlements,
 			);
 			target = B10000622FAC000100000062 /* UnpluggedShieldConfigurationExtension */;
 		};
@@ -124,9 +115,15 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				UnpluggedDeviceActivityMonitorExtension.entitlements,
 			);
 			target = B10000632FAC000100000063 /* UnpluggedDeviceActivityMonitorExtension */;
+		};
+		FF46B4322F894E8C0074BAA4 /* Exceptions for "Unplugged" folder in "Unplugged" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FF5125B12F63055A00B3F774 /* Unplugged */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -333,8 +330,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				B10000422FAC000100000042 /* UnpluggedShieldActionExtension */,
 				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000422FAC000100000042 /* UnpluggedShieldActionExtension */,
 			);
 			name = UnpluggedShieldActionExtension;
 			packageProductDependencies = (
@@ -356,8 +353,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				B10000432FAC000100000043 /* UnpluggedShieldConfigurationExtension */,
 				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000432FAC000100000043 /* UnpluggedShieldConfigurationExtension */,
 			);
 			name = UnpluggedShieldConfigurationExtension;
 			packageProductDependencies = (
@@ -379,8 +376,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				B10000442FAC000100000044 /* UnpluggedDeviceActivityMonitorExtension */,
 				B10000412FAC000100000041 /* UnpluggedScreenTimeShared */,
+				B10000442FAC000100000044 /* UnpluggedDeviceActivityMonitorExtension */,
 			);
 			name = UnpluggedDeviceActivityMonitorExtension;
 			packageProductDependencies = (

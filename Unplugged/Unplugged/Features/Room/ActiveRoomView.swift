@@ -123,38 +123,42 @@ struct ActiveRoomView: View {
         } message: {
             Text(orchestrator.errorMessage ?? "")
         }
-        .confirmationDialog("End Room?", isPresented: $viewModel.showEndConfirmation, titleVisibility: .visible) {
-            Button("End for Everyone", role: .destructive) {
-                Task { await viewModel.end(orchestrator: orchestrator) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will end the session for all participants.")
+        .confirmationPanel(
+            isPresented: $viewModel.showEndConfirmation,
+            title: "End Room?",
+            message: "This will end the session for all participants.",
+            confirmTitle: "End for Everyone",
+            systemImage: "xmark.circle.fill"
+        ) {
+            Task { await viewModel.end(orchestrator: orchestrator) }
         }
-        .confirmationDialog("Close Room?", isPresented: $viewModel.showCloseConfirmation, titleVisibility: .visible) {
-            Button("Close Room", role: .destructive) {
-                Task {
-                    await viewModel.end(orchestrator: orchestrator)
-                    await orchestrator.teardown()
-                    onClose()
-                    dismiss()
-                }
+        .confirmationPanel(
+            isPresented: $viewModel.showCloseConfirmation,
+            title: "Close Room?",
+            message: "This will end the room for anyone who has joined.",
+            confirmTitle: "Close Room",
+            systemImage: "xmark.circle.fill"
+        ) {
+            Task {
+                await viewModel.end(orchestrator: orchestrator)
+                await orchestrator.teardown()
+                onClose()
+                dismiss()
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will end the room for anyone who has joined.")
         }
-        .confirmationDialog("Leave Room?", isPresented: $viewModel.showLeaveConfirmation, titleVisibility: .visible) {
-            Button("Leave Room", role: .destructive) {
-                Task {
-                    await orchestrator.participantLeave()
-                    onClose()
-                    dismiss()
-                }
+        .confirmationPanel(
+            isPresented: $viewModel.showLeaveConfirmation,
+            title: "Leave Room?",
+            message: "Leaving unlocks your apps right away. The session will keep running for everyone else.",
+            confirmTitle: "Leave Room",
+            cancelTitle: "Stay",
+            systemImage: "rectangle.portrait.and.arrow.right"
+        ) {
+            Task {
+                await orchestrator.participantLeave()
+                onClose()
+                dismiss()
             }
-            Button("Stay", role: .cancel) {}
-        } message: {
-            Text("Leaving unlocks your apps right away. The session will keep running for everyone else.")
         }
         .sheet(item: $reportTarget) { target in
             ReportUserSheet(username: target.username) { reason, details in
@@ -262,8 +266,9 @@ struct ActiveRoomView: View {
         case .idle, .lobby:
             lobbyContent
         case .locked:
-            if orchestrator.currentSession?.session.durationSeconds == nil {
-                UnlimitedLockView()
+            if let session = orchestrator.currentSession?.session,
+               session.durationSeconds == nil {
+                UnlimitedLockView(startedAt: session.lockedAt ?? session.startedAt ?? Date())
             } else if let endsAt = orchestrator.countdownEndsAt {
                 CountdownView(endsAt: endsAt)
             } else {
@@ -518,18 +523,22 @@ struct ActiveRoomView: View {
 }
 
 private struct UnlimitedLockView: View {
+    let startedAt: Date
+
     var body: some View {
-        VStack(spacing: .spacingLg) {
-            ZStack {
-                CountdownRing(progress: 0, size: 220, lineWidth: 10)
-                VStack(spacing: .spacingSm) {
-                    Image(systemName: "infinity")
-                        .font(.system(size: 48, weight: .semibold, design: .rounded))
-                        .foregroundColor(.tertiaryColor)
-                    Text("locked in")
-                        .font(.captionFont)
-                        .foregroundColor(.tertiaryColor.opacity(0.6))
-                }
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            let elapsed = max(0, timeline.date.timeIntervalSince(startedAt))
+            VStack(spacing: .spacingLg) {
+                Image(systemName: "infinity")
+                    .font(.system(size: 48, weight: .semibold, design: .rounded))
+                    .foregroundColor(.tertiaryColor)
+                Text(elapsed.hms)
+                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .foregroundColor(.tertiaryColor)
+                    .monospacedDigit()
+                Text("locked in")
+                    .font(.captionFont)
+                    .foregroundColor(.tertiaryColor.opacity(0.6))
             }
         }
     }

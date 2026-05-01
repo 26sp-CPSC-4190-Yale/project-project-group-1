@@ -146,7 +146,7 @@ struct AddFriendSheet: View {
                                     Button(action: {
                                         viewModel.addingUserID = user.id
                                         Task {
-                                            // parent dismisses via showAddFriend = false, calling dismiss() here double-dismisses and crashes
+                                            // Parent owns dismissal; calling dismiss() here can race the sheet binding.
                                             let didAdd = await onAddFriend(user.username)
                                             if !didAdd {
                                                 viewModel.addingUserID = nil

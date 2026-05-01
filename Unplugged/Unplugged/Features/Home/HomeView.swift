@@ -2,7 +2,10 @@ import SwiftUI
 import UnpluggedShared
 
 struct HomeView: View {
-    @State private var viewModel = HomeViewModel()
+    @State private var showJoinRoom = false
+    @State private var showCreateRoom = false
+    @State private var activeSession: SessionResponse?
+    @State private var isHost = false
     @State private var pendingActiveSession: SessionResponse?
     @State private var pendingActiveSessionIsHost = false
     @Environment(DependencyContainer.self) private var deps
@@ -18,14 +21,14 @@ struct HomeView: View {
 
                     VStack(spacing: .spacingXl) {
                         homeAction(title: "Create Room", systemImage: "plus") {
-                            viewModel.showCreateRoom = true
+                            showCreateRoom = true
                         }
 
                         Spacer()
                             .frame(height: .spacingMd)
 
                         homeAction(title: "Join Room", systemImage: "arrow.right") {
-                            viewModel.showJoinRoom = true
+                            showJoinRoom = true
                         }
                     }
 
@@ -42,29 +45,31 @@ struct HomeView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .fullScreenCover(isPresented: $viewModel.showJoinRoom, onDismiss: activatePendingSessionIfNeeded) {
+            .fullScreenCover(isPresented: $showJoinRoom, onDismiss: activatePendingSessionIfNeeded) {
                 JoinRoomView(
                     sessions: deps.sessions,
                     touchTips: deps.touchTips
                 ) { session in
                     pendingActiveSession = session
                     pendingActiveSessionIsHost = false
-                    viewModel.showJoinRoom = false
+                    showJoinRoom = false
                 }
+                .environment(deps)
             }
-            .fullScreenCover(isPresented: $viewModel.showCreateRoom, onDismiss: activatePendingSessionIfNeeded) {
+            .fullScreenCover(isPresented: $showCreateRoom, onDismiss: activatePendingSessionIfNeeded) {
                 CreateRoomView(
                     sessions: deps.sessions
                 ) { session in
                     pendingActiveSession = session
                     pendingActiveSessionIsHost = true
-                    viewModel.showCreateRoom = false
+                    showCreateRoom = false
                 }
+                .environment(deps)
             }
-            .fullScreenCover(item: $viewModel.activeSession) { session in
-                ActiveRoomView(session: session, isHost: viewModel.isHost) {
-                    viewModel.activeSession = nil
-                    viewModel.isHost = false
+            .fullScreenCover(item: $activeSession) { session in
+                ActiveRoomView(session: session, isHost: isHost) {
+                    activeSession = nil
+                    isHost = false
                 }
                 .environment(deps)
             }
@@ -114,17 +119,17 @@ struct HomeView: View {
     private func activatePendingSessionIfNeeded() {
         guard let session = pendingActiveSession else { return }
         pendingActiveSession = nil
-        viewModel.isHost = session.session.lockMode == .standard && pendingActiveSessionIsHost
-        viewModel.activeSession = session
+        isHost = session.session.lockMode == .standard && pendingActiveSessionIsHost
+        activeSession = session
     }
 
     private func activateRecoveredSessionIfNeeded() {
-        guard viewModel.activeSession == nil,
+        guard activeSession == nil,
               let session = deps.sessionOrchestrator.currentSession,
               session.session.endedAt == nil else { return }
-        viewModel.isHost = session.session.lockMode == .standard
+        isHost = session.session.lockMode == .standard
             && session.session.hostID == deps.cache.readUser()?.id
-        viewModel.activeSession = session
+        activeSession = session
     }
 }
 

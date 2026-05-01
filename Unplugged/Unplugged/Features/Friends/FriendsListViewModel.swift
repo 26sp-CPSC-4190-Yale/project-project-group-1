@@ -16,7 +16,6 @@ class FriendsListViewModel {
     var incomingRequests: [FriendResponse] = []
     var outgoingRequests: [FriendResponse] = []
     var searchText = ""
-    var showAddFriend = false
     var addFriendUsername = ""
     var isLoading = false
     var error: String?
@@ -30,9 +29,6 @@ class FriendsListViewModel {
     private var locallyAcceptedFriends: [UUID: FriendResponse] = [:]
     private var locallyOutgoingRequests: [UUID: LocalFriendState] = [:]
     private let localOutgoingTTL: TimeInterval = 10
-
-    // Report flow state
-    var reportTarget: FriendResponse?
 
     // The view still reads `visible*` names; keep them as passthroughs so the
     // view stays untouched. A fresh reload after every mutation is the single
@@ -152,7 +148,6 @@ class FriendsListViewModel {
             let response = try await service.addFriend(username: trimmed)
             applyAddedFriendLocally(response)
             addFriendUsername = ""
-            showAddFriend = false
             await load(service: service, force: true)
             return true
         } catch {

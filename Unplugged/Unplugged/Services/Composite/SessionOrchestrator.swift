@@ -427,6 +427,8 @@ final class SessionOrchestrator {
                     sessionID: response.session.id,
                     roomTitle: response.session.title,
                     endsAt: shieldEndsAt,
+                    lockedAt: response.session.lockedAt ?? response.session.startedAt,
+                    isUnlimited: response.session.durationSeconds == nil,
                     showsProximity: shouldShowProximityInLiveActivity(response.participants)
                 )
                 warnIfLiveActivitiesDisabled(sessionID: response.session.id)
@@ -448,12 +450,16 @@ final class SessionOrchestrator {
     }
 
     private func applyLocked(endsAt: Date) async {
-        self.countdownEndsAt = currentSession?.session.durationSeconds == nil ? nil : endsAt
+        let session = currentSession?.session
+        let isUnlimited = session.map { $0.durationSeconds == nil } ?? false
+        self.countdownEndsAt = isUnlimited ? nil : endsAt
         self.phase = .locked
         await liveActivity.startOrUpdate(
-            sessionID: currentSession?.session.id,
-            roomTitle: currentSession?.session.title,
+            sessionID: session?.id,
+            roomTitle: session?.title,
             endsAt: endsAt,
+            lockedAt: session?.lockedAt ?? session?.startedAt,
+            isUnlimited: isUnlimited,
             showsProximity: shouldShowProximityInLiveActivity(participants)
         )
         warnIfLiveActivitiesDisabled(sessionID: currentSession?.session.id)

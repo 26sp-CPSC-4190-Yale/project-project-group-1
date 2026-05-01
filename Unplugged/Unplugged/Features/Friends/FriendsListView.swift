@@ -8,6 +8,8 @@ struct FriendsListView: View {
     let refreshToken: Int
     @State private var viewModel = FriendsListViewModel()
     @State private var selectedFriend: FriendResponse?
+    @State private var showingAddFriend = false
+    @State private var reportTarget: FriendResponse?
     @State private var isVisible = false
 
     var body: some View {
@@ -84,7 +86,7 @@ struct FriendsListView: View {
                                         }
                                         .disabled(viewModel.isRemovingFriend(friendID: friend.id))
                                         Button {
-                                            viewModel.reportTarget = friend
+                                            reportTarget = friend
                                         } label: {
                                             Label("Report", systemImage: "flag")
                                         }
@@ -140,7 +142,7 @@ struct FriendsListView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { viewModel.showAddFriend = true } label: {
+                    Button { showingAddFriend = true } label: {
                         Image(systemName: "person.badge.plus")
                             .foregroundStyle(Color.tertiaryColor)
                             .frame(width: 44, height: 44)
@@ -149,13 +151,18 @@ struct FriendsListView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .sheet(isPresented: $viewModel.showAddFriend) {
+            .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet(existingFriendIDs: viewModel.excludedAddFriendIDs) { username in
                     viewModel.addFriendUsername = username
-                    return await viewModel.addFriend(service: deps.friends)
+                    let didAdd = await viewModel.addFriend(service: deps.friends)
+                    if didAdd {
+                        showingAddFriend = false
+                    }
+                    return didAdd
                 }
+                .environment(deps)
             }
-            .sheet(item: $viewModel.reportTarget) { target in
+            .sheet(item: $reportTarget) { target in
                 ReportUserSheet(username: target.username) { reason, details in
                     await viewModel.reportUser(
                         id: target.id,

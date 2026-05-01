@@ -9,9 +9,17 @@ final class LiveActivityService {
     private static let proximityUpdateMinInterval: TimeInterval = 5
     private var lastProximityUpdate: [UUID: (date: Date, state: LockedSessionActivityAttributes.ProximityState)] = [:]
 
-    func startOrUpdate(sessionID: UUID?, roomTitle: String?, endsAt: Date, showsProximity: Bool) async {
+    func startOrUpdate(
+        sessionID: UUID?,
+        roomTitle: String?,
+        endsAt: Date,
+        lockedAt: Date?,
+        isUnlimited: Bool,
+        showsProximity: Bool
+    ) async {
         #if canImport(ActivityKit)
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let staleDate = isUnlimited ? nil : endsAt
 
         let state = AppLogger.measureMainThreadWork(
             "LiveActivityService.makeContentState",
@@ -21,6 +29,8 @@ final class LiveActivityService {
             LockedSessionActivityAttributes.ContentState(
                 roomTitle: Self.normalizedTitle(roomTitle),
                 endsAt: endsAt,
+                lockedAt: lockedAt,
+                isUnlimited: isUnlimited,
                 showsProximity: showsProximity
             )
         }
@@ -38,6 +48,8 @@ final class LiveActivityService {
             var merged = existing.content.state
             merged.roomTitle = state.roomTitle
             merged.endsAt = state.endsAt
+            merged.lockedAt = state.lockedAt
+            merged.isUnlimited = state.isUnlimited
             merged.showsProximity = state.showsProximity
             if !state.showsProximity {
                 merged.proximity = .unknown
@@ -47,7 +59,7 @@ final class LiveActivityService {
             if existing.content.state == merged {
                 return
             }
-            await existing.update(ActivityContent(state: merged, staleDate: endsAt))
+            await existing.update(ActivityContent(state: merged, staleDate: staleDate))
             return
         }
 
@@ -72,7 +84,7 @@ final class LiveActivityService {
             ) {
                 _ = try Activity.request(
                     attributes: LockedSessionActivityAttributes(sessionID: sessionID?.uuidString ?? "unknown"),
-                    content: ActivityContent(state: state, staleDate: endsAt),
+                    content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
             }
@@ -117,7 +129,7 @@ final class LiveActivityService {
         if existing.content.state == newState {
             return
         }
-        await existing.update(ActivityContent(state: newState, staleDate: endsAt))
+        await existing.update(ActivityContent(state: newState, staleDate: newState.isUnlimited ? nil : endsAt))
         #endif
     }
 

@@ -24,7 +24,6 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         let title = context?.sessionTitle.isEmpty == false ? context?.sessionTitle ?? "Unplugged" : "Unplugged"
         let subtitle = context?.shieldSubtitle ?? "Stay present with your lock-in."
         let primary = UIColor(red: 0, green: 53.0 / 255.0, blue: 107.0 / 255.0, alpha: 1)
-        let secondary = UIColor(red: 135.0 / 255.0, green: 193.0 / 255.0, blue: 168.0 / 255.0, alpha: 1)
         let textColor = UIColor.white
 
         return ShieldConfiguration(
@@ -35,7 +34,7 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             subtitle: .init(text: subtitle, color: textColor.withAlphaComponent(0.82)),
             primaryButtonLabel: .init(text: "Stay Locked In", color: primary),
             primaryButtonBackgroundColor: .white,
-            secondaryButtonLabel: .init(text: "I Need Access", color: secondary)
+            secondaryButtonLabel: nil
         )
     }
 }

@@ -92,17 +92,25 @@ struct SessionDetailView: View {
 
     private var durationCard: some View {
         VStack(spacing: .spacingMd) {
-            HStack(spacing: .spacingMd) {
+            if session.durationSeconds == nil {
                 durationBlock(
-                    title: "Planned",
-                    value: plannedDurationLabel,
-                    color: Color.tertiaryColor.opacity(0.7)
-                )
-                durationBlock(
-                    title: "Actual",
+                    title: "Locked In",
                     value: TimeInterval(session.actualFocusedSeconds ?? 0).humanReadable,
                     color: actualColor
                 )
+            } else {
+                HStack(spacing: .spacingMd) {
+                    durationBlock(
+                        title: "Planned",
+                        value: plannedDurationLabel,
+                        color: Color.tertiaryColor.opacity(0.7)
+                    )
+                    durationBlock(
+                        title: "Actual",
+                        value: TimeInterval(session.actualFocusedSeconds ?? 0).humanReadable,
+                        color: actualColor
+                    )
+                }
             }
         }
     }
@@ -179,6 +187,9 @@ struct SessionDetailView: View {
             return session.durationSeconds == nil
                 ? "You stayed locked in until everyone released."
                 : "You stayed locked in the full \(TimeInterval(planned).humanReadable)."
+        }
+        if session.durationSeconds == nil {
+            return "You stayed locked in for \(TimeInterval(actual).humanReadable)."
         }
         let missed = max(0, planned - actual)
         return "You stayed \(TimeInterval(actual).humanReadable) of \(TimeInterval(planned).humanReadable) — \(TimeInterval(missed).humanReadable) short."

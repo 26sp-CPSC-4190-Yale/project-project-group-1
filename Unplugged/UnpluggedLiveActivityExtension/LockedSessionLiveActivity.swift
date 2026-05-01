@@ -17,14 +17,7 @@ struct LockedSessionLiveActivity: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Until")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.72))
-                        Text(context.state.endsAt, format: .dateTime.hour().minute())
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(.white)
-                    }
+                    LockDeadlineSummary(state: context.state, compact: true)
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
@@ -36,16 +29,10 @@ struct LockedSessionLiveActivity: Widget {
                                 compact: false
                             )
                             Spacer(minLength: 8)
-                            Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
-                                .font(.title3.weight(.bold))
-                                .monospacedDigit()
-                                .foregroundStyle(.white)
+                            LockTimerText(state: context.state, font: .title3.weight(.bold))
                         }
                     } else {
-                        Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
-                            .font(.title3.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
+                        LockTimerText(state: context.state, font: .title3.weight(.bold))
                     }
                 }
             } compactLeading: {
@@ -56,10 +43,7 @@ struct LockedSessionLiveActivity: Widget {
                         .foregroundStyle(.white)
                 }
             } compactTrailing: {
-                Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
-                    .font(.caption2.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
+                LockTimerText(state: context.state, font: .caption2.weight(.semibold))
             } minimal: {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.white)
@@ -100,22 +84,15 @@ private struct LockedSessionLockScreenView: View {
 
                     Spacer(minLength: 12)
 
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("Until")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.68))
-                        Text(context.state.endsAt, format: .dateTime.hour().minute())
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(.white)
-                    }
+                    LockDeadlineSummary(state: context.state, compact: false)
                 }
 
                 HStack(alignment: .lastTextBaseline, spacing: 10) {
-                    Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                    Text("remaining")
+                    LockTimerText(
+                        state: context.state,
+                        font: .system(size: 30, weight: .bold, design: .rounded)
+                    )
+                    Text(context.state.isUnlimited ? "locked in" : "remaining")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white.opacity(0.68))
                 }
@@ -131,6 +108,47 @@ private struct LockedSessionLockScreenView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
         }
+    }
+}
+
+private struct LockDeadlineSummary: View {
+    let state: LockedSessionActivityAttributes.ContentState
+    let compact: Bool
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: compact ? 2 : 4) {
+            Text(state.isUnlimited ? "Mode" : "Until")
+                .font((compact ? Font.caption2 : Font.caption).weight(.medium))
+                .foregroundStyle(.white.opacity(compact ? 0.72 : 0.68))
+            if state.isUnlimited {
+                Image(systemName: "infinity")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+            } else {
+                Text(state.endsAt, format: .dateTime.hour().minute())
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+}
+
+private struct LockTimerText: View {
+    let state: LockedSessionActivityAttributes.ContentState
+    let font: Font
+
+    var body: some View {
+        Text(timerInterval: timerInterval, countsDown: !state.isUnlimited)
+            .font(font)
+            .monospacedDigit()
+            .foregroundStyle(.white)
+    }
+
+    private var timerInterval: ClosedRange<Date> {
+        if state.isUnlimited {
+            return (state.lockedAt ?? Date())...Date.distantFuture
+        }
+        return Date()...state.endsAt
     }
 }
 

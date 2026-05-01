@@ -760,6 +760,71 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testUnlimitedSessionStatsUseElapsedFocusedTime() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "UnlimitedHost")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Unlimited", durationSeconds: nil)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+
+            let startResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let room = try XCTUnwrap(roomRecord)
+            room.lockedAt = Date().addingTimeInterval(-125)
+            try await room.save(on: app.db)
+
+            let endResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: host.token
+            )
+            let statsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/users/me/stats",
+                token: host.token
+            )
+            let recapResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)/recap",
+                token: host.token
+            )
+            let historyResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/history?limit=10",
+                token: host.token
+            )
+
+            let ended = try TestAppFactory.decode(SessionResponse.self, from: endResponse)
+            let stats = try TestAppFactory.decode(UserStatsResponse.self, from: statsResponse)
+            let recap = try TestAppFactory.decode(SessionRecapResponse.self, from: recapResponse)
+            let history = try TestAppFactory.decode([SessionHistoryResponse].self, from: historyResponse)
+
+            XCTAssertEqual(startResponse.status, .ok)
+            XCTAssertEqual(ended.session.state, .ended)
+            XCTAssertNil(recap.durationSeconds)
+            XCTAssertGreaterThanOrEqual(recap.actualFocusedSeconds, 120)
+            XCTAssertLessThanOrEqual(recap.actualFocusedSeconds, 130)
+            XCTAssertEqual(stats.totalSessions, 1)
+            XCTAssertEqual(stats.totalMinutes, recap.actualFocusedSeconds / 60)
+            XCTAssertEqual(history.first?.actualFocusedSeconds, recap.actualFocusedSeconds)
+        }
+    }
+
     func testMementoMetadataAndPhotosArePostSessionOnly() async throws {
         try await withApp { app, tester in
             let host = try await TestAppFactory.seedUser(on: app, username: "MementoHost")

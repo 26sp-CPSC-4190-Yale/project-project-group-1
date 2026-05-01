@@ -18,7 +18,7 @@ enum LocationSnapshotError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "Location permission is required to add location and weather to this memento."
+            return "Location permission is required to add this to your memento."
         case .locationUnavailable:
             return "Couldn't get your current location. Try again in a moment."
         }
@@ -132,10 +132,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                     "WeatherKit snapshot failed",
                     context: ["error": String(describing: error)]
                 )
-                return (nil, "Location was saved, but weather couldn't be loaded.")
+                return (nil, "Weather couldn't be loaded. Try again in a moment.")
             }
         }
         #endif
-        return (nil, "Location was saved, but weather isn't available on this device.")
+        return (nil, "Weather isn't available on this device.")
     }
 }

@@ -151,18 +151,20 @@ struct StatsService {
         )
     }
 
-    // earliest jailbreak wins as the exit anchor, result is clamped into [0, planned] to absorb clock drift and overrun
+    // earliest jailbreak wins as the exit anchor; finite sessions clamp to planned duration, unlimited sessions report elapsed time.
     static func focusedSeconds(room: RoomModel, earliestLeaveAt: Date?) -> Int {
         guard let lockedAt = room.lockedAt else { return 0 }
-        let planned = max(0, room.durationSeconds ?? 0)
+        let planned = room.durationSeconds.map { max(0, $0) }
         let endAnchor: Date
         if let leave = earliestLeaveAt {
             endAnchor = min(leave, room.endedAt ?? leave)
         } else {
             endAnchor = room.endedAt ?? lockedAt
         }
-        let elapsed = Int(endAnchor.timeIntervalSince(lockedAt).rounded())
-        return max(0, min(elapsed, planned))
+        let rawElapsed = endAnchor.timeIntervalSince(lockedAt)
+        let elapsed = rawElapsed > 0 ? max(1, Int(rawElapsed.rounded())) : 0
+        guard let planned else { return elapsed }
+        return min(elapsed, planned)
     }
 
     // ties share the same rank, matching buildLeaderboard's behavior

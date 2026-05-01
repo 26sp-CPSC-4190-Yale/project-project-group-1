@@ -20,7 +20,7 @@ struct ScreenTimePermissionView: View {
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
 
-                Text("Pick the apps that should stay available during a session — Phone, Messages, Maps, anything you need in an emergency.")
+                Text("Pick apps and websites that should stay available during a session.")
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -221,7 +221,7 @@ private struct EmergencySelectionSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: .spacingMd) {
-                    Text("Pick what stays available during a session. Tap a tile to toggle it.")
+                    Text("Tap an Apple app or add other apps and websites.")
                         .font(.footnote)
                         .foregroundStyle(Color.tertiaryColor.opacity(0.7))
 
