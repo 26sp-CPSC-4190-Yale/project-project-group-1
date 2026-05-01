@@ -14,8 +14,8 @@ struct AddUniquenessIndexes: AsyncMigration {
         try await sql.raw("""
         CREATE UNIQUE INDEX IF NOT EXISTS friendships_pair_unique
         ON friendships (
-            CASE WHEN user_1_id < user_2_id THEN user_1_id ELSE user_2_id END,
-            CASE WHEN user_1_id < user_2_id THEN user_2_id ELSE user_1_id END
+            LEAST(user_1_id, user_2_id),
+            GREATEST(user_1_id, user_2_id)
         )
         """).run()
     }
