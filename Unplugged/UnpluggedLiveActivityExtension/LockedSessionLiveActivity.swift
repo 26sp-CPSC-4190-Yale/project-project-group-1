@@ -28,13 +28,20 @@ struct LockedSessionLiveActivity: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 12) {
-                        ProximityBadge(
-                            state: context.state.proximity,
-                            distanceMeters: context.state.distanceMeters,
-                            compact: false
-                        )
-                        Spacer(minLength: 8)
+                    if context.state.showsProximity {
+                        HStack(spacing: 12) {
+                            ProximityBadge(
+                                state: context.state.proximity,
+                                distanceMeters: context.state.distanceMeters,
+                                compact: false
+                            )
+                            Spacer(minLength: 8)
+                            Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
+                                .font(.title3.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                        }
+                    } else {
                         Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
                             .font(.title3.weight(.bold))
                             .monospacedDigit()
@@ -42,7 +49,12 @@ struct LockedSessionLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                ProximityDot(state: context.state.proximity)
+                if context.state.showsProximity {
+                    ProximityDot(state: context.state.proximity)
+                } else {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.white)
+                }
             } compactTrailing: {
                 Text(timerInterval: Date()...context.state.endsAt, countsDown: true)
                     .font(.caption2.weight(.semibold))
@@ -108,11 +120,13 @@ private struct LockedSessionLockScreenView: View {
                         .foregroundStyle(.white.opacity(0.68))
                 }
 
-                ProximityBadge(
-                    state: context.state.proximity,
-                    distanceMeters: context.state.distanceMeters,
-                    compact: false
-                )
+                if context.state.showsProximity {
+                    ProximityBadge(
+                        state: context.state.proximity,
+                        distanceMeters: context.state.distanceMeters,
+                        compact: false
+                    )
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 18)

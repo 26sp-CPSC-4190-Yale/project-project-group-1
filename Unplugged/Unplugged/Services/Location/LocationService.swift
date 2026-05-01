@@ -8,12 +8,28 @@ import WeatherKit
 struct LockInLocationSnapshot: Sendable {
     let coordinate: CLLocationCoordinate2D
     let weather: SessionWeatherSnapshot?
+    let warning: String?
+}
+
+enum LocationSnapshotError: LocalizedError {
+    case permissionDenied
+    case locationUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Location permission is required to add location and weather to this memento."
+        case .locationUnavailable:
+            return "Couldn't get your current location. Try again in a moment."
+        }
+    }
 }
 
 @MainActor
 final class LocationService: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation?, Never>?
+    private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
 
     override init() {
         super.init()
@@ -22,22 +38,35 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func lockInSnapshot(requestPermissionIfNeeded: Bool) async -> LockInLocationSnapshot? {
-        guard CLLocationManager.locationServicesEnabled() else { return nil }
+        try? await mementoSnapshot(requestPermissionIfNeeded: requestPermissionIfNeeded)
+    }
 
-        let status = manager.authorizationStatus
-        if status == .notDetermined {
-            guard requestPermissionIfNeeded else { return nil }
-            manager.requestWhenInUseAuthorization()
-            try? await Task.sleep(for: .milliseconds(300))
+    func mementoSnapshot(requestPermissionIfNeeded: Bool) async throws -> LockInLocationSnapshot {
+        var status = manager.authorizationStatus
+        if status == .notDetermined, requestPermissionIfNeeded {
+            status = await requestAuthorization()
         }
 
-        guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else {
-            return nil
+        guard status == .authorizedAlways || status == .authorizedWhenInUse else {
+            throw LocationSnapshotError.permissionDenied
         }
 
-        guard let location = await requestLocation() ?? manager.location else { return nil }
+        guard let location = await requestLocation() ?? manager.location else {
+            throw LocationSnapshotError.locationUnavailable
+        }
         let weather = await weatherSnapshot(for: location)
-        return LockInLocationSnapshot(coordinate: location.coordinate, weather: weather)
+        return LockInLocationSnapshot(
+            coordinate: location.coordinate,
+            weather: weather.snapshot,
+            warning: weather.warning
+        )
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            authorizationContinuation?.resume(returning: manager.authorizationStatus)
+            authorizationContinuation = nil
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -51,6 +80,21 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             continuation?.resume(returning: nil)
             continuation = nil
+        }
+    }
+
+    private func requestAuthorization() async -> CLAuthorizationStatus {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                self.authorizationContinuation?.resume(returning: manager.authorizationStatus)
+                self.authorizationContinuation = continuation
+                manager.requestWhenInUseAuthorization()
+            }
+        } onCancel: {
+            Task { @MainActor in
+                authorizationContinuation?.resume(returning: manager.authorizationStatus)
+                authorizationContinuation = nil
+            }
         }
     }
 
@@ -69,25 +113,29 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    private func weatherSnapshot(for location: CLLocation) async -> SessionWeatherSnapshot? {
+    private func weatherSnapshot(for location: CLLocation) async -> (snapshot: SessionWeatherSnapshot?, warning: String?) {
         #if canImport(WeatherKit)
         if #available(iOS 16.0, *) {
             do {
                 let weather = try await WeatherService.shared.weather(for: location)
-                return SessionWeatherSnapshot(
-                    summary: weather.currentWeather.condition.description,
-                    temperatureFahrenheit: weather.currentWeather.temperature.converted(to: .fahrenheit).value,
-                    conditionSymbol: weather.currentWeather.symbolName,
-                    capturedAt: Date()
+                return (
+                    SessionWeatherSnapshot(
+                        summary: weather.currentWeather.condition.description,
+                        temperatureFahrenheit: weather.currentWeather.temperature.converted(to: .fahrenheit).value,
+                        conditionSymbol: weather.currentWeather.symbolName,
+                        capturedAt: Date()
+                    ),
+                    nil
                 )
             } catch {
                 AppLogger.room.warning(
                     "WeatherKit snapshot failed",
                     context: ["error": String(describing: error)]
                 )
+                return (nil, "Location was saved, but weather couldn't be loaded.")
             }
         }
         #endif
-        return nil
+        return (nil, "Location was saved, but weather isn't available on this device.")
     }
 }

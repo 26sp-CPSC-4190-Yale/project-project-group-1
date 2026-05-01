@@ -9,7 +9,7 @@ final class LiveActivityService {
     private static let proximityUpdateMinInterval: TimeInterval = 5
     private var lastProximityUpdate: [UUID: (date: Date, state: LockedSessionActivityAttributes.ProximityState)] = [:]
 
-    func startOrUpdate(sessionID: UUID?, roomTitle: String?, endsAt: Date) async {
+    func startOrUpdate(sessionID: UUID?, roomTitle: String?, endsAt: Date, showsProximity: Bool) async {
         #if canImport(ActivityKit)
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
@@ -20,7 +20,8 @@ final class LiveActivityService {
         ) {
             LockedSessionActivityAttributes.ContentState(
                 roomTitle: Self.normalizedTitle(roomTitle),
-                endsAt: endsAt
+                endsAt: endsAt,
+                showsProximity: showsProximity
             )
         }
 
@@ -37,6 +38,12 @@ final class LiveActivityService {
             var merged = existing.content.state
             merged.roomTitle = state.roomTitle
             merged.endsAt = state.endsAt
+            merged.showsProximity = state.showsProximity
+            if !state.showsProximity {
+                merged.proximity = .unknown
+                merged.distanceMeters = nil
+                merged.proximityObservedAt = nil
+            }
             if existing.content.state == merged {
                 return
             }
@@ -89,6 +96,7 @@ final class LiveActivityService {
         #if canImport(ActivityKit)
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let existing = preferredActivity(for: sessionID) else { return }
+        guard existing.content.state.showsProximity else { return }
 
         // throttle same-state updates so ActivityKit isn't pinged every 0.3s, but a state transition (in/out/lost) always goes through immediately
         if let last = lastProximityUpdate[sessionID],

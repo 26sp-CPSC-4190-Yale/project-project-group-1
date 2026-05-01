@@ -20,6 +20,7 @@ enum TestAppFactory {
 
     static func make() async throws -> Application {
         let app = try await Application.make(.testing)
+        app.routes.defaultMaxBodySize = "4mb"
         app.databases.use(.sqlite(.memory), as: .sqlite)
         await app.jwt.keys.add(
             hmac: HMACKey(key: SymmetricKey(data: Data(jwtSecret.utf8))),

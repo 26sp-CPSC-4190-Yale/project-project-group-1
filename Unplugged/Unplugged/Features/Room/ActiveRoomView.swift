@@ -107,10 +107,11 @@ struct ActiveRoomView: View {
                 Task { await deps.touchTips.stop() }
             }
         }
-        .sheet(isPresented: $viewModel.showRecap) {
+        .fullScreenCover(isPresented: $viewModel.showRecap, onDismiss: closeAfterRecap) {
             if let id = orchestrator.currentSession?.session.id {
-                RecapView(sessionID: id)
+                RecapView(sessionID: id, onDone: closeAfterRecap)
                     .environment(deps)
+                    .interactiveDismissDisabled()
             }
         }
         .alert("Error",
@@ -246,6 +247,12 @@ struct ActiveRoomView: View {
         } catch {
             moderationError = "Could not block user"
         }
+    }
+
+    private func closeAfterRecap() {
+        viewModel.showRecap = false
+        onClose()
+        dismiss()
     }
 
     @ViewBuilder

@@ -7,6 +7,8 @@ import Vapor
 import VaporAPNS
 
 public func configure(_ app: Application) async throws {
+    app.routes.defaultMaxBodySize = "4mb"
+
     // iOS doesn't enforce CORS, this exists for web clients, ALLOWED_ORIGINS is comma separated
     let corsOrigins: CORSMiddleware.AllowOriginSetting
     if let raw = Environment.get("ALLOWED_ORIGINS"), !raw.isEmpty {

@@ -13,6 +13,7 @@ struct LockedSessionActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         var roomTitle: String
         var endsAt: Date
+        var showsProximity: Bool = true
         var proximity: ProximityState = .unknown
         var distanceMeters: Double? = nil
         var proximityObservedAt: Date? = nil

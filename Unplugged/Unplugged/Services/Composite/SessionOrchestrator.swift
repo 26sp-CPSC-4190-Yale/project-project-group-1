@@ -161,7 +161,8 @@ final class SessionOrchestrator {
             return
         }
         do {
-            _ = try await sessions.endSession(id: session.session.id)
+            let ended = try await sessions.endSession(id: session.session.id)
+            await applySessionSnapshot(ended)
         } catch {
             AppLogger.session.error("hostEnd failed", error: error, context: ["id": session.session.id.uuidString])
             errorMessage = "Couldn't end the session."
@@ -425,7 +426,8 @@ final class SessionOrchestrator {
                 await liveActivity.startOrUpdate(
                     sessionID: response.session.id,
                     roomTitle: response.session.title,
-                    endsAt: shieldEndsAt
+                    endsAt: shieldEndsAt,
+                    showsProximity: shouldShowProximityInLiveActivity(response.participants)
                 )
                 warnIfLiveActivitiesDisabled(sessionID: response.session.id)
                 await engageShield(endsAt: shieldEndsAt)
@@ -451,7 +453,8 @@ final class SessionOrchestrator {
         await liveActivity.startOrUpdate(
             sessionID: currentSession?.session.id,
             roomTitle: currentSession?.session.title,
-            endsAt: endsAt
+            endsAt: endsAt,
+            showsProximity: shouldShowProximityInLiveActivity(participants)
         )
         warnIfLiveActivitiesDisabled(sessionID: currentSession?.session.id)
         await engageShield(endsAt: endsAt)
@@ -471,6 +474,10 @@ final class SessionOrchestrator {
         if errorMessage == nil {
             errorMessage = "Enable Live Activities in Settings → Unplugged so the lock survives backgrounding."
         }
+    }
+
+    private func shouldShowProximityInLiveActivity(_ participants: [ParticipantResponse]) -> Bool {
+        participants.filter { $0.status == .active }.count > 1
     }
 
     private func updateParticipantStatus(userID: UUID, status: ParticipantStatus) {

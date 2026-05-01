@@ -3,7 +3,6 @@ import UnpluggedShared
 
 struct CreateRoomView: View {
     let sessions: SessionAPIService
-    let location: LocationService
     var onCreateRoom: (SessionResponse) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -54,54 +53,19 @@ struct CreateRoomView: View {
         ScrollView {
             VStack(spacing: .spacingLg) {
                 RoomNameField(viewModel: viewModel)
-                RoomDescriptionField(viewModel: viewModel)
-
                 DurationSection(value: $viewModel.duration)
                 LockModeSection(viewModel: viewModel)
-                LocationMetadataRow(viewModel: viewModel)
 
                 Spacer(minLength: .spacingXl)
 
                 CreateRoomActionButton(
                     viewModel: viewModel,
                     sessions: sessions,
-                    location: location,
                     onCreateRoom: onCreateRoom
                 )
             }
             .padding(.horizontal, .spacingLg)
             .padding(.top, .spacingMd)
-        }
-    }
-}
-
-private struct RoomDescriptionField: View {
-    @Bindable var viewModel: CreateRoomViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Description")
-                .font(.subheadline)
-                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
-
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $viewModel.description)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 88, maxHeight: 120)
-                    .foregroundStyle(Color.tertiaryColor)
-                    .tint(Color.tertiaryColor)
-                    .padding(10)
-
-                if viewModel.description.isEmpty {
-                    Text("Optional")
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.3))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 18)
-                        .allowsHitTesting(false)
-                }
-            }
-            .background(Color.surfaceColor)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 }
@@ -122,33 +86,6 @@ private struct LockModeSection: View {
             .pickerStyle(.segmented)
             .tint(Color.secondaryColor)
         }
-    }
-}
-
-private struct LocationMetadataRow: View {
-    @Bindable var viewModel: CreateRoomViewModel
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "location.fill")
-                .foregroundStyle(Color.tertiaryColor.opacity(viewModel.includeLocation ? 1 : 0.5))
-                .frame(width: 24)
-
-            Text("Location & Weather")
-                .font(.body)
-                .foregroundStyle(Color.tertiaryColor)
-
-            Spacer(minLength: 0)
-
-            Toggle("", isOn: $viewModel.includeLocation)
-                .labelsHidden()
-                .tint(Color.secondaryColor)
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, .spacingMd)
-        .background(Color.surfaceColor)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -183,7 +120,6 @@ private struct RoomNameField: View {
 private struct CreateRoomActionButton: View {
     let viewModel: CreateRoomViewModel
     let sessions: SessionAPIService
-    let location: LocationService
     let onCreateRoom: (SessionResponse) -> Void
 
     @State private var createTask: Task<Void, Never>?
@@ -193,7 +129,7 @@ private struct CreateRoomActionButton: View {
             let title = viewModel.trimmedRoomName
             createTask?.cancel()
             createTask = Task {
-                await viewModel.createRoom(title: title, sessions: sessions, location: location)
+                await viewModel.createRoom(title: title, sessions: sessions)
                 guard !Task.isCancelled else { return }
                 if let session = viewModel.createdSession {
                     onCreateRoom(session)

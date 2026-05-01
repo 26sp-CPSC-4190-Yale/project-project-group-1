@@ -23,7 +23,10 @@ enum ScreenTimeShared {
 
         var shieldSubtitle: String {
             if isUnlimited || endsAt == nil {
-                return "This co-lock is active until everyone approves release."
+                if lockMode == "coLock" {
+                    return "This co-lock is active until everyone approves release."
+                }
+                return "This lock-in is active until you end it."
             }
             return "Stay present until this lock-in ends."
         }

@@ -54,11 +54,13 @@ public struct StartSessionRequest: Codable, Sendable {
 }
 
 public struct SessionMetadataRequest: Codable, Sendable {
+    public let description: String?
     public let latitude: Double?
     public let longitude: Double?
     public let weather: SessionWeatherSnapshot?
 
-    public init(latitude: Double? = nil, longitude: Double? = nil, weather: SessionWeatherSnapshot? = nil) {
+    public init(description: String? = nil, latitude: Double? = nil, longitude: Double? = nil, weather: SessionWeatherSnapshot? = nil) {
+        self.description = description
         self.latitude = latitude
         self.longitude = longitude
         self.weather = weather

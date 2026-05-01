@@ -1,4 +1,5 @@
 import Fluent
+import Foundation
 import XCTest
 import XCTVapor
 @testable import UnpluggedServer
@@ -756,6 +757,113 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(recap.actualFocusedSeconds, 3_600)
             XCTAssertEqual(recap.participants.count, 2)
             XCTAssertTrue(recap.jailbreaks.isEmpty)
+        }
+    }
+
+    func testMementoMetadataAndPhotosArePostSessionOnly() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "MementoHost")
+            let weather = SessionWeatherSnapshot(
+                summary: "Cloudy",
+                temperatureFahrenheit: 62,
+                conditionSymbol: "cloud.fill",
+                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(
+                    title: "Memento",
+                    durationSeconds: 1_800,
+                    description: "should not be saved",
+                    latitude: 1,
+                    longitude: 2,
+                    weather: weather
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            XCTAssertNil(created.session.description)
+            XCTAssertNil(created.session.latitude)
+            XCTAssertNil(created.session.weather)
+
+            let preEndMetadata = try await TestAppFactory.sendRequest(
+                with: tester,
+                .PATCH,
+                "/sessions/\(created.id)/metadata",
+                token: host.token,
+                body: SessionMetadataRequest(description: "Library grind")
+            )
+            let preEndPhoto = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/photos",
+                token: host.token,
+                body: UploadSessionPhotoRequest(
+                    imageData: Data(repeating: 7, count: 24_000),
+                    thumbnailData: Data(repeating: 3, count: 512),
+                    mimeType: "image/jpeg"
+                )
+            )
+            XCTAssertEqual(preEndMetadata.status, .conflict)
+            XCTAssertEqual(preEndPhoto.status, .conflict)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/end",
+                token: host.token
+            )
+
+            let metadataResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .PATCH,
+                "/sessions/\(created.id)/metadata",
+                token: host.token,
+                body: SessionMetadataRequest(
+                    description: "Library grind",
+                    latitude: 37.3349,
+                    longitude: -122.009,
+                    weather: weather
+                )
+            )
+            let photoResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/photos",
+                token: host.token,
+                body: UploadSessionPhotoRequest(
+                    imageData: Data(repeating: 9, count: 24_000),
+                    thumbnailData: Data(repeating: 4, count: 512),
+                    mimeType: "image/jpeg"
+                )
+            )
+            let recapResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)/recap",
+                token: host.token
+            )
+
+            let metadata = try TestAppFactory.decode(SessionResponse.self, from: metadataResponse)
+            let photo = try TestAppFactory.decode(SessionMemoryPhotoResponse.self, from: photoResponse)
+            let recap = try TestAppFactory.decode(SessionRecapResponse.self, from: recapResponse)
+
+            XCTAssertEqual(metadata.session.description, "Library grind")
+            XCTAssertEqual(metadata.session.latitude, 37.3349)
+            XCTAssertEqual(metadata.session.weather?.summary, "Cloudy")
+            XCTAssertEqual(photo.byteCount, 24_000)
+            XCTAssertEqual(recap.description, "Library grind")
+            XCTAssertEqual(recap.memoryPhotos.count, 1)
+            XCTAssertEqual(recap.memoryPhotos.first?.thumbnailData?.count, 512)
         }
     }
 

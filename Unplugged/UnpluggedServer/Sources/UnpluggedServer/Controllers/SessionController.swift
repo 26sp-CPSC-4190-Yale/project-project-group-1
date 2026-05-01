@@ -69,12 +69,12 @@ struct SessionController: RouteCollection {
             roomOwner: userID,
             code: code,
             title: InputValidation.normalizedOptionalText(body.title, maxLength: InputValidation.sessionTitleMaxLength) ?? body.title,
-            description: InputValidation.normalizedOptionalText(body.description, maxLength: InputValidation.sessionDescriptionMaxLength),
+            description: nil,
             durationSeconds: body.durationSeconds,
             lockMode: body.lockMode,
-            latitude: body.latitude,
-            longitude: body.longitude,
-            weather: body.weather
+            latitude: nil,
+            longitude: nil,
+            weather: nil
         )
 
         // room plus owner-membership must be atomic, otherwise a ghost room passes auth checks but cannot be joined or ended
@@ -224,7 +224,12 @@ struct SessionController: RouteCollection {
             throw Abort(.forbidden)
         }
 
-        try applyUpdateBody(try req.content.decode(UpdateSessionRequest.self), to: room)
+        let body = try req.content.decode(UpdateSessionRequest.self)
+        if room.endedAt == nil,
+           body.description != nil || body.latitude != nil || body.longitude != nil || body.weather != nil {
+            throw Abort(.conflict, reason: "Mementos can be edited after the session ends.")
+        }
+        try applyUpdateBody(body, to: room)
         try await room.save(on: req.db)
         return try await buildSessionResponse(room: room, db: req.db)
     }
@@ -239,11 +244,18 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        guard room.endedAt != nil else {
+            throw Abort(.conflict, reason: "Mementos can be edited after the session ends.")
+        }
 
         let body = try req.content.decode(SessionMetadataRequest.self)
+        guard InputValidation.isValidSessionDescription(body.description) else {
+            throw Abort(.badRequest, reason: "Description is too long.")
+        }
         guard InputValidation.isValidLatitude(body.latitude), InputValidation.isValidLongitude(body.longitude) else {
             throw Abort(.badRequest, reason: "Invalid coordinates.")
         }
+        room.description = InputValidation.normalizedOptionalText(body.description, maxLength: InputValidation.sessionDescriptionMaxLength)
         room.latitude = body.latitude
         room.longitude = body.longitude
         SessionResponseBuilder.apply(weather: body.weather, to: room)
@@ -647,6 +659,9 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        guard room.endedAt != nil else {
+            throw Abort(.conflict, reason: "Photos can be added after the session ends.")
+        }
         let body = try req.content.decode(UploadSessionPhotoRequest.self)
         guard body.mimeType == "image/jpeg" || body.mimeType == "image/png" else {
             throw Abort(.badRequest, reason: "Unsupported image type.")
@@ -685,6 +700,9 @@ struct SessionController: RouteCollection {
         let roomID = try room.requireID()
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
+        }
+        guard room.endedAt != nil else {
+            throw Abort(.conflict, reason: "Photos can be edited after the session ends.")
         }
         guard let photoID = req.parameters.get("photoID", as: UUID.self),
               let photo = try await SessionMemoryPhotoModel.find(photoID, on: req.db),

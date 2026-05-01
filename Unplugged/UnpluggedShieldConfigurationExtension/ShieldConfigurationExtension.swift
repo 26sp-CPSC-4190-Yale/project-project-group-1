@@ -23,18 +23,19 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         let context = ScreenTimeShared.loadActiveContext()
         let title = context?.sessionTitle.isEmpty == false ? context?.sessionTitle ?? "Unplugged" : "Unplugged"
         let subtitle = context?.shieldSubtitle ?? "Stay present with your lock-in."
+        let primary = UIColor(red: 0, green: 53.0 / 255.0, blue: 107.0 / 255.0, alpha: 1)
+        let secondary = UIColor(red: 135.0 / 255.0, green: 193.0 / 255.0, blue: 168.0 / 255.0, alpha: 1)
         let textColor = UIColor.white
-        let accent = UIColor(red: 0.12, green: 0.55, blue: 0.42, alpha: 1)
-        let background = UIColor(red: 0.05, green: 0.07, blue: 0.08, alpha: 1)
 
         return ShieldConfiguration(
             backgroundBlurStyle: .systemMaterialDark,
-            backgroundColor: background,
+            backgroundColor: primary,
             icon: UIImage(systemName: "lock.shield.fill"),
             title: .init(text: title, color: textColor),
             subtitle: .init(text: subtitle, color: textColor.withAlphaComponent(0.82)),
-            primaryButtonLabel: .init(text: "Stay Locked In", color: .white),
-            primaryButtonBackgroundColor: accent
+            primaryButtonLabel: .init(text: "Stay Locked In", color: primary),
+            primaryButtonBackgroundColor: .white,
+            secondaryButtonLabel: .init(text: "I Need Access", color: secondary)
         )
     }
 }

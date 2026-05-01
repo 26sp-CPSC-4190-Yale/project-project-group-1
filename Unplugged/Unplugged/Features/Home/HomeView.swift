@@ -54,8 +54,7 @@ struct HomeView: View {
             }
             .fullScreenCover(isPresented: $viewModel.showCreateRoom, onDismiss: activatePendingSessionIfNeeded) {
                 CreateRoomView(
-                    sessions: deps.sessions,
-                    location: deps.location
+                    sessions: deps.sessions
                 ) { session in
                     pendingActiveSession = session
                     pendingActiveSessionIsHost = true
