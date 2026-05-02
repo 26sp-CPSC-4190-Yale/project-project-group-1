@@ -126,14 +126,14 @@ struct StatsService {
                 rankScope.insert(other)
             }
         }
+        let user = try await UserModel.find(userID, on: db)
+
         let rank = try await computeRank(
             for: userID,
-            focusedMinutes: totalMinutes,
+            points: user?.points ?? 0,
             scopeIDs: rankScope,
             on: db
         )
-
-        let user = try await UserModel.find(userID, on: db)
 
         return UserStatsResponse(
             hoursUnplugged: totalMinutes / 60,
@@ -170,62 +170,18 @@ struct StatsService {
     // ties share the same rank, matching buildLeaderboard's behavior
     private static func computeRank(
         for userID: UUID,
-        focusedMinutes: Int,
+        points: Int,
         scopeIDs: Set<UUID>,
         on db: Database
     ) async throws -> Int {
         guard !scopeIDs.isEmpty else { return 1 }
-        let scopeArray = Array(scopeIDs)
-
-        let allEndedRooms = try await RoomModel.query(on: db)
-            .filter(\.$endedAt != nil)
+        let users = try await UserModel.query(on: db)
+            .filter(\.$id ~~ Array(scopeIDs))
             .all()
-        let endedRoomIDs = allEndedRooms.compactMap { try? $0.requireID() }
-        guard !endedRoomIDs.isEmpty else { return 1 }
-
-        let allMemberships = try await MemberModel.query(on: db)
-            .filter(\.$roomID ~~ endedRoomIDs)
-            .filter(\.$userID ~~ scopeArray)
-            .all()
-        let allJailbreaks = try await JailbreakModel.query(on: db)
-            .filter(\.$sessionID ~~ endedRoomIDs)
-            .filter(\.$userID ~~ scopeArray)
-            .all()
-
-        var leaveMap: [UUID: [UUID: Date]] = [:]
-        for jb in allJailbreaks {
-            var byRoom = leaveMap[jb.userID] ?? [:]
-            if let prev = byRoom[jb.sessionID], prev <= jb.detectedAt {
-                continue
-            }
-            byRoom[jb.sessionID] = jb.detectedAt
-            leaveMap[jb.userID] = byRoom
-        }
-
-        var roomsByID: [UUID: RoomModel] = [:]
-        for room in allEndedRooms {
-            if let id = room.id { roomsByID[id] = room }
-        }
-
-        // seed every scoped user at 0 so users with no ended rooms still appear in the ranking
-        var userMinutes: [UUID: Int] = Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
-        for member in allMemberships {
-            guard let room = roomsByID[member.roomID] else { continue }
-            let leave = leaveMap[member.userID]?[member.roomID]
-            let focused = focusedSeconds(room: room, earliestLeaveAt: leave)
-            userMinutes[member.userID, default: 0] += focused / 60
-        }
-        // pin the caller's total to the already-computed figure so this recomputation cannot drift from the caller's
-        userMinutes[userID] = focusedMinutes
-
-        let allTotals = userMinutes.values.sorted(by: >)
         var rank = 1
-        for val in allTotals {
-            if val > focusedMinutes {
-                rank += 1
-            } else {
-                break
-            }
+        for user in users {
+            guard let uid = user.id, uid != userID else { continue }
+            if user.points > points { rank += 1 }
         }
         return rank
     }
@@ -245,15 +201,21 @@ struct StatsService {
             guard let id = u.id else { return nil }
             return (id, u.username)
         })
+        let pointsByUser = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, Int)? in
+            guard let id = u.id else { return nil }
+            return (id, u.points)
+        })
 
         let visibleUserIDs = Array(usernames.keys)
         let focusedByUser = try await focusedMinutesByUser(visibleUserIDs, on: db)
 
-        let sorted = focusedByUser
+        let sorted = visibleUserIDs
             .sorted { lhs, rhs in
-                if lhs.value != rhs.value { return lhs.value > rhs.value }
-                let lhsName = usernames[lhs.key] ?? ""
-                let rhsName = usernames[rhs.key] ?? ""
+                let lhsPts = pointsByUser[lhs] ?? 0
+                let rhsPts = pointsByUser[rhs] ?? 0
+                if lhsPts != rhsPts { return lhsPts > rhsPts }
+                let lhsName = usernames[lhs] ?? ""
+                let rhsName = usernames[rhs] ?? ""
                 return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
             }
 
@@ -261,11 +223,13 @@ struct StatsService {
         var rank = 0
         var previousValue: Int? = nil
         var position = 0
-        for (uid, minutes) in sorted {
+        for uid in sorted {
+            let pts = pointsByUser[uid] ?? 0
+            let minutes = focusedByUser[uid] ?? 0
             position += 1
-            if minutes != previousValue {
+            if pts != previousValue {
                 rank = position
-                previousValue = minutes
+                previousValue = pts
             }
             entries.append(
                 LeaderboardEntryResponse(
@@ -274,7 +238,8 @@ struct StatsService {
                     hoursUnplugged: minutes / 60,
                     minutesFocused: minutes,
                     rank: rank,
-                    isCurrentUser: uid == currentUserID
+                    isCurrentUser: uid == currentUserID,
+                    points: pts
                 )
             )
         }

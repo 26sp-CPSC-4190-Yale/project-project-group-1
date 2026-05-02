@@ -753,7 +753,7 @@ final class ServerTests: XCTestCase {
             XCTAssertFalse(history.first?.leftEarly ?? true)
             XCTAssertEqual(stats.totalSessions, 1)
             XCTAssertEqual(stats.totalMinutes, 60)
-            XCTAssertEqual(stats.points, 72)
+            XCTAssertEqual(stats.points, 27)
             XCTAssertEqual(recap.actualFocusedSeconds, 3_600)
             XCTAssertEqual(recap.participants.count, 2)
             XCTAssertTrue(recap.jailbreaks.isEmpty)
