@@ -105,10 +105,25 @@ enum SessionLifecycleService {
             return
         }
 
-        let tier1 = min(minutes, 60)
-        let tier2 = max(0, min(minutes, 180) - 60)
-        let tier3 = max(0, minutes - 180)
-        let points = tier1 + (tier2 * 2) + (tier3 * 3)
+        var quarterPoints = 0
+        var remaining = minutes
+
+        // Progressive tiers: 6 × 30-min windows at 0.25 pt/min increments (0.25 → 1.5)
+        let tieredMinutes = min(remaining, 180)
+        var tieredRemaining = tieredMinutes
+        var tier = 1
+        while tieredRemaining > 0 {
+            let chunk = min(tieredRemaining, 30)
+            quarterPoints += chunk * tier
+            tieredRemaining -= chunk
+            tier += 1
+        }
+        remaining -= tieredMinutes
+
+        // After 3 hours: flat 2.0 pts/min = 8 quarter-points/min
+        quarterPoints += remaining * 8
+
+        let points = quarterPoints / 4
 
         guard let sql = db as? SQLDatabase else {
             logger.error("[Stats] Database is not SQL-backed; cannot atomically award points to user \(userID)")
@@ -117,6 +132,6 @@ enum SessionLifecycleService {
         try await sql.raw("""
             UPDATE users SET points = points + \(bind: points) WHERE id = \(bind: userID)
             """).run()
-        logger.info("[Stats] Awarded \(points) points to user \(userID) for \(minutes) min (t1=\(tier1), t2=\(tier2), t3=\(tier3))")
+        logger.info("[Stats] Awarded \(points) points to user \(userID) for \(minutes) min")
     }
 }

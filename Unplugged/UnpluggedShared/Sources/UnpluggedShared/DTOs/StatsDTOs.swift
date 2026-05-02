@@ -66,6 +66,7 @@ public struct LeaderboardEntryResponse: Codable, Sendable, Identifiable, Hashabl
     public let minutesFocused: Int
     public let rank: Int
     public let isCurrentUser: Bool
+    public let points: Int
 
     public init(
         id: UUID,
@@ -73,7 +74,8 @@ public struct LeaderboardEntryResponse: Codable, Sendable, Identifiable, Hashabl
         hoursUnplugged: Int,
         minutesFocused: Int,
         rank: Int,
-        isCurrentUser: Bool
+        isCurrentUser: Bool,
+        points: Int = 0
     ) {
         self.id = id
         self.username = username
@@ -81,5 +83,6 @@ public struct LeaderboardEntryResponse: Codable, Sendable, Identifiable, Hashabl
         self.minutesFocused = minutesFocused
         self.rank = rank
         self.isCurrentUser = isCurrentUser
+        self.points = points
     }
 }

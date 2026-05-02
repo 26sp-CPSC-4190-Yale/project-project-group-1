@@ -95,7 +95,7 @@ struct LeaderboardView: View {
 
             Spacer()
 
-            Text("\(entry.hoursUnplugged)h")
+            Text("\(entry.points) pts")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(Color.tertiaryColor)
         }
@@ -114,12 +114,8 @@ struct LeaderboardView: View {
     }
 
     private func subtitle(for entry: LeaderboardEntryResponse) -> String {
-        let minutes = entry.minutesFocused
-        if minutes < 60 { return "\(minutes) min focused" }
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        if remainder == 0 { return "\(hours)h focused" }
-        return "\(hours)h \(remainder)m focused"
+        let hours = entry.hoursUnplugged
+        return hours == 1 ? "1h focused" : "\(hours)h focused"
     }
 }
 
