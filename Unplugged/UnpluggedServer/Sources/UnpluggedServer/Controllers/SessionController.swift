@@ -106,7 +106,8 @@ struct SessionController: RouteCollection {
             .filter(\.$endedAt == nil)
             .all()
 
-        return try await buildSessionResponses(rooms: rooms, db: req.db)
+        try await SessionLifecycleService.expireIfNeeded(rooms: rooms, req: req)
+        return try await buildSessionResponses(rooms: rooms.filter { $0.endedAt == nil }, db: req.db)
     }
 
     @Sendable
@@ -123,6 +124,7 @@ struct SessionController: RouteCollection {
         let roomIDs = memberships.map { $0.roomID }
 
         guard !roomIDs.isEmpty else { return [] }
+        try await SessionLifecycleService.expireActiveRooms(roomIDs: roomIDs, req: req)
 
         var query = RoomModel.query(on: req.db)
             .filter(\.$id ~~ roomIDs)
@@ -211,6 +213,7 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         return try await buildSessionResponse(room: room, db: req.db)
     }
 
@@ -223,6 +226,7 @@ struct SessionController: RouteCollection {
         guard room.roomOwner == userID else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
 
         let body = try req.content.decode(UpdateSessionRequest.self)
         if room.endedAt == nil,
@@ -244,6 +248,7 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt != nil else {
             throw Abort(.conflict, reason: "Mementos can be edited after the session ends.")
         }
@@ -399,60 +404,12 @@ struct SessionController: RouteCollection {
             throw Abort(.gone, reason: "Session already ended.")
         }
 
-        let now = Date()
-        let lockedAt = room.lockedAt
-
-        // Stamping endedAt, leftAt on remaining members, and awarding points must
-        // be atomic — if any step fails, the session stays open so we can retry.
-        try await req.db.transaction { db in
-            room.endedAt = now
-            try await room.save(on: db)
-
-            let members = try await MemberModel.query(on: db)
-                .filter(\.$roomID == roomID)
-                .all()
-
-            for member in members {
-                // Stamp leftAt for anyone who hadn't already exited. Leave
-                // leftEarly alone — proximity-exit / future /leave flows set it,
-                // a clean session end means the user stayed.
-                if member.leftAt == nil {
-                    member.leftAt = now
-                    try await member.save(on: db)
-                }
-                // Points only count from when the session actually locked;
-                // lobby time is free.
-                if let lockedAt {
-                    try await awardPoints(
-                        to: member.userID,
-                        from: lockedAt,
-                        to: member.leftAt ?? now,
-                        on: db,
-                        logger: req.logger
-                    )
-                }
-            }
-        }
-
-        await req.sessionHub.broadcast(roomID: roomID, message: .sessionEnded)
-
-        let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
-            .all()
-        for member in members {
-            await NotificationService.sendSilent(
-                to: member.userID,
-                type: NotificationService.NotificationType.sessionEnded,
-                sessionID: roomID,
-                endsAt: nil,
-                on: req.db,
-                application: req.application
-            )
-        }
-
-        for member in members {
-            await MedalService.evaluateAndAward(userID: member.userID, on: req.db, logger: req.logger)
-        }
+        try await SessionLifecycleService.finish(
+            room: room,
+            endedAt: Date(),
+            req: req,
+            reason: "manual_end"
+        )
 
         return try await buildSessionResponse(room: room, db: req.db)
     }
@@ -464,6 +421,7 @@ struct SessionController: RouteCollection {
         let room = try await requireRoom(req: req)
         let roomID = try room.requireID()
 
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
@@ -647,6 +605,7 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         return try await SessionResponseBuilder.photoResponses(roomID: roomID, db: req.db)
     }
 
@@ -659,6 +618,7 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt != nil else {
             throw Abort(.conflict, reason: "Photos can be added after the session ends.")
         }
@@ -701,6 +661,7 @@ struct SessionController: RouteCollection {
         guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt != nil else {
             throw Abort(.conflict, reason: "Photos can be edited after the session ends.")
         }
@@ -725,11 +686,6 @@ struct SessionController: RouteCollection {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
         let room = try await requireRoom(req: req)
-
-        guard room.endedAt != nil else {
-            throw Abort(.badRequest, reason: "Session has not ended yet.")
-        }
-
         let roomID = try room.requireID()
 
         let membership = try await MemberModel.query(on: req.db)
@@ -738,6 +694,10 @@ struct SessionController: RouteCollection {
             .first()
         guard membership != nil else {
             throw Abort(.forbidden)
+        }
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
+        guard room.endedAt != nil else {
+            throw Abort(.badRequest, reason: "Session has not ended yet.")
         }
 
         let members = try await MemberModel.query(on: req.db)
@@ -823,6 +783,7 @@ struct SessionController: RouteCollection {
         let room = try await requireRoom(req: req)
         let roomID = try room.requireID()
 
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
@@ -891,6 +852,7 @@ struct SessionController: RouteCollection {
         let room = try await requireRoom(req: req)
         let roomID = try room.requireID()
 
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
@@ -973,6 +935,7 @@ struct SessionController: RouteCollection {
         let room = try await requireRoom(req: req)
         let roomID = try room.requireID()
 
+        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
         guard room.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }

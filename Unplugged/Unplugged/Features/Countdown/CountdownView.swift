@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CountdownView: View {
     let endsAt: Date
+    var onExpired: () -> Void = {}
     @State private var viewModel = CountdownViewModel()
 
     var body: some View {
@@ -19,9 +20,9 @@ struct CountdownView: View {
                 }
             }
         }
-        .onAppear { viewModel.start(endsAt: endsAt) }
+        .onAppear { viewModel.start(endsAt: endsAt, onExpired: onExpired) }
         .onDisappear { viewModel.stop() }
-        .onChange(of: endsAt) { _, newValue in viewModel.start(endsAt: newValue) }
+        .onChange(of: endsAt) { _, newValue in viewModel.start(endsAt: newValue, onExpired: onExpired) }
     }
 }
 

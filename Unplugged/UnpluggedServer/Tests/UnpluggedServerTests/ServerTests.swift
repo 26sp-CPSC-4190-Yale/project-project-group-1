@@ -760,6 +760,64 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testExpiredLockedSessionAutoEndsOnFetch() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "TimerHost")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Timer", durationSeconds: 60)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: host.token
+            )
+
+            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let room = try XCTUnwrap(roomRecord)
+            let lockedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 120)
+            let expectedEndedAt = lockedAt.addingTimeInterval(60)
+            room.lockedAt = lockedAt
+            try await room.save(on: app.db)
+
+            let getResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)",
+                token: host.token
+            )
+            let listResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions",
+                token: host.token
+            )
+            let historyResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/history?limit=10",
+                token: host.token
+            )
+
+            let fetched = try TestAppFactory.decode(SessionResponse.self, from: getResponse)
+            let active = try TestAppFactory.decode([SessionResponse].self, from: listResponse)
+            let history = try TestAppFactory.decode([SessionHistoryResponse].self, from: historyResponse)
+
+            XCTAssertEqual(fetched.session.state, .ended)
+            XCTAssertEqual(try XCTUnwrap(fetched.session.endedAt).timeIntervalSince1970, expectedEndedAt.timeIntervalSince1970, accuracy: 0.001)
+            XCTAssertTrue(active.isEmpty)
+            XCTAssertEqual(history.count, 1)
+            XCTAssertFalse(history.first?.leftEarly ?? true)
+            XCTAssertEqual(history.first?.actualFocusedSeconds, 60)
+        }
+    }
+
     func testUnlimitedSessionStatsUseElapsedFocusedTime() async throws {
         try await withApp { app, tester in
             let host = try await TestAppFactory.seedUser(on: app, username: "UnlimitedHost")

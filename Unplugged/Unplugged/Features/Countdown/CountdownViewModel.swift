@@ -14,17 +14,19 @@ final class CountdownViewModel {
     }
 
     private var tickerTask: Task<Void, Never>?
+    private var didNotifyExpiration = false
 
-    func start(endsAt: Date) {
+    func start(endsAt: Date, onExpired: @escaping () -> Void = {}) {
         let now = Date()
         self.totalDuration = max(0, endsAt.timeIntervalSince(now))
-        tick(endsAt: endsAt)
+        didNotifyExpiration = false
+        tick(endsAt: endsAt, onExpired: onExpired)
         tickerTask?.cancel()
         tickerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let self else { return }
-                self.tick(endsAt: endsAt)
+                self.tick(endsAt: endsAt, onExpired: onExpired)
                 if self.isExpired { return }
             }
         }
@@ -35,7 +37,10 @@ final class CountdownViewModel {
         tickerTask = nil
     }
 
-    private func tick(endsAt: Date) {
+    private func tick(endsAt: Date, onExpired: () -> Void) {
         self.remaining = max(0, endsAt.timeIntervalSinceNow)
+        guard isExpired, !didNotifyExpiration else { return }
+        didNotifyExpiration = true
+        onExpired()
     }
 }

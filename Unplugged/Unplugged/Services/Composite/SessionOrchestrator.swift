@@ -241,6 +241,27 @@ final class SessionOrchestrator {
         await handleSessionEnded()
     }
 
+    func handleCountdownExpired() async {
+        guard phase == .locked,
+              let session = currentSession?.session,
+              let endsAt = session.endsAt,
+              endsAt <= Date() else {
+            return
+        }
+
+        do {
+            let response = try await sessions.getSession(id: session.id)
+            await applySessionSnapshot(response)
+        } catch {
+            AppLogger.session.error(
+                "countdown expiration reconcile failed",
+                error: error,
+                context: ["id": session.id.uuidString]
+            )
+            errorMessage = "The timer ended, but the room couldn't sync. Check your connection."
+        }
+    }
+
     func teardown() async {
         stopJailbreakWatchdog()
         stopSessionSync()

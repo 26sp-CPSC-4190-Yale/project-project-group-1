@@ -270,7 +270,9 @@ struct ActiveRoomView: View {
                session.durationSeconds == nil {
                 UnlimitedLockView(startedAt: session.lockedAt ?? session.startedAt ?? Date())
             } else if let endsAt = orchestrator.countdownEndsAt {
-                CountdownView(endsAt: endsAt)
+                CountdownView(endsAt: endsAt) {
+                    Task { await orchestrator.handleCountdownExpired() }
+                }
             } else {
                 ProgressView()
                     .tint(.tertiaryColor)
