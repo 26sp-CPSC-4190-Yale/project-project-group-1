@@ -108,7 +108,6 @@ enum SessionLifecycleService {
         var quarterPoints = 0
         var remaining = minutes
 
-        // Progressive tiers: 6 × 30-min windows at 0.25 pt/min increments (0.25 → 1.5)
         let tieredMinutes = min(remaining, 180)
         var tieredRemaining = tieredMinutes
         var tier = 1
@@ -120,7 +119,6 @@ enum SessionLifecycleService {
         }
         remaining -= tieredMinutes
 
-        // After 3 hours: flat 2.0 pts/min = 8 quarter-points/min
         quarterPoints += remaining * 8
 
         let points = quarterPoints / 4
