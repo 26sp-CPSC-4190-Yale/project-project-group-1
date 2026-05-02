@@ -6,3 +6,6 @@ DerivedData/
 
 # Required by Xcode Cloud/TestFlight when automatic SwiftPM resolution is disabled.
 !Unplugged.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Required by Docker builds for reproducible server dependencies.
+!UnpluggedServer/Package.resolved
