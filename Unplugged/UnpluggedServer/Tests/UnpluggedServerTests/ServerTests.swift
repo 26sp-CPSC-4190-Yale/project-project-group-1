@@ -759,7 +759,7 @@ final class ServerTests: XCTestCase {
                 )
             )
             let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
-            _ = try await TestAppFactory.sendRequest(
+            let readyResponse = try await TestAppFactory.sendRequest(
                 with: tester,
                 .POST,
                 "/sessions/\(created.id)/co-lock/ready",
@@ -774,11 +774,12 @@ final class ServerTests: XCTestCase {
                 token: first.token
             )
 
+            XCTAssertEqual(readyResponse.status, .conflict)
             XCTAssertEqual(startResponse.status, .conflict)
         }
     }
 
-    func testCoLockLobbyClosesWhenLeavesStrandOneParticipant() async throws {
+    func testCoLockLobbyStaysOpenAndClearsReadyWhenLeaveStrandsOneParticipant() async throws {
         try await withApp { app, tester in
             let first = try await TestAppFactory.seedUser(on: app, username: "StrandedLobbyA")
             let second = try await TestAppFactory.seedUser(on: app, username: "StrandedLobbyB")
@@ -801,6 +802,20 @@ final class ServerTests: XCTestCase {
                 "/sessions/\(created.session.code)/join",
                 token: second.token
             )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: first.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: second.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
 
             let leaveResponse = try await TestAppFactory.sendRequest(
                 with: tester,
@@ -819,11 +834,18 @@ final class ServerTests: XCTestCase {
                 .filter(\.$roomID == created.id)
                 .all()
             let firstSessions = try TestAppFactory.decode([SessionResponse].self, from: firstSessionsResponse)
+            let firstMember = members.first { $0.userID == first.id }
+            let secondMember = members.first { $0.userID == second.id }
 
             XCTAssertEqual(leaveResponse.status, .noContent)
-            XCTAssertNil(room)
-            XCTAssertTrue(members.isEmpty)
-            XCTAssertTrue(firstSessions.isEmpty)
+            XCTAssertNotNil(room)
+            XCTAssertEqual(members.count, 2)
+            XCTAssertFalse(firstMember?.coLockReady ?? true)
+            XCTAssertEqual(firstMember?.participantStatus, .active)
+            XCTAssertEqual(secondMember?.participantStatus, .left)
+            XCTAssertEqual(firstSessions.count, 1)
+            XCTAssertEqual(firstSessions.first?.session.coLockStatus?.requiredApprovals, 1)
+            XCTAssertTrue(firstSessions.first?.session.coLockStatus?.startReadyUserIDs.isEmpty ?? false)
         }
     }
 

@@ -103,7 +103,7 @@ struct ActiveRoomView: View {
             dismiss()
         }
         .onDisappear {
-            if isHost && deps.sessionOrchestrator.phase != .locked {
+            if initialSessionHostShouldAdvertise && deps.sessionOrchestrator.phase != .locked {
                 Task { await deps.touchTips.stop() }
             }
         }
@@ -217,6 +217,10 @@ struct ActiveRoomView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Close")
+    }
+
+    private var initialSessionHostShouldAdvertise: Bool {
+        isHost
     }
 
     private func proximityWarningOverlay(secondsRemaining: Int) -> some View {
@@ -463,15 +467,27 @@ struct ActiveRoomView: View {
                               orchestrator: SessionOrchestrator) -> some View {
         let status = orchestrator.currentSession?.session.coLockStatus
         let userID = deps.cache.readUser()?.id
+        let activeParticipantCount = status?.requiredApprovals
+            ?? orchestrator.participants.filter { $0.status == .active }.count
         let isReady = userID.map { status?.startReadyUserIDs.contains($0) ?? false } ?? false
-        let everyoneReady = (status?.requiredApprovals ?? 0) > 0
+        let canReady = activeParticipantCount >= 2
+        let everyoneReady = canReady
             && (status?.startReadyUserIDs.count ?? 0) >= (status?.requiredApprovals ?? 0)
         let releaseRequester = status?.releaseRequestedBy
         let approvedRelease = userID.map { status?.releaseApprovalUserIDs.contains($0) ?? false } ?? false
 
         switch phase {
         case .idle, .lobby:
-            if everyoneReady {
+            if !canReady {
+                Button {
+                } label: {
+                    Text("Waiting for another person")
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(true)
+            } else if everyoneReady {
                 Button {
                     Task { await viewModel.start(orchestrator: orchestrator) }
                 } label: {

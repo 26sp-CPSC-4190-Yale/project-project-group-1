@@ -518,7 +518,9 @@ struct SessionController: RouteCollection {
             }
         }
 
-        if try await SessionLifecycleService.closeCoLockIfStranded(
+        if room.lockMode == .coLock, room.lockedAt == nil {
+            try await clearCoLockReadinessIfBelowStartMinimum(roomID: roomID, db: req.db)
+        } else if try await SessionLifecycleService.closeCoLockIfStranded(
             room: room,
             req: req,
             reason: "co_lock_lobby_stranded"
@@ -541,7 +543,12 @@ struct SessionController: RouteCollection {
             }
         }
 
-        await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
+        if room.lockMode == .coLock, room.lockedAt == nil {
+            let response = try await buildSessionResponse(room: room, db: req.db)
+            await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
+        } else {
+            await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
+        }
 
         let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
@@ -581,6 +588,19 @@ struct SessionController: RouteCollection {
             throw Abort(.forbidden)
         }
         let body = try req.content.decode(CoLockReadyRequest.self)
+        guard member.participantStatus == .active else {
+            throw Abort(.forbidden, reason: "Only active co-lock participants can set readiness.")
+        }
+        if body.isReady {
+            let activeCount = try await MemberModel.query(on: req.db)
+                .filter(\.$roomID == roomID)
+                .all()
+                .filter { $0.participantStatus == .active }
+                .count
+            guard activeCount >= 2 else {
+                throw Abort(.conflict, reason: "Co-lock requires at least two active participants.")
+            }
+        }
         member.coLockReady = body.isReady
         try await member.save(on: req.db)
         let response = try await buildSessionResponse(room: room, db: req.db)
@@ -1122,6 +1142,18 @@ struct SessionController: RouteCollection {
             .filter(\.$roomID == roomID)
             .filter(\.$userID == userID)
             .first()
+    }
+
+    private func clearCoLockReadinessIfBelowStartMinimum(roomID: UUID, db: Database) async throws {
+        let members = try await MemberModel.query(on: db)
+            .filter(\.$roomID == roomID)
+            .all()
+        let activeMembers = members.filter { $0.participantStatus == .active }
+        guard activeMembers.count < 2 else { return }
+        for member in activeMembers where member.coLockReady {
+            member.coLockReady = false
+            try await member.save(on: db)
+        }
     }
 
     private func applyUpdateBody(_ body: UpdateSessionRequest, to room: RoomModel) throws {

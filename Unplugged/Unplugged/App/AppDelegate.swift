@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     @objc private func appDidBecomeActive() {
         Task { @MainActor in
-            await Self.syncDeviceToken()
+            await Self.refreshDeviceTokenRegistration()
             await Self.sharedContainer?.sessionOrchestrator.flushPendingShieldAttempts()
         }
     }
@@ -156,8 +156,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     static func setNotificationsEnabled(_ enabled: Bool) async {
         UserDefaults.standard.set(enabled, forKey: Keys.notificationsEnabled)
         if enabled {
-            UIApplication.shared.registerForRemoteNotifications()
-            await syncDeviceToken()
+            await refreshDeviceTokenRegistration()
         } else {
             UIApplication.shared.unregisterForRemoteNotifications()
             await clearDeviceTokenRegistration()
@@ -206,7 +205,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    static func syncDeviceToken() async {
+    static func refreshDeviceTokenRegistration() async {
+        guard notificationsEnabled else {
+            AppLogger.push.debug("device token refresh skipped: notifications disabled")
+            return
+        }
+        UIApplication.shared.registerForRemoteNotifications()
+        await syncDeviceToken(forceUpload: true)
+    }
+
+    @MainActor
+    static func syncDeviceToken(forceUpload: Bool = false) async {
         let defaults = UserDefaults.standard
         guard notificationsEnabled else {
             AppLogger.push.debug("device token sync skipped: notifications disabled")
@@ -229,7 +238,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let currentUserID = container.cache.readUser()?.id.uuidString ?? "<unknown>"
         if pendingToken == nil,
            registeredToken == hex,
-           defaults.string(forKey: Keys.registeredUserID) == currentUserID {
+           defaults.string(forKey: Keys.registeredUserID) == currentUserID,
+           !forceUpload {
             defaults.removeObject(forKey: Keys.pendingToken)
             return
         }

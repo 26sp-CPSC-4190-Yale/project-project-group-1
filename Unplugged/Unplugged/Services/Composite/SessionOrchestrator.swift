@@ -724,9 +724,11 @@ final class SessionOrchestrator {
             return
         }
 
-        let isHostMaintenance = session.lockMode != .coLock && userID == session.hostID
+        let isStandardHostMaintenance = session.lockMode != .coLock && userID == session.hostID
+        let shouldAdvertiseLockedProximity = isStandardHostMaintenance
+            || (session.lockMode == .coLock && userID == Self.coLockProximityAnchorID(in: participants))
 
-        if isHostMaintenance {
+        if shouldAdvertiseLockedProximity {
             AppLogger.proximity.info("host proximity maintenance starting for session \(session.id.uuidString)")
         } else {
             AppLogger.proximity.info("enforcement starting for session \(session.id.uuidString)")
@@ -735,13 +737,16 @@ final class SessionOrchestrator {
         stopLockedProximityEnforcement()
         lockedProximitySessionID = session.id
 
-        if isHostMaintenance {
-            await installHostProximityMaintenance(sessionID: session.id)
-            // host is never kicked out for being out of range, so no evaluation timer is started here
-            return
+        if shouldAdvertiseLockedProximity {
+            if isStandardHostMaintenance {
+                await installHostProximityMaintenance(sessionID: session.id)
+                // Standard-session host is the proximity anchor and is not removed for distance.
+                return
+            }
+            await installCoLockAnchorProximityStream(sessionID: session.id)
+        } else {
+            await installLockedProximityStream(sessionID: session.id, reason: "initial_start")
         }
-
-        await installLockedProximityStream(sessionID: session.id, reason: "initial_start")
 
         lockedProximityCheckTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -749,6 +754,27 @@ final class SessionOrchestrator {
                 guard let self else { return }
                 await self.evaluateLockedProximity(sessionID: session.id)
             }
+        }
+    }
+
+    private static func coLockProximityAnchorID(in participants: [ParticipantResponse]) -> UUID? {
+        participants
+            .filter { $0.status == .active }
+            .map(\.userID)
+            .sorted { $0.uuidString < $1.uuidString }
+            .first
+    }
+
+    private func installCoLockAnchorProximityStream(sessionID: UUID) async {
+        AppLogger.proximity.info("co-lock anchor stream install — session=\(sessionID.uuidString)")
+        let stream = await touchTips.startHostProximityMaintenance(roomID: sessionID)
+        lockedProximityUpdatesTask = Task { [weak self] in
+            for await reading in stream {
+                guard let self else { return }
+                await self.recordLockedProximity(reading)
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.handleLockedProximityStreamEnded(sessionID: sessionID)
         }
     }
 

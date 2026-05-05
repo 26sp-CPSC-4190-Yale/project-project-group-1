@@ -73,12 +73,6 @@ struct HomeView: View {
                 }
                 .environment(deps)
             }
-            .task {
-                activateRecoveredSessionIfNeeded()
-            }
-            .onChange(of: deps.sessionOrchestrator.currentSession?.id) { _, _ in
-                activateRecoveredSessionIfNeeded()
-            }
         }
     }
 
@@ -119,16 +113,7 @@ struct HomeView: View {
     private func activatePendingSessionIfNeeded() {
         guard let session = pendingActiveSession else { return }
         pendingActiveSession = nil
-        isHost = session.session.lockMode == .standard && pendingActiveSessionIsHost
-        activeSession = session
-    }
-
-    private func activateRecoveredSessionIfNeeded() {
-        guard activeSession == nil,
-              let session = deps.sessionOrchestrator.currentSession,
-              session.session.endedAt == nil else { return }
-        isHost = session.session.lockMode == .standard
-            && session.session.hostID == deps.cache.readUser()?.id
+        isHost = pendingActiveSessionIsHost
         activeSession = session
     }
 }

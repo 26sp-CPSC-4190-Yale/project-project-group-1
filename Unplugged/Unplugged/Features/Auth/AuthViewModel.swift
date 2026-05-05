@@ -41,7 +41,7 @@ class AuthViewModel {
                 AppLogger.auth.error("restoreSession: getMe failed, proceeding without cached user", error: error)
             }
         }
-        await completeAuthentication()
+        await completeAuthentication(recoverActiveSession: false)
     }
 
     func loginWithUsername(username: String, password: String) async {
@@ -187,7 +187,7 @@ class AuthViewModel {
     }
 
     private func completeAuthentication(recoverActiveSession: Bool = true) async {
-        await AppDelegate.syncDeviceToken()
+        await AppDelegate.refreshDeviceTokenRegistration()
         if recoverActiveSession {
             _ = await sessionOrchestrator?.recoverActiveSession()
         }

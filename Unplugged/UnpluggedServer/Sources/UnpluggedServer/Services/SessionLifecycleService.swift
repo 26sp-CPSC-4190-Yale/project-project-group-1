@@ -50,17 +50,7 @@ enum SessionLifecycleService {
         guard activeMembers.count <= 1 else { return false }
 
         if room.lockedAt == nil {
-            guard members.count > 1 else { return false }
-            try await req.db.transaction { db in
-                try await MemberModel.query(on: db)
-                    .filter(\.$roomID == roomID)
-                    .delete()
-                try await room.delete(on: db)
-            }
-
-            req.logger.info("[SessionLifecycle] Closed stranded co-lock lobby \(roomID) reason=\(reason)")
-            await req.sessionHub.broadcast(roomID: roomID, message: .sessionEnded)
-            return true
+            return false
         }
 
         try await req.db.transaction { db in
