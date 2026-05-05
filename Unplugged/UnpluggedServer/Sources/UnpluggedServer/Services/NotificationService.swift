@@ -75,6 +75,14 @@ struct NotificationService {
             ])
         } catch {
             application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
+            await clearInvalidDeviceTokenIfNeeded(
+                error,
+                userID: userID,
+                token: token,
+                type: type,
+                on: db,
+                application: application
+            )
         }
     }
 
@@ -124,6 +132,14 @@ struct NotificationService {
             ])
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type)): \(error)")
+            await clearInvalidDeviceTokenIfNeeded(
+                error,
+                userID: userID,
+                token: token,
+                type: type,
+                on: db,
+                application: application
+            )
         }
     }
 
@@ -180,6 +196,14 @@ struct NotificationService {
             ])
         } catch {
             application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
+            await clearInvalidDeviceTokenIfNeeded(
+                error,
+                userID: userID,
+                token: token,
+                type: type,
+                on: db,
+                application: application
+            )
         }
     }
 
@@ -230,6 +254,44 @@ struct NotificationService {
 
     private static func tokenSuffix(_ token: String) -> String {
         String(token.suffix(8))
+    }
+
+    private static func clearInvalidDeviceTokenIfNeeded(
+        _ error: Error,
+        userID: UUID,
+        token: String,
+        type: String,
+        on db: Database,
+        application: Application
+    ) async {
+        guard let apnsError = error as? APNSError,
+              shouldClearDeviceToken(for: apnsError) else {
+            return
+        }
+
+        do {
+            guard let user = try await UserModel.find(userID, on: db),
+                  user.deviceToken == token else {
+                return
+            }
+            user.deviceToken = nil
+            try await user.save(on: db)
+            application.logger.warning("APNs device token cleared after permanent send failure", metadata: [
+                "user_id": "\(userID)",
+                "type": "\(type)",
+                "reason": "\(apnsError.reason?.reason ?? "unknown")",
+                "token_suffix": "\(tokenSuffix(token))"
+            ])
+        } catch {
+            application.logger.error("APNs invalid-token cleanup failed for user \(userID) (type=\(type)): \(error)")
+        }
+    }
+
+    private static func shouldClearDeviceToken(for error: APNSError) -> Bool {
+        guard let reason = error.reason else { return false }
+        return reason == .badDeviceToken
+            || reason == .unregistered
+            || reason == .deviceTokenNotForTopic
     }
 }
 

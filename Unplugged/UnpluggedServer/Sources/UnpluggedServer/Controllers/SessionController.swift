@@ -97,7 +97,9 @@ struct SessionController: RouteCollection {
         let memberships = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships.map { $0.roomID }
+        let roomIDs = memberships
+            .filter { $0.participantStatus == .active }
+            .map { $0.roomID }
 
         guard !roomIDs.isEmpty else { return [] }
 
@@ -305,7 +307,29 @@ struct SessionController: RouteCollection {
             .filter(\.$roomID == roomID)
             .first()
 
-        if existing == nil {
+        var reactivatedExistingMember = false
+        if let existing {
+            if existing.participantStatus != .active || existing.leftAt != nil || existing.leftEarly || existing.coLockReady {
+                try await req.db.transaction { db in
+                    existing.config = nil
+                    existing.leftAt = nil
+                    existing.leftEarly = false
+                    existing.coLockReady = false
+                    existing.joinedAt = Date()
+                    try await existing.save(on: db)
+
+                    try await JailbreakModel.query(on: db)
+                        .filter(\.$sessionID == roomID)
+                        .filter(\.$userID == userID)
+                        .group(.or) { group in
+                            group.filter(\.$reason == SessionExitReason.leftVoluntarily)
+                            group.filter(\.$reason == SessionExitReason.leftDueToProximity)
+                        }
+                        .delete()
+                }
+                reactivatedExistingMember = true
+            }
+        } else {
             let member = MemberModel(userID: userID, roomID: roomID)
             try await member.save(on: req.db)
 
@@ -320,6 +344,23 @@ struct SessionController: RouteCollection {
                 )
                 await req.sessionHub.broadcast(roomID: roomID, message: .participantJoined(response))
             }
+        }
+
+        if reactivatedExistingMember,
+           let member = try await MemberModel.query(on: req.db)
+            .filter(\.$userID == userID)
+            .filter(\.$roomID == roomID)
+            .first(),
+           let user = try await UserModel.find(userID, on: req.db) {
+            let response = ParticipantResponse(
+                id: try member.requireID(),
+                userID: userID,
+                username: user.username,
+                status: member.participantStatus,
+                joinedAt: member.joinedAt,
+                isHost: room.lockMode == .coLock ? false : userID == room.roomOwner
+            )
+            await req.sessionHub.broadcast(roomID: roomID, message: .participantJoined(response))
         }
 
         return try await buildSessionResponse(room: room, db: req.db)
@@ -342,6 +383,9 @@ struct SessionController: RouteCollection {
                 .filter(\.$roomID == roomID)
                 .all()
                 .filter { $0.participantStatus == .active }
+            guard activeMembers.count >= 2 else {
+                throw Abort(.conflict, reason: "Co-lock requires at least two active participants.")
+            }
             guard !activeMembers.isEmpty, activeMembers.allSatisfy(\.coLockReady) else {
                 throw Abort(.conflict, reason: "Everyone must be ready before a co-lock can start.")
             }
@@ -426,6 +470,13 @@ struct SessionController: RouteCollection {
             throw Abort(.gone, reason: "Session already ended.")
         }
         if room.lockMode == .coLock, room.lockedAt != nil {
+            if try await SessionLifecycleService.closeCoLockIfStranded(
+                room: room,
+                req: req,
+                reason: "co_lock_last_member_leave"
+            ) {
+                return .noContent
+            }
             throw Abort(.conflict, reason: "Co-lock sessions require everyone to approve release.")
         }
         // hosts must end via /end, letting the host leave here silently drops the room without notifying members
@@ -451,7 +502,7 @@ struct SessionController: RouteCollection {
                 member.config = MemberModel.voluntaryExitConfig
                 if member.leftAt == nil {
                     member.leftAt = now
-                    member.leftEarly = true
+                    member.leftEarly = room.lockedAt != nil
                 }
                 try await member.save(on: db)
 
@@ -467,17 +518,27 @@ struct SessionController: RouteCollection {
             }
         }
 
+        if try await SessionLifecycleService.closeCoLockIfStranded(
+            room: room,
+            req: req,
+            reason: "co_lock_lobby_stranded"
+        ) {
+            return .noContent
+        }
+
         // recap and history read left-early from JailbreakModel rows, skip on duplicate so a double-tap does not double-count
         let reason = SessionExitReason.leftVoluntarily
-        let existingReport = try await JailbreakModel.query(on: req.db)
-            .filter(\.$sessionID == roomID)
-            .filter(\.$userID == userID)
-            .filter(\.$reason == reason)
-            .first()
-        if existingReport == nil {
-            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-            record.detectedAt = now
-            try await record.save(on: req.db)
+        if room.lockedAt != nil {
+            let existingReport = try await JailbreakModel.query(on: req.db)
+                .filter(\.$sessionID == roomID)
+                .filter(\.$userID == userID)
+                .filter(\.$reason == reason)
+                .first()
+            if existingReport == nil {
+                let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+                record.detectedAt = now
+                try await record.save(on: req.db)
+            }
         }
 
         await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
@@ -486,15 +547,17 @@ struct SessionController: RouteCollection {
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)
             .all()
-        for recipient in members where recipient.userID != userID && recipient.config != MemberModel.voluntaryExitConfig {
-            await NotificationService.send(
-                to: recipient.userID,
-                title: "Oh no!",
-                body: "\(username) left the session.",
-                type: NotificationService.NotificationType.sessionJailbreak,
-                on: req.db,
-                application: req.application
-            )
+        if room.lockedAt != nil {
+            for recipient in members where recipient.userID != userID && recipient.config != MemberModel.voluntaryExitConfig {
+                await NotificationService.send(
+                    to: recipient.userID,
+                    title: "Oh no!",
+                    body: "\(username) left the session.",
+                    type: NotificationService.NotificationType.sessionJailbreak,
+                    on: req.db,
+                    application: req.application
+                )
+            }
         }
 
         return .noContent
@@ -546,6 +609,17 @@ struct SessionController: RouteCollection {
             .delete()
         let approval = CoLockReleaseApprovalModel(roomID: roomID, requesterID: userID, approverID: userID)
         try await approval.save(on: req.db)
+
+        if room.lockedAt != nil,
+           try await hasUnanimousCoLockRelease(roomID: roomID, db: req.db) {
+            try await SessionLifecycleService.finish(
+                room: room,
+                endedAt: Date(),
+                req: req,
+                reason: "co_lock_release_approved"
+            )
+            return try await buildSessionResponse(room: room, db: req.db)
+        }
 
         let response = try await buildSessionResponse(room: room, db: req.db)
         await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
@@ -823,6 +897,14 @@ struct SessionController: RouteCollection {
             message: .jailbreakReported(userID: userID, reason: reason)
         )
 
+        if try await SessionLifecycleService.closeCoLockIfStranded(
+            room: room,
+            req: req,
+            reason: "co_lock_jailbreak_stranded"
+        ) {
+            return .noContent
+        }
+
         // notify everyone still in the room, already-exited members are skipped so they are not pinged after detaching
         let reporter = try await UserModel.find(userID, on: req.db)
         let reporterName = reporter?.username ?? "A participant"
@@ -910,6 +992,14 @@ struct SessionController: RouteCollection {
             roomID: roomID,
             message: .participantLeftDueToProximity(userID: userID, username: username)
         )
+
+        if try await SessionLifecycleService.closeCoLockIfStranded(
+            room: room,
+            req: req,
+            reason: "co_lock_proximity_stranded"
+        ) {
+            return .noContent
+        }
 
         let members = try await MemberModel.query(on: req.db)
             .filter(\.$roomID == roomID)

@@ -181,7 +181,7 @@ actor TouchTipsService {
     private var didYield = false
     private var pendingLockedNoDistanceTask: Task<Void, Never>?
 
-    // require N consecutive sub-threshold samples, a single sub-10cm spike from a hand wave is not proof the phones are together
+    // require N consecutive sub-threshold samples, a single sub-15cm spike from a hand wave is not proof the phones are together
     private var consecutiveCloseCount: Int = 0
 
     private var lastLockedProximityEmitAt: Date?

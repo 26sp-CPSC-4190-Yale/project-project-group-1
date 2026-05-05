@@ -113,8 +113,8 @@ struct OnboardingView: View {
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
 
-                // be explicit about distance, users should not expect same-room pairing since UWB gates on ~10cm
-                Text("To join a friend's room, hold your phones back-to-back — about 4 inches apart. iOS will ask for Local Network access before your first proximity pair.")
+                // be explicit about distance, users should not expect same-room pairing since UWB gates on ~15cm
+                Text("To join a friend's room, hold your phones back-to-back — about 6 inches apart. iOS will ask for Local Network access before your first proximity pair.")
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     .multilineTextAlignment(.center)

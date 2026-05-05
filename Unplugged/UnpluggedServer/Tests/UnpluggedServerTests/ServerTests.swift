@@ -683,6 +683,222 @@ final class ServerTests: XCTestCase {
         }
     }
 
+    func testRejoiningUnlockedRoomReactivatesPreviousMembership() async throws {
+        try await withApp { app, tester in
+            let host = try await TestAppFactory.seedUser(on: app, username: "RejoinHost")
+            let participant = try await TestAppFactory.seedUser(on: app, username: "RejoinParticipant")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: host.token,
+                body: CreateSessionRequest(title: "Rejoin", durationSeconds: 1_800)
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
+            )
+            let leaveResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/leave",
+                token: participant.token
+            )
+            let leftResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions/\(created.id)",
+                token: host.token
+            )
+            let rejoinResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: participant.token
+            )
+            let rejoined = try TestAppFactory.decode(SessionResponse.self, from: rejoinResponse)
+            let left = try TestAppFactory.decode(SessionResponse.self, from: leftResponse)
+            let member = try await MemberModel.query(on: app.db)
+                .filter(\.$roomID == created.id)
+                .filter(\.$userID == participant.id)
+                .first()
+            let exitReports = try await JailbreakModel.query(on: app.db)
+                .filter(\.$sessionID == created.id)
+                .filter(\.$userID == participant.id)
+                .all()
+
+            XCTAssertEqual(leaveResponse.status, .noContent)
+            XCTAssertEqual(left.participants.first(where: { $0.userID == participant.id })?.status, .left)
+            XCTAssertEqual(rejoinResponse.status, .ok)
+            XCTAssertEqual(rejoined.participants.first(where: { $0.userID == participant.id })?.status, .active)
+            XCTAssertNil(member?.config)
+            XCTAssertNil(member?.leftAt)
+            XCTAssertFalse(member?.leftEarly ?? true)
+            XCTAssertTrue(exitReports.isEmpty)
+        }
+    }
+
+    func testCoLockRequiresTwoActiveParticipantsToStart() async throws {
+        try await withApp { app, tester in
+            let first = try await TestAppFactory.seedUser(on: app, username: "SoloCoLock")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: first.token,
+                body: CreateSessionRequest(
+                    title: "Solo Co-Lock",
+                    durationSeconds: nil,
+                    lockMode: .coLock
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: first.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+
+            let startResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: first.token
+            )
+
+            XCTAssertEqual(startResponse.status, .conflict)
+        }
+    }
+
+    func testCoLockLobbyClosesWhenLeavesStrandOneParticipant() async throws {
+        try await withApp { app, tester in
+            let first = try await TestAppFactory.seedUser(on: app, username: "StrandedLobbyA")
+            let second = try await TestAppFactory.seedUser(on: app, username: "StrandedLobbyB")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: first.token,
+                body: CreateSessionRequest(
+                    title: "Co-Lock Lobby",
+                    durationSeconds: nil,
+                    lockMode: .coLock
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: second.token
+            )
+
+            let leaveResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/leave",
+                token: second.token
+            )
+            let firstSessionsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions",
+                token: first.token
+            )
+            let room = try await RoomModel.find(created.id, on: app.db)
+            let members = try await MemberModel.query(on: app.db)
+                .filter(\.$roomID == created.id)
+                .all()
+            let firstSessions = try TestAppFactory.decode([SessionResponse].self, from: firstSessionsResponse)
+
+            XCTAssertEqual(leaveResponse.status, .noContent)
+            XCTAssertNil(room)
+            XCTAssertTrue(members.isEmpty)
+            XCTAssertTrue(firstSessions.isEmpty)
+        }
+    }
+
+    func testLockedCoLockAutoEndsWhenProximityExitStrandsOneParticipant() async throws {
+        try await withApp { app, tester in
+            let first = try await TestAppFactory.seedUser(on: app, username: "StrandedLockedA")
+            let second = try await TestAppFactory.seedUser(on: app, username: "StrandedLockedB")
+
+            let createResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions",
+                token: first.token,
+                body: CreateSessionRequest(
+                    title: "Locked Co-Lock",
+                    durationSeconds: nil,
+                    lockMode: .coLock
+                )
+            )
+            let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.session.code)/join",
+                token: second.token
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: first.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/co-lock/ready",
+                token: second.token,
+                body: CoLockReadyRequest(isReady: true)
+            )
+            _ = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/start",
+                token: first.token
+            )
+
+            let proximityResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .POST,
+                "/sessions/\(created.id)/proximity-exit",
+                token: second.token
+            )
+            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let room = try XCTUnwrap(roomRecord)
+            let firstMember = try await MemberModel.query(on: app.db)
+                .filter(\.$roomID == created.id)
+                .filter(\.$userID == first.id)
+                .first()
+            let firstSessionsResponse = try await TestAppFactory.sendRequest(
+                with: tester,
+                .GET,
+                "/sessions",
+                token: first.token
+            )
+            let firstSessions = try TestAppFactory.decode([SessionResponse].self, from: firstSessionsResponse)
+
+            XCTAssertEqual(proximityResponse.status, .noContent)
+            XCTAssertNotNil(room.endedAt)
+            XCTAssertEqual(firstMember?.participantStatus, .left)
+            XCTAssertNotNil(firstMember?.leftAt)
+            XCTAssertTrue(firstSessions.isEmpty)
+        }
+    }
+
     func testSessionLifecycleProducesHistoryStatsAndRecap() async throws {
         try await withApp { app, tester in
             let host = try await TestAppFactory.seedUser(on: app, username: "HostUser")

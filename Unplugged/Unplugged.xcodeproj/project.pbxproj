@@ -1045,7 +1045,7 @@
 				INFOPLIST_FILE = Unplugged/Info.plist;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "Unplugged uses Bluetooth to find nearby phones when joining a room by proximity.";
-				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSBonjourServices = "_unplugged-rm._tcp";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -1088,7 +1088,7 @@
 				INFOPLIST_FILE = Unplugged/Info.plist;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSBluetoothWhileInUseUsageDescription = "Unplugged uses Bluetooth to find nearby phones when joining a room by proximity.";
-				INFOPLIST_KEY_NSBonjourServices = "_unplugged-room._tcp";
+				INFOPLIST_KEY_NSBonjourServices = "_unplugged-rm._tcp";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Unplugged uses your local network to discover nearby rooms.";
 				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "Unplugged measures distance to nearby devices so you can join rooms by touching phones together.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

@@ -54,7 +54,7 @@ class AuthViewModel {
         do {
             let response = try await authService.login(username: username, password: password)
             cache.saveAuth(response)
-            await completeAuthentication()
+            await completeAuthentication(recoverActiveSession: false)
         } catch {
             AppLogger.auth.warning("username login failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -72,7 +72,7 @@ class AuthViewModel {
         do {
             let response = try await authService.register(username: username, password: password)
             cache.saveAuth(response)
-            await completeAuthentication()
+            await completeAuthentication(recoverActiveSession: false)
         } catch {
             AppLogger.auth.warning("username registration failed", context: ["error": String(describing: error)])
             errorMessage = message(for: error)
@@ -123,7 +123,7 @@ class AuthViewModel {
                     email: credential.email
                 )
                 cache.saveAuth(response)
-                await completeAuthentication()
+                await completeAuthentication(recoverActiveSession: false)
             } catch {
                 AppLogger.auth.error("Apple sign-in API failed", error: error)
                 errorMessage = message(for: error)
@@ -142,7 +142,7 @@ class AuthViewModel {
         do {
             let response = try await authService.signInWithGoogle(idToken: idToken)
             cache.saveAuth(response)
-            await completeAuthentication()
+            await completeAuthentication(recoverActiveSession: false)
         } catch {
             AppLogger.auth.error("Google sign-in API failed", error: error)
             errorMessage = message(for: error)
@@ -186,9 +186,11 @@ class AuthViewModel {
         }
     }
 
-    private func completeAuthentication() async {
+    private func completeAuthentication(recoverActiveSession: Bool = true) async {
         await AppDelegate.syncDeviceToken()
-        _ = await sessionOrchestrator?.recoverActiveSession()
+        if recoverActiveSession {
+            _ = await sessionOrchestrator?.recoverActiveSession()
+        }
         isAuthenticated = true
     }
 }

@@ -32,6 +32,50 @@ enum SessionLifecycleService {
     }
 
     @discardableResult
+    static func closeCoLockIfStranded(
+        room: RoomModel,
+        req: Request,
+        reason: String
+    ) async throws -> Bool {
+        guard room.lockMode == .coLock,
+              room.endedAt == nil else {
+            return false
+        }
+
+        let roomID = try room.requireID()
+        let members = try await MemberModel.query(on: req.db)
+            .filter(\.$roomID == roomID)
+            .all()
+        let activeMembers = members.filter { $0.participantStatus == .active }
+        guard activeMembers.count <= 1 else { return false }
+
+        if room.lockedAt == nil {
+            guard members.count > 1 else { return false }
+            try await req.db.transaction { db in
+                try await MemberModel.query(on: db)
+                    .filter(\.$roomID == roomID)
+                    .delete()
+                try await room.delete(on: db)
+            }
+
+            req.logger.info("[SessionLifecycle] Closed stranded co-lock lobby \(roomID) reason=\(reason)")
+            await req.sessionHub.broadcast(roomID: roomID, message: .sessionEnded)
+            return true
+        }
+
+        try await req.db.transaction { db in
+            for member in activeMembers {
+                member.config = MemberModel.voluntaryExitConfig
+                member.leftEarly = true
+                try await member.save(on: db)
+            }
+        }
+
+        try await finish(room: room, endedAt: Date(), req: req, reason: reason)
+        return true
+    }
+
+    @discardableResult
     static func finish(
         room: RoomModel,
         endedAt: Date,

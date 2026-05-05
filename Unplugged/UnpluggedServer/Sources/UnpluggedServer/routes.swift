@@ -96,6 +96,17 @@ private func handleIncomingData(req: Request, ws: WebSocket, data: Data) async {
             roomID: roomID,
             message: .jailbreakReported(userID: userID, reason: normalizedReason)
         )
+        do {
+            if let room = try await RoomModel.find(roomID, on: req.db) {
+                _ = try await SessionLifecycleService.closeCoLockIfStranded(
+                    room: room,
+                    req: req,
+                    reason: "co_lock_jailbreak_stranded"
+                )
+            }
+        } catch {
+            req.logger.error("Failed to close stranded co-lock room \(roomID) after jailbreak report: \(error)")
+        }
     }
 }
 

@@ -1,8 +1,8 @@
 import Foundation
 
 public enum ProximityConstants {
-    // 10 cm, must be actively pressed together, UWB spikes can drop readings well below arm's length for a frame
-    public static let touchThresholdMeters: Double = 0.10
+    // 15 cm, must be actively held together, but leaves room for real-device UWB jitter in TestFlight builds
+    public static let touchThresholdMeters: Double = 0.15
 
     // debounces UWB multipath spikes, single samples are noise, two in a row is the floor
     public static let consecutiveCloseSamples: Int = 2
