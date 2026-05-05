@@ -4,11 +4,14 @@ struct ContentView: View {
     @Environment(DependencyContainer.self) private var container
     @State private var authViewModel = AuthViewModel()
     @State private var onboardingComplete = OnboardingViewModel.hasCompleted
+    @State private var didRestoreSession = false
 
     var body: some View {
         Group {
             if !onboardingComplete {
                 OnboardingView(onFinish: { onboardingComplete = true })
+            } else if !didRestoreSession {
+                LaunchRestoreView()
             } else if authViewModel.isAuthenticated {
                 MainTabView(authViewModel: authViewModel)
             } else {
@@ -16,14 +19,29 @@ struct ContentView: View {
             }
         }
         .task {
-            guard !authViewModel.isConfigured else { return }
-            authViewModel.configure(
-                authService: container.auth,
-                userService: container.user,
-                cache: container.cache,
-                sessionOrchestrator: container.sessionOrchestrator
-            )
+            guard !didRestoreSession else { return }
+            if !authViewModel.isConfigured {
+                authViewModel.configure(
+                    authService: container.auth,
+                    userService: container.user,
+                    cache: container.cache,
+                    sessionOrchestrator: container.sessionOrchestrator
+                )
+            }
             await authViewModel.restoreSession()
+            didRestoreSession = true
+        }
+    }
+}
+
+private struct LaunchRestoreView: View {
+    var body: some View {
+        ZStack {
+            Color.primaryColor
+                .ignoresSafeArea()
+
+            ProgressView()
+                .tint(Color.tertiaryColor)
         }
     }
 }

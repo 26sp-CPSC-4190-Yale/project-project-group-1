@@ -4,10 +4,8 @@ import UnpluggedShared
 struct HomeView: View {
     @State private var showJoinRoom = false
     @State private var showCreateRoom = false
-    @State private var activeSession: SessionResponse?
-    @State private var isHost = false
-    @State private var pendingActiveSession: SessionResponse?
-    @State private var pendingActiveSessionIsHost = false
+    @State private var activeRoom: ActiveRoomPresentation?
+    @State private var pendingActiveRoom: ActiveRoomPresentation?
     @Environment(DependencyContainer.self) private var deps
 
     var body: some View {
@@ -50,8 +48,7 @@ struct HomeView: View {
                     sessions: deps.sessions,
                     touchTips: deps.touchTips
                 ) { session in
-                    pendingActiveSession = session
-                    pendingActiveSessionIsHost = false
+                    pendingActiveRoom = ActiveRoomPresentation(session: session, isHost: false)
                     showJoinRoom = false
                 }
                 .environment(deps)
@@ -60,16 +57,14 @@ struct HomeView: View {
                 CreateRoomView(
                     sessions: deps.sessions
                 ) { session in
-                    pendingActiveSession = session
-                    pendingActiveSessionIsHost = true
+                    pendingActiveRoom = ActiveRoomPresentation(session: session, isHost: true)
                     showCreateRoom = false
                 }
                 .environment(deps)
             }
-            .fullScreenCover(item: $activeSession) { session in
-                ActiveRoomView(session: session, isHost: isHost) {
-                    activeSession = nil
-                    isHost = false
+            .fullScreenCover(item: $activeRoom) { room in
+                ActiveRoomView(session: room.session, isHost: room.isHost) {
+                    activeRoom = nil
                 }
                 .environment(deps)
             }
@@ -111,11 +106,17 @@ struct HomeView: View {
     }
 
     private func activatePendingSessionIfNeeded() {
-        guard let session = pendingActiveSession else { return }
-        pendingActiveSession = nil
-        isHost = pendingActiveSessionIsHost
-        activeSession = session
+        guard let room = pendingActiveRoom else { return }
+        pendingActiveRoom = nil
+        activeRoom = room
     }
+}
+
+private struct ActiveRoomPresentation: Identifiable {
+    let session: SessionResponse
+    let isHost: Bool
+
+    var id: UUID { session.id }
 }
 
 #Preview {

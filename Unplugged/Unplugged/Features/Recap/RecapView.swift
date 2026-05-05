@@ -45,8 +45,8 @@ struct RecapView: View {
                         }
                         stats(for: recap)
                         participants(for: recap)
-                        if blockedOpenCount(for: recap) > 0 {
-                            blockedOpens(for: recap)
+                        if attemptedBreakoutCount(for: recap) > 0 {
+                            attemptedBreakouts(for: recap)
                         }
                     } else if viewModel.isLoading {
                         ProgressView()
@@ -162,8 +162,8 @@ struct RecapView: View {
                 valueSize: 22
             )
             StatBadge(
-                value: "\(blockedOpenCount(for: recap))",
-                label: "Blocked Opens",
+                value: "\(attemptedBreakoutCount(for: recap))",
+                label: "Attempted Breakouts",
                 valueSize: 22
             )
             if recap.durationSeconds != nil {
@@ -384,12 +384,12 @@ struct RecapView: View {
         }
     }
 
-    private func blockedOpens(for recap: SessionRecapResponse) -> some View {
-        let entries = blockedOpenEntries(for: recap)
+    private func attemptedBreakouts(for recap: SessionRecapResponse) -> some View {
+        let entries = attemptedBreakoutEntries(for: recap)
 
         return VStack(alignment: .leading, spacing: .spacingSm) {
             HStack {
-                Text("Blocked Opens")
+                Text("Attempted Breakouts")
                     .font(.headlineFont)
                     .foregroundColor(.tertiaryColor)
                 Spacer()
@@ -421,12 +421,12 @@ struct RecapView: View {
         }
     }
 
-    private func blockedOpenEntries(for recap: SessionRecapResponse) -> [JailbreakEntry] {
+    private func attemptedBreakoutEntries(for recap: SessionRecapResponse) -> [JailbreakEntry] {
         recap.jailbreaks.filter { $0.reason == SessionExitReason.shieldActionAttempt }
     }
 
-    private func blockedOpenCount(for recap: SessionRecapResponse) -> Int {
-        blockedOpenEntries(for: recap).count
+    private func attemptedBreakoutCount(for recap: SessionRecapResponse) -> Int {
+        attemptedBreakoutEntries(for: recap).count
     }
 
     private var canAddFreshLocationWeather: Bool {
@@ -447,7 +447,7 @@ struct RecapView: View {
         case SessionExitReason.screenTimeAuthorizationCleared:
             return "Cleared Screen Time permission"
         case SessionExitReason.shieldActionAttempt:
-            return "Tried to open a blocked app"
+            return "Attempted breakout"
         default:
             return reason
                 .split(separator: "_")

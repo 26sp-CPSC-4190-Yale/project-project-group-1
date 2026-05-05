@@ -223,7 +223,7 @@ enum ShareRecapImageRenderer {
     private static func chipLabels(for recap: SessionRecapResponse) -> [String] {
         var labels = [
             "\(recap.participants.count) \(recap.participants.count == 1 ? "member" : "members")",
-            blockedOpenLabel(for: recap),
+            attemptedBreakoutLabel(for: recap),
             plannedLabel(for: recap)
         ]
         if recap.durationSeconds != nil {
@@ -235,9 +235,9 @@ enum ShareRecapImageRenderer {
         return labels
     }
 
-    private static func blockedOpenLabel(for recap: SessionRecapResponse) -> String {
+    private static func attemptedBreakoutLabel(for recap: SessionRecapResponse) -> String {
         let count = recap.jailbreaks.filter { $0.reason == SessionExitReason.shieldActionAttempt }.count
-        return "\(count) \(count == 1 ? "blocked open" : "blocked opens")"
+        return "\(count) \(count == 1 ? "attempted breakout" : "attempted breakouts")"
     }
 
     private static func chipWidth(for text: String) -> CGFloat {

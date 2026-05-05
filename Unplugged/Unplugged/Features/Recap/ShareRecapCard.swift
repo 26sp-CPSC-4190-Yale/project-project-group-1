@@ -49,7 +49,7 @@ struct ShareRecapCard: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: .spacingSm)], alignment: .leading, spacing: .spacingSm) {
                 capsule("\(recap.participants.count) \(recap.participants.count == 1 ? "member" : "members")", systemImage: "person.2.fill")
                 capsule(durationChipLabel, systemImage: durationChipSystemImage)
-                capsule(blockedOpenLabel, systemImage: "exclamationmark.shield.fill")
+                capsule(attemptedBreakoutLabel, systemImage: "exclamationmark.shield.fill")
                 if let weather = recap.weather {
                     capsule(weatherShortLabel(weather), systemImage: weather.conditionSymbol ?? "cloud.sun.fill")
                 }
@@ -80,12 +80,12 @@ struct ShareRecapCard: View {
             .first
     }
 
-    private var blockedOpenCount: Int {
+    private var attemptedBreakoutCount: Int {
         recap.jailbreaks.filter { $0.reason == SessionExitReason.shieldActionAttempt }.count
     }
 
-    private var blockedOpenLabel: String {
-        "\(blockedOpenCount) \(blockedOpenCount == 1 ? "blocked open" : "blocked opens")"
+    private var attemptedBreakoutLabel: String {
+        "\(attemptedBreakoutCount) \(attemptedBreakoutCount == 1 ? "attempted breakout" : "attempted breakouts")"
     }
 
     private func weatherShortLabel(_ weather: SessionWeatherSnapshot) -> String {
