@@ -19,7 +19,6 @@ struct RecapView: View {
     @State private var shareSheetItem: ShareSheetItem?
     @State private var mementoDescription = ""
     @State private var includeLocation = false
-    @State private var includeWeather = false
     @State private var didInitializeMemento = false
     @State private var isSavingMemento = false
     @State private var mementoNotice: String?
@@ -259,7 +258,7 @@ struct RecapView: View {
                 .disabled(isUploadingPhoto)
             }
 
-            if canAddFreshLocationWeather {
+            if canAddFreshLocation {
                 mementoToggleRows()
             }
 
@@ -288,16 +287,6 @@ struct RecapView: View {
                 isOn: Binding(
                     get: { includeLocation },
                     set: { setLocationIncluded($0) }
-                )
-            )
-
-            mementoToggleRow(
-                title: "Weather",
-                subtitle: "Adds current weather to the share card",
-                systemImage: "cloud.sun.fill",
-                isOn: Binding(
-                    get: { includeWeather },
-                    set: { setWeatherIncluded($0) }
                 )
             )
         }
@@ -343,17 +332,6 @@ struct RecapView: View {
             let saved = await saveLocationPreference(newValue)
             if !saved {
                 includeLocation = previous
-            }
-        }
-    }
-
-    private func setWeatherIncluded(_ newValue: Bool) {
-        let previous = includeWeather
-        includeWeather = newValue
-        Task {
-            let saved = await saveWeatherPreference(newValue)
-            if !saved {
-                includeWeather = previous
             }
         }
     }
@@ -419,7 +397,7 @@ struct RecapView: View {
         }
     }
 
-    private var canAddFreshLocationWeather: Bool {
+    private var canAddFreshLocation: Bool {
         onDone != nil
     }
 
@@ -524,14 +502,12 @@ struct RecapView: View {
         guard !didInitializeMemento else { return }
         mementoDescription = recap.description ?? ""
         includeLocation = recap.latitude != nil && recap.longitude != nil
-        includeWeather = recap.weather != nil
         didInitializeMemento = true
     }
 
     private func saveDescription(for recap: SessionRecapResponse) async {
         let coordinate = includeLocation ? coordinate(from: recap) : nil
-        let weather = includeWeather ? recap.weather : nil
-        await saveMemento(location: coordinate, weather: weather, notice: nil)
+        await saveMemento(location: coordinate, notice: nil)
     }
 
     private func saveLocationPreference(_ enabled: Bool) async -> Bool {
@@ -540,8 +516,7 @@ struct RecapView: View {
                 let snapshot = try await deps.location.mementoSnapshot(requestPermissionIfNeeded: true)
                 return await saveMemento(
                     location: snapshot.coordinate,
-                    weather: includeWeather ? snapshot.weather ?? viewModel.recap?.weather : nil,
-                    notice: includeWeather ? snapshot.warning ?? "Location added." : "Location added."
+                    notice: "Location added."
                 )
             } catch {
                 viewModel.error = Self.errorMessage(for: error)
@@ -551,41 +526,13 @@ struct RecapView: View {
 
         return await saveMemento(
             location: nil,
-            weather: includeWeather ? viewModel.recap?.weather : nil,
             notice: "Location removed."
-        )
-    }
-
-    private func saveWeatherPreference(_ enabled: Bool) async -> Bool {
-        if enabled {
-            do {
-                let snapshot = try await deps.location.mementoSnapshot(requestPermissionIfNeeded: true)
-                guard let weather = snapshot.weather else {
-                    viewModel.error = snapshot.warning ?? "Couldn't load weather. Try again in a moment."
-                    return false
-                }
-                return await saveMemento(
-                    location: includeLocation ? snapshot.coordinate : coordinate(from: viewModel.recap),
-                    weather: weather,
-                    notice: "Weather added."
-                )
-            } catch {
-                viewModel.error = Self.errorMessage(for: error)
-                return false
-            }
-        }
-
-        return await saveMemento(
-            location: includeLocation ? coordinate(from: viewModel.recap) : nil,
-            weather: nil,
-            notice: "Weather removed."
         )
     }
 
     @discardableResult
     private func saveMemento(
         location: CLLocationCoordinate2D?,
-        weather: SessionWeatherSnapshot?,
         notice: String?
     ) async -> Bool {
         guard !isSavingMemento else { return false }
@@ -596,8 +543,7 @@ struct RecapView: View {
             _ = try await deps.sessions.updateMetadata(
                 id: sessionID,
                 description: normalizedDescription,
-                location: location,
-                weather: weather
+                location: location
             )
             mementoNotice = notice
             await viewModel.load(sessionID: sessionID, service: deps.recap)

@@ -9,16 +9,14 @@ struct SessionAPIService {
         title: String,
         durationSeconds: Int?,
         lockMode: SessionLockMode = .standard,
-        location: CLLocationCoordinate2D? = nil,
-        weather: SessionWeatherSnapshot? = nil
+        location: CLLocationCoordinate2D? = nil
     ) async throws -> SessionResponse {
         let body = CreateSessionRequest(
             title: title,
             durationSeconds: durationSeconds,
             lockMode: lockMode,
             latitude: location?.latitude,
-            longitude: location?.longitude,
-            weather: weather
+            longitude: location?.longitude
         )
         return try await client.send(.createSession(body))
     }
@@ -58,14 +56,12 @@ struct SessionAPIService {
     func updateMetadata(
         id: UUID,
         description: String? = nil,
-        location: CLLocationCoordinate2D?,
-        weather: SessionWeatherSnapshot?
+        location: CLLocationCoordinate2D?
     ) async throws -> SessionResponse {
         let body = SessionMetadataRequest(
             description: description,
             latitude: location?.latitude,
-            longitude: location?.longitude,
-            weather: weather
+            longitude: location?.longitude
         )
         return try await client.send(.updateSessionMetadata(id: id, body: body))
     }

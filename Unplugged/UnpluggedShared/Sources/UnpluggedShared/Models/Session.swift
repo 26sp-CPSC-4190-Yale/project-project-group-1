@@ -15,7 +15,6 @@ public struct Session: Codable, Identifiable, Sendable {
     public let endedAt: Date?
     public let latitude: Double?
     public let longitude: Double?
-    public let weather: SessionWeatherSnapshot?
     public let coLockStatus: SessionCoLockStatus?
 
     private enum CodingKeys: String, CodingKey {
@@ -33,7 +32,6 @@ public struct Session: Codable, Identifiable, Sendable {
         case endedAt
         case latitude
         case longitude
-        case weather
         case coLockStatus
     }
 
@@ -52,7 +50,6 @@ public struct Session: Codable, Identifiable, Sendable {
         endedAt: Date? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        weather: SessionWeatherSnapshot? = nil,
         coLockStatus: SessionCoLockStatus? = nil
     ) {
         self.id = id
@@ -69,7 +66,6 @@ public struct Session: Codable, Identifiable, Sendable {
         self.endedAt = endedAt
         self.latitude = latitude
         self.longitude = longitude
-        self.weather = weather
         self.coLockStatus = coLockStatus
     }
 
@@ -89,7 +85,6 @@ public struct Session: Codable, Identifiable, Sendable {
         self.endedAt = try c.decodeIfPresent(Date.self, forKey: .endedAt)
         self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
         self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
-        self.weather = try c.decodeIfPresent(SessionWeatherSnapshot.self, forKey: .weather)
         self.coLockStatus = try c.decodeIfPresent(SessionCoLockStatus.self, forKey: .coLockStatus)
     }
 }

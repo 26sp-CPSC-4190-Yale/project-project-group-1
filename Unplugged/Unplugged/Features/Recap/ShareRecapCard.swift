@@ -50,9 +50,6 @@ struct ShareRecapCard: View {
                 capsule("\(recap.participants.count) \(recap.participants.count == 1 ? "member" : "members")", systemImage: "person.2.fill")
                 capsule(durationChipLabel, systemImage: durationChipSystemImage)
                 capsule("\(recap.jailbreaks.count) \(recap.jailbreaks.count == 1 ? "break" : "breaks")", systemImage: "exclamationmark.shield.fill")
-                if let weather = recap.weather {
-                    capsule(weatherShortLabel(weather), systemImage: weather.conditionSymbol ?? "cloud.sun.fill")
-                }
                 if recap.latitude != nil, recap.longitude != nil {
                     capsule("Location", systemImage: "location.fill")
                 }
@@ -81,13 +78,6 @@ struct ShareRecapCard: View {
             .compactMap(\.thumbnailData)
             .compactMap(UIImage.init(data:))
             .first
-    }
-
-    private func weatherShortLabel(_ weather: SessionWeatherSnapshot) -> String {
-        if let temp = weather.temperatureFahrenheit {
-            return "\(Int(temp.rounded()))°F"
-        }
-        return weather.summary
     }
 
     private func capsule(_ text: String, systemImage: String) -> some View {

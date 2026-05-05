@@ -7,7 +7,6 @@ public struct CreateSessionRequest: Codable, Sendable {
     public let lockMode: SessionLockMode
     public let latitude: Double?
     public let longitude: Double?
-    public let weather: SessionWeatherSnapshot?
 
     private enum CodingKeys: String, CodingKey {
         case title
@@ -16,7 +15,6 @@ public struct CreateSessionRequest: Codable, Sendable {
         case lockMode
         case latitude
         case longitude
-        case weather
     }
 
     public init(
@@ -25,8 +23,7 @@ public struct CreateSessionRequest: Codable, Sendable {
         description: String? = nil,
         lockMode: SessionLockMode = .standard,
         latitude: Double? = nil,
-        longitude: Double? = nil,
-        weather: SessionWeatherSnapshot? = nil
+        longitude: Double? = nil
     ) {
         self.title = title
         self.description = description
@@ -34,7 +31,6 @@ public struct CreateSessionRequest: Codable, Sendable {
         self.lockMode = lockMode
         self.latitude = latitude
         self.longitude = longitude
-        self.weather = weather
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,7 +41,6 @@ public struct CreateSessionRequest: Codable, Sendable {
         self.lockMode = try c.decodeIfPresent(SessionLockMode.self, forKey: .lockMode) ?? .standard
         self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
         self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
-        self.weather = try c.decodeIfPresent(SessionWeatherSnapshot.self, forKey: .weather)
     }
 }
 
@@ -57,13 +52,11 @@ public struct SessionMetadataRequest: Codable, Sendable {
     public let description: String?
     public let latitude: Double?
     public let longitude: Double?
-    public let weather: SessionWeatherSnapshot?
 
-    public init(description: String? = nil, latitude: Double? = nil, longitude: Double? = nil, weather: SessionWeatherSnapshot? = nil) {
+    public init(description: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         self.description = description
         self.latitude = latitude
         self.longitude = longitude
-        self.weather = weather
     }
 }
 
@@ -188,7 +181,6 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable 
     public let participantCount: Int
     public let latitude: Double?
     public let longitude: Double?
-    public let weather: SessionWeatherSnapshot?
     public let memoryPhotos: [SessionMemoryPhotoResponse]
     public let actualFocusedSeconds: Int?
     public let leftEarly: Bool
@@ -205,7 +197,6 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable 
         case participantCount
         case latitude
         case longitude
-        case weather
         case memoryPhotos
         case actualFocusedSeconds
         case leftEarly
@@ -223,7 +214,6 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable 
         participantCount: Int,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        weather: SessionWeatherSnapshot? = nil,
         memoryPhotos: [SessionMemoryPhotoResponse] = [],
         actualFocusedSeconds: Int? = nil,
         leftEarly: Bool = false,
@@ -239,7 +229,6 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable 
         self.participantCount = participantCount
         self.latitude = latitude
         self.longitude = longitude
-        self.weather = weather
         self.memoryPhotos = memoryPhotos
         self.actualFocusedSeconds = actualFocusedSeconds
         self.leftEarly = leftEarly
@@ -258,7 +247,6 @@ public struct SessionHistoryResponse: Codable, Sendable, Identifiable, Hashable 
         self.participantCount = try c.decode(Int.self, forKey: .participantCount)
         self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
         self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
-        self.weather = try c.decodeIfPresent(SessionWeatherSnapshot.self, forKey: .weather)
         self.memoryPhotos = try c.decodeIfPresent([SessionMemoryPhotoResponse].self, forKey: .memoryPhotos) ?? []
         self.actualFocusedSeconds = try c.decodeIfPresent(Int.self, forKey: .actualFocusedSeconds)
         self.leftEarly = try c.decodeIfPresent(Bool.self, forKey: .leftEarly) ?? false

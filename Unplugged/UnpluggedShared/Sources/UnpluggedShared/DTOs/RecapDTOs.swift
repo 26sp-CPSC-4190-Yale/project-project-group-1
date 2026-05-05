@@ -31,7 +31,6 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
     public let completionRate: Double
     public let latitude: Double?
     public let longitude: Double?
-    public let weather: SessionWeatherSnapshot?
     public let memoryPhotos: [SessionMemoryPhotoResponse]
 
     private enum CodingKeys: String, CodingKey {
@@ -48,7 +47,6 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         case completionRate
         case latitude
         case longitude
-        case weather
         case memoryPhotos
     }
 
@@ -66,7 +64,6 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         completionRate: Double,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        weather: SessionWeatherSnapshot? = nil,
         memoryPhotos: [SessionMemoryPhotoResponse] = []
     ) {
         self.sessionID = sessionID
@@ -82,7 +79,6 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         self.completionRate = completionRate
         self.latitude = latitude
         self.longitude = longitude
-        self.weather = weather
         self.memoryPhotos = memoryPhotos
     }
 
@@ -101,7 +97,6 @@ public struct SessionRecapResponse: Codable, Sendable, Identifiable {
         self.completionRate = try c.decode(Double.self, forKey: .completionRate)
         self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
         self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
-        self.weather = try c.decodeIfPresent(SessionWeatherSnapshot.self, forKey: .weather)
         self.memoryPhotos = try c.decodeIfPresent([SessionMemoryPhotoResponse].self, forKey: .memoryPhotos) ?? []
     }
 }
