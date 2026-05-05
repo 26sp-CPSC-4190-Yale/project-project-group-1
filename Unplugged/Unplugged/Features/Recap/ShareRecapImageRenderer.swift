@@ -1,4 +1,5 @@
 import Foundation
+import MapKit
 import UIKit
 import UnpluggedShared
 
@@ -12,17 +13,20 @@ enum ShareRecapImageRenderer {
     private static let destructiveColor = UIColor(red: 220.0 / 255.0, green: 53.0 / 255.0, blue: 69.0 / 255.0, alpha: 1)
 
     static func renderPNGData(for recap: SessionRecapResponse) async throws -> Data {
-        try await Task.detached(priority: .userInitiated) {
+        let mapImageData = await mapSnapshotImage(for: recap)?.pngData()
+
+        return try await Task.detached(priority: .userInitiated) {
             try autoreleasepool {
                 let format = UIGraphicsImageRendererFormat()
                 format.scale = 1
                 format.opaque = true
 
-                let canvasSize = canvasSize(for: recap)
+                let mapImage = mapImageData.flatMap(UIImage.init(data:))
+                let canvasSize = canvasSize(for: recap, includesMap: mapImage != nil)
                 let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
                 let image = renderer.image { context in
                     drawBackground(in: context.cgContext, size: canvasSize)
-                    drawCard(for: recap, in: context.cgContext, canvasSize: canvasSize)
+                    drawCard(for: recap, mapImage: mapImage, in: context.cgContext, canvasSize: canvasSize)
                 }
 
                 guard let data = image.pngData() else {
@@ -33,7 +37,7 @@ enum ShareRecapImageRenderer {
         }.value
     }
 
-    private static func canvasSize(for recap: SessionRecapResponse) -> CGSize {
+    private static func canvasSize(for recap: SessionRecapResponse, includesMap: Bool) -> CGSize {
         let cardWidth = canvasWidth - 128
         let chipRows = chipRowCount(
             for: chipLabels(for: recap),
@@ -43,6 +47,9 @@ enum ShareRecapImageRenderer {
         var contentHeight: CGFloat = 52
         if hasMemoryImageData(in: recap) {
             contentHeight += 430 + 40
+        }
+        if includesMap {
+            contentHeight += 300 + 40
         }
         contentHeight += 54
         contentHeight += 92
@@ -59,7 +66,7 @@ enum ShareRecapImageRenderer {
         }
         contentHeight += 52
 
-        let height = min(max(contentHeight + 128, 704), 1350)
+        let height = min(max(contentHeight + 128, 704), 1700)
         return CGSize(width: canvasWidth, height: ceil(height))
     }
 
@@ -68,7 +75,12 @@ enum ShareRecapImageRenderer {
         context.fill(CGRect(origin: .zero, size: size))
     }
 
-    private static func drawCard(for recap: SessionRecapResponse, in context: CGContext, canvasSize: CGSize) {
+    private static func drawCard(
+        for recap: SessionRecapResponse,
+        mapImage: UIImage?,
+        in context: CGContext,
+        canvasSize: CGSize
+    ) {
         let cardRect = CGRect(x: 64, y: 64, width: canvasSize.width - 128, height: canvasSize.height - 128)
         surfaceColor.setFill()
         UIBezierPath(roundedRect: cardRect, cornerRadius: 40).fill()
@@ -78,6 +90,12 @@ enum ShareRecapImageRenderer {
             let photoRect = CGRect(x: cardRect.minX + 40, y: y, width: cardRect.width - 80, height: 430)
             drawImage(image, aspectFillIn: photoRect, cornerRadius: 28, context: context)
             y = photoRect.maxY + 40
+        }
+        if let mapImage {
+            let mapRect = CGRect(x: cardRect.minX + 40, y: y, width: cardRect.width - 80, height: 300)
+            drawImage(mapImage, aspectFillIn: mapRect, cornerRadius: 28, context: context)
+            drawMapPin(in: mapRect)
+            y = mapRect.maxY + 40
         }
 
         drawText(
@@ -128,6 +146,31 @@ enum ShareRecapImageRenderer {
         }
 
         _ = drawChips(for: recap, cardRect: cardRect, y: y)
+    }
+
+    private static func mapSnapshotImage(for recap: SessionRecapResponse) async -> UIImage? {
+        guard let latitude = recap.latitude,
+              let longitude = recap.longitude,
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else {
+            return nil
+        }
+
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let options = MKMapSnapshotter.Options()
+        options.region = MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+        )
+        options.size = CGSize(width: canvasWidth - 208, height: 300)
+        options.scale = 2
+        options.mapType = .standard
+
+        return await withCheckedContinuation { continuation in
+            MKMapSnapshotter(options: options).start(with: DispatchQueue.global(qos: .userInitiated)) { snapshot, _ in
+                continuation.resume(returning: snapshot?.image)
+            }
+        }
     }
 
     private static func drawStatus(_ recap: SessionRecapResponse, cardRect: CGRect, y: CGFloat) {
@@ -273,6 +316,28 @@ enum ShareRecapImageRenderer {
         )
         image.draw(in: CGRect(origin: origin, size: size))
         context.restoreGState()
+    }
+
+    private static func drawMapPin(in rect: CGRect) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let shadowRect = CGRect(x: center.x - 28, y: center.y + 16, width: 56, height: 16)
+        UIColor.black.withAlphaComponent(0.28).setFill()
+        UIBezierPath(ovalIn: shadowRect).fill()
+
+        let pinRect = CGRect(x: center.x - 26, y: center.y - 58, width: 52, height: 52)
+        destructiveColor.setFill()
+        UIBezierPath(ovalIn: pinRect).fill()
+
+        let point = UIBezierPath()
+        point.move(to: CGPoint(x: center.x, y: center.y + 22))
+        point.addLine(to: CGPoint(x: center.x - 15, y: center.y - 14))
+        point.addLine(to: CGPoint(x: center.x + 15, y: center.y - 14))
+        point.close()
+        destructiveColor.setFill()
+        point.fill()
+
+        UIColor.white.setFill()
+        UIBezierPath(ovalIn: CGRect(x: center.x - 9, y: center.y - 41, width: 18, height: 18)).fill()
     }
 
     private static func firstMemoryImage(from recap: SessionRecapResponse) -> UIImage? {

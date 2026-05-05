@@ -61,6 +61,7 @@ struct NotificationService {
                 "user_id": "\(userID)",
                 "type": "\(type)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
             try await application.apns.client(.default).sendAlertNotification(
@@ -71,10 +72,11 @@ struct NotificationService {
                 "user_id": "\(userID)",
                 "type": "\(type)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
         } catch {
-            application.logger.warning("APNs alert push failed for user \(userID) (type=\(type)): \(error)")
+            application.logger.warning("APNs alert push failed for user \(userID) (type=\(type), environment=\(application.apnsEnvironmentName ?? "unknown")): \(error)")
             await clearInvalidDeviceTokenIfNeeded(
                 error,
                 userID: userID,
@@ -118,6 +120,7 @@ struct NotificationService {
                 "user_id": "\(userID)",
                 "type": "\(type)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
             try await application.apns.client(.default).sendBackgroundNotification(
@@ -128,10 +131,11 @@ struct NotificationService {
                 "user_id": "\(userID)",
                 "type": "\(type)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
         } catch {
-            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type)): \(error)")
+            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), environment=\(application.apnsEnvironmentName ?? "unknown")): \(error)")
             await clearInvalidDeviceTokenIfNeeded(
                 error,
                 userID: userID,
@@ -181,6 +185,7 @@ struct NotificationService {
                 "type": "\(type)",
                 "session_id": "\(sessionID)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
             try await application.apns.client(.default).sendBackgroundNotification(
@@ -192,10 +197,11 @@ struct NotificationService {
                 "type": "\(type)",
                 "session_id": "\(sessionID)",
                 "topic": "\(bundleID)",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
         } catch {
-            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID)): \(error)")
+            application.logger.warning("APNs silent push failed for user \(userID) (type=\(type), session=\(sessionID), environment=\(application.apnsEnvironmentName ?? "unknown")): \(error)")
             await clearInvalidDeviceTokenIfNeeded(
                 error,
                 userID: userID,
@@ -280,6 +286,7 @@ struct NotificationService {
                 "user_id": "\(userID)",
                 "type": "\(type)",
                 "reason": "\(apnsError.reason?.reason ?? "unknown")",
+                "environment": "\(application.apnsEnvironmentName ?? "unknown")",
                 "token_suffix": "\(tokenSuffix(token))"
             ])
         } catch {
@@ -301,10 +308,19 @@ private struct APNSConfiguredKey: StorageKey {
     typealias Value = Bool
 }
 
+private struct APNSEnvironmentNameKey: StorageKey {
+    typealias Value = String
+}
+
 extension Application {
     var isAPNSConfigured: Bool {
         get { storage[APNSConfiguredKey.self] ?? false }
         set { storage[APNSConfiguredKey.self] = newValue }
+    }
+
+    var apnsEnvironmentName: String? {
+        get { storage[APNSEnvironmentNameKey.self] }
+        set { storage[APNSEnvironmentNameKey.self] = newValue }
     }
 
     // call from configure.swift, any missing APNs env var skips setup so local dev runs without credentials
@@ -325,17 +341,27 @@ extension Application {
         }
 
         let privateKey = rawPrivateKey.replacingOccurrences(of: "\\n", with: "\n")
-        let rawEnvironment = Environment.get("APNS_ENVIRONMENT")?.lowercased()
+        let rawEnvironment = Environment.get("APNS_ENVIRONMENT")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         let useProduction: Bool
         switch rawEnvironment {
-        case "production":
+        case "production", "prod":
             useProduction = true
-        case "development", "sandbox":
+        case "development", "sandbox", "dev":
             useProduction = false
         default:
-            useProduction = environment == .production
+            // TestFlight and App Store builds always use production APNs tokens.
+            // Default to production when APNs credentials are present so a deployment
+            // that forgets APNS_ENVIRONMENT does not silently reject TestFlight tokens.
+            useProduction = true
         }
-        let apnsEnv: APNSEnvironment = useProduction ? .production : .development
+
+        if environment == .production && !useProduction {
+            logger.warning("[APNs] Ignoring APNS_ENVIRONMENT=\(rawEnvironment ?? "nil") because Vapor is running in production. TestFlight/App Store tokens require production APNs.")
+        }
+        let effectiveUseProduction = environment == .production ? true : useProduction
+        let apnsEnv: APNSEnvironment = effectiveUseProduction ? .production : .development
 
         apns.containers.use(
             APNSClientConfiguration(
@@ -353,7 +379,8 @@ extension Application {
         )
 
         isAPNSConfigured = true
-        let envName = useProduction ? "production" : "development"
+        let envName = effectiveUseProduction ? "production" : "development"
+        apnsEnvironmentName = envName
         logger.info("[APNs] Configured for \(envName).", metadata: [
             "topic": "\(NotificationService.apnsBundleID())"
         ])
