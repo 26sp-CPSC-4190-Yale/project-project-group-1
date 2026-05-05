@@ -115,7 +115,6 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         let emergencySelection = allowlist.selection
         let allowedAppTokens = emergencySelection.applicationTokens
         let allowedWebDomains = emergencySelection.webDomains
-        let allowedSystemBundleIDs = allowlist.allowedSystemApplicationBundleIdentifiers
 
         let now = Date()
         // DeviceActivitySchedule is time-of-day based; keep very long/unlimited locks inside the next day.
@@ -161,20 +160,14 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
             )
         }
 
-        let blockedSystemApplications = Set(
-            EmergencySystemApplication.allCases
-                .filter { !allowedSystemBundleIDs.contains($0.bundleIdentifier) }
-                .map { Application(bundleIdentifier: $0.bundleIdentifier) }
-        )
-
-        // Apple system apps are not available as FamilyActivity tokens here, so bundle-ID blocking is
-        // the only available enforcement path for them. iOS owns Home Screen layout restoration.
+        // Do not use ApplicationSettings.blockedApplications for session locking.
+        // That API can hide apps from the Home Screen and iOS may restore them in a different order.
         AppLogger.measureMainThreadWork(
-            "ScreenTimeService.blockedApplications.set",
+            "ScreenTimeService.blockedApplications.clear",
             category: .screenTime,
             warnAfter: 0.03
         ) {
-            store.application.blockedApplications = blockedSystemApplications.isEmpty ? nil : blockedSystemApplications
+            store.application.blockedApplications = nil
         }
         await Task.yield()
         AppLogger.measureMainThreadWork(

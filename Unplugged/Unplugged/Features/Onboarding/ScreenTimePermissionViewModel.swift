@@ -11,38 +11,18 @@ final class ScreenTimePermissionViewModel {
     var selection = FamilyActivitySelection(includeEntireCategory: false)
     var savedSelection = FamilyActivitySelection(includeEntireCategory: false)
     #endif
-    var allowedSystemApplicationBundleIdentifiers = Set<String>()
-    var savedSystemApplicationBundleIdentifiers = Set<String>()
     var showPicker = false
     var didConfirm = false
     var isLoadingSelection = false
     var isSavingSelection = false
     var selectionError: String?
 
-    var savedSystemApplications: [EmergencySystemApplication] {
-        EmergencySystemApplication.allCases.filter {
-            savedSystemApplicationBundleIdentifiers.contains($0.bundleIdentifier)
-        }
-    }
-
     var hasSavedEmergencySelection: Bool {
         #if canImport(FamilyControls)
-        !savedSelection.isEmpty || !savedSystemApplicationBundleIdentifiers.isEmpty
+        !savedSelection.isEmpty
         #else
-        !savedSystemApplicationBundleIdentifiers.isEmpty
+        false
         #endif
-    }
-
-    func isSystemApplicationAllowed(_ application: EmergencySystemApplication) -> Bool {
-        allowedSystemApplicationBundleIdentifiers.contains(application.bundleIdentifier)
-    }
-
-    func toggleSystemApplication(_ application: EmergencySystemApplication) {
-        if isSystemApplicationAllowed(application) {
-            allowedSystemApplicationBundleIdentifiers.remove(application.bundleIdentifier)
-        } else {
-            allowedSystemApplicationBundleIdentifiers.insert(application.bundleIdentifier)
-        }
     }
 
     func loadSavedSelection(service: ScreenTimeService) async {
@@ -53,7 +33,6 @@ final class ScreenTimePermissionViewModel {
 
         let snapshot = await service.loadEmergencyAllowlistSnapshot()
         savedSelection = snapshot.allowlist.selection
-        savedSystemApplicationBundleIdentifiers = snapshot.allowlist.allowedSystemApplicationBundleIdentifiers
 
         resetDraftToSavedSelection()
         didConfirm = snapshot.hasStoredValue
@@ -69,7 +48,6 @@ final class ScreenTimePermissionViewModel {
         #if canImport(FamilyControls)
         selection = savedSelection
         #endif
-        allowedSystemApplicationBundleIdentifiers = savedSystemApplicationBundleIdentifiers
     }
 
     @discardableResult
@@ -81,12 +59,11 @@ final class ScreenTimePermissionViewModel {
 
         let allowlist = ScreenTimeEmergencyAllowlist(
             selection: selection,
-            allowedSystemApplicationBundleIdentifiers: allowedSystemApplicationBundleIdentifiers
+            allowedSystemApplicationBundleIdentifiers: []
         )
         do {
             try await service.saveEmergencyAllowlist(allowlist)
             savedSelection = selection
-            savedSystemApplicationBundleIdentifiers = allowedSystemApplicationBundleIdentifiers
             didConfirm = true
             selectionError = nil
             return true
@@ -96,14 +73,14 @@ final class ScreenTimePermissionViewModel {
                 error: error,
                 context: [
                     "app_tokens": selection.applicationTokens.count,
-                    "system_bundles": allowedSystemApplicationBundleIdentifiers.count
+                    "category_tokens": selection.categoryTokens.count,
+                    "web_domain_tokens": selection.webDomainTokens.count
                 ]
             )
             selectionError = "Could not save emergency apps."
             return false
         }
         #else
-        savedSystemApplicationBundleIdentifiers = allowedSystemApplicationBundleIdentifiers
         didConfirm = true
         selectionError = nil
         return true

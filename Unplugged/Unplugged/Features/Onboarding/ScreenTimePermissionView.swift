@@ -20,7 +20,7 @@ struct ScreenTimePermissionView: View {
                     .font(.title2.bold())
                     .foregroundStyle(Color.tertiaryColor)
 
-                Text("Pick apps and websites that should stay available during a session.")
+                Text("Pick apps, categories, and websites that should stay available during a session.")
                     .font(.body)
                     .foregroundStyle(Color.tertiaryColor.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -150,12 +150,6 @@ private struct EmergencySelectionSummary: View {
 
             if viewModel.hasSavedEmergencySelection {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                    ForEach(viewModel.savedSystemApplications) { application in
-                        summaryChip {
-                            Label(application.title, systemImage: application.symbolName)
-                        }
-                    }
-
                     ForEach(Array(viewModel.savedSelection.applicationTokens), id: \.self) { token in
                         summaryChip(tokenIconTint: Color.tertiaryColor) {
                             Label(token)
@@ -221,21 +215,12 @@ private struct EmergencySelectionSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: .spacingMd) {
-                    Text("Tap an Apple app or add other apps and websites.")
+                    Text("Add apps, categories, or websites that should stay available.")
                         .font(.footnote)
                         .foregroundStyle(Color.tertiaryColor.opacity(0.7))
 
                     LazyVGrid(columns: columns, spacing: 10) {
                         addMoreTile
-
-                        ForEach(EmergencySystemApplication.allCases) { application in
-                            emergencyTile(
-                                isSelected: viewModel.isSystemApplicationAllowed(application),
-                                action: { viewModel.toggleSystemApplication(application) }
-                            ) {
-                                Label(application.title, systemImage: application.symbolName)
-                            }
-                        }
 
                         ForEach(Array(viewModel.selection.applicationTokens), id: \.self) { token in
                             emergencyTile(

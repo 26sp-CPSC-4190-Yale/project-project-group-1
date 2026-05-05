@@ -186,6 +186,14 @@ struct OnboardingView: View {
                 unavailableText: "Screen Time is unavailable on this device."
             )
 
+            Text("For strongest blocking, remove distracting apps from Settings > Screen Time > Always Allowed. iOS may keep those apps usable at all times.")
+                .font(.caption)
+                .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .padding(.spacingMd)
+                .background(Color.surfaceColor)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
             if viewModel.screenTimeAuthFailed {
                 Text("Check that Screen Time restrictions aren't enabled.")
                     .font(.caption)
