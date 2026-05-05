@@ -92,7 +92,7 @@ enum SessionLifecycleService {
         return members
     }
 
-    private static func awardPoints(
+    static func awardPoints(
         to userID: UUID,
         from start: Date,
         to end: Date,
