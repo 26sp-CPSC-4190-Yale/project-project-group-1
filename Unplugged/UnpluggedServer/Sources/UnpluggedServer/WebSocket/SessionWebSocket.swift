@@ -3,27 +3,27 @@ import UnpluggedShared
 import Vapor
 
 actor SessionHub {
-    // roomID to userID to WebSocket
+    // sessionID to userID to WebSocket
     private var connections: [UUID: [UUID: WebSocket]] = [:]
 
-    func join(roomID: UUID, userID: UUID, ws: WebSocket) {
-        var room = connections[roomID] ?? [:]
-        room[userID] = ws
-        connections[roomID] = room
+    func join(sessionID: UUID, userID: UUID, ws: WebSocket) {
+        var session = connections[sessionID] ?? [:]
+        session[userID] = ws
+        connections[sessionID] = session
     }
 
-    func leave(roomID: UUID, userID: UUID) {
-        guard var room = connections[roomID] else { return }
-        room.removeValue(forKey: userID)
-        if room.isEmpty {
-            connections.removeValue(forKey: roomID)
+    func leave(sessionID: UUID, userID: UUID) {
+        guard var session = connections[sessionID] else { return }
+        session.removeValue(forKey: userID)
+        if session.isEmpty {
+            connections.removeValue(forKey: sessionID)
         } else {
-            connections[roomID] = room
+            connections[sessionID] = session
         }
     }
 
-    func broadcast(roomID: UUID, message: WSServerMessage) async {
-        guard let room = connections[roomID], !room.isEmpty else { return }
+    func broadcast(sessionID: UUID, message: WSServerMessage) async {
+        guard let session = connections[sessionID], !session.isEmpty else { return }
         let data: Data
         do {
             let encoder = JSONEncoder()
@@ -33,13 +33,13 @@ actor SessionHub {
             return
         }
         guard let text = String(data: data, encoding: .utf8) else { return }
-        for (_, ws) in room {
+        for (_, ws) in session {
             try? await ws.send(text)
         }
     }
 
-    func send(roomID: UUID, toUserID userID: UUID, message: WSServerMessage) async {
-        guard let ws = connections[roomID]?[userID] else { return }
+    func send(sessionID: UUID, toUserID userID: UUID, message: WSServerMessage) async {
+        guard let ws = connections[sessionID]?[userID] else { return }
         let data: Data
         do {
             let encoder = JSONEncoder()

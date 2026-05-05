@@ -2,7 +2,7 @@ import Fluent
 
 struct AddSessionMetadataAndCoLock: AsyncMigration {
     func prepare(on database: Database) async throws {
-        try await database.schema(RoomModel.schema)
+        try await database.schema("rooms")
             .field("description", .string)
             .field("lock_mode", .string, .required, .custom("DEFAULT 'standard'"))
             .field("weather_summary", .string)
@@ -21,7 +21,7 @@ struct AddSessionMetadataAndCoLock: AsyncMigration {
             .deleteField("co_lock_ready")
             .update()
 
-        try await database.schema(RoomModel.schema)
+        try await database.schema("rooms")
             .deleteField("description")
             .deleteField("lock_mode")
             .deleteField("weather_summary")

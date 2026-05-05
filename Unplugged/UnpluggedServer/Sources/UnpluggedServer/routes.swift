@@ -50,7 +50,7 @@ func routes(_ app: Application) throws {
 @Sendable
 private func handleIncomingData(req: Request, ws: WebSocket, data: Data) async {
     guard let idString = req.parameters.get("sessionID"),
-          let roomID = UUID(uuidString: idString) else { return }
+          let sessionID = UUID(uuidString: idString) else { return }
 
     guard let token = req.headers.bearerAuthorization?.token,
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
@@ -68,11 +68,11 @@ private func handleIncomingData(req: Request, ws: WebSocket, data: Data) async {
         let normalizedReason = InputValidation.normalizedJailbreakReason(reason)
         let detectedAt = Date()
         do {
-            guard let room = try await RoomModel.find(roomID, on: req.db),
-                  room.endedAt == nil,
-                  room.lockedAt != nil,
+            guard let session = try await SessionModel.find(sessionID, on: req.db),
+                  session.endedAt == nil,
+                  session.lockedAt != nil,
                   let member = try await MemberModel.query(on: req.db)
-                    .filter(\.$roomID == roomID)
+                    .filter(\.$sessionID == sessionID)
                     .filter(\.$userID == userID)
                     .first() else { return }
 
@@ -84,28 +84,28 @@ private func handleIncomingData(req: Request, ws: WebSocket, data: Data) async {
                     try await member.save(on: db)
                 }
 
-                let record = JailbreakModel(sessionID: roomID, userID: userID, reason: normalizedReason)
+                let record = JailbreakModel(sessionID: sessionID, userID: userID, reason: normalizedReason)
                 record.detectedAt = detectedAt
                 try await record.save(on: db)
             }
         } catch {
-            req.logger.error("Failed to persist jailbreak report for user \(userID) in room \(roomID): \(error)")
+            req.logger.error("Failed to persist jailbreak report for user \(userID) in session \(sessionID): \(error)")
             return
         }
         await req.application.sessionHub.broadcast(
-            roomID: roomID,
+            sessionID: sessionID,
             message: .jailbreakReported(userID: userID, reason: normalizedReason)
         )
         do {
-            if let room = try await RoomModel.find(roomID, on: req.db) {
+            if let session = try await SessionModel.find(sessionID, on: req.db) {
                 _ = try await SessionLifecycleService.closeCoLockIfStranded(
-                    room: room,
+                    session: session,
                     req: req,
                     reason: "co_lock_jailbreak_stranded"
                 )
             }
         } catch {
-            req.logger.error("Failed to close stranded co-lock room \(roomID) after jailbreak report: \(error)")
+            req.logger.error("Failed to close stranded co-lock session \(sessionID) after jailbreak report: \(error)")
         }
     }
 }
@@ -113,13 +113,13 @@ private func handleIncomingData(req: Request, ws: WebSocket, data: Data) async {
 @Sendable
 private func handleClose(req: Request, ws: WebSocket) async {
     guard let idString = req.parameters.get("sessionID"),
-          let roomID = UUID(uuidString: idString) else { return }
+          let sessionID = UUID(uuidString: idString) else { return }
 
     guard let token = req.headers.bearerAuthorization?.token,
           let payload = try? await req.jwt.verify(token, as: UserPayload.self),
           let userID = try? payload.userID else { return }
 
-    await req.application.sessionHub.leave(roomID: roomID, userID: userID)
+    await req.application.sessionHub.leave(sessionID: sessionID, userID: userID)
 }
 
 @Sendable
@@ -148,14 +148,14 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
     }
 
     guard let idString = req.parameters.get("sessionID"),
-          let roomID = UUID(uuidString: idString) else {
+          let sessionID = UUID(uuidString: idString) else {
         try? await ws.close(code: .unacceptableData)
         return
     }
 
     do {
         let membership = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first()
         guard membership != nil else {
@@ -167,15 +167,15 @@ private func handleSessionWebSocket(req: Request, ws: WebSocket) async {
         return
     }
 
-    await req.application.sessionHub.join(roomID: roomID, userID: userID, ws: ws)
+    await req.application.sessionHub.join(sessionID: sessionID, userID: userID, ws: ws)
 
     do {
-        if let room = try await RoomModel.find(roomID, on: req.db) {
-            let session = try await SessionResponseBuilder.build(room: room, db: req.db)
+        if let session = try await SessionModel.find(sessionID, on: req.db) {
+            let response = try await SessionResponseBuilder.build(session: session, db: req.db)
             await req.application.sessionHub.send(
-                roomID: roomID,
+                sessionID: sessionID,
                 toUserID: userID,
-                message: .stateSync(session)
+                message: .stateSync(response)
             )
         }
     } catch {

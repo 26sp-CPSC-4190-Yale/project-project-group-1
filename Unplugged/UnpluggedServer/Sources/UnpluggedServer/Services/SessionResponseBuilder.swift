@@ -4,21 +4,21 @@ import UnpluggedShared
 import Vapor
 
 enum SessionResponseBuilder {
-    static func build(room: RoomModel, db: Database, includePhotos: Bool = true) async throws -> SessionResponse {
-        guard let response = try await build(rooms: [room], db: db, includePhotos: includePhotos).first else {
+    static func build(session: SessionModel, db: Database, includePhotos: Bool = true) async throws -> SessionResponse {
+        guard let response = try await build(sessions: [session], db: db, includePhotos: includePhotos).first else {
             throw Abort(.internalServerError)
         }
         return response
     }
 
-    static func build(rooms: [RoomModel], db: Database, includePhotos: Bool = true) async throws -> [SessionResponse] {
-        let roomIDs = try rooms.map { try $0.requireID() }
-        guard !roomIDs.isEmpty else { return [] }
+    static func build(sessions: [SessionModel], db: Database, includePhotos: Bool = true) async throws -> [SessionResponse] {
+        let sessionIDs = try sessions.map { try $0.requireID() }
+        guard !sessionIDs.isEmpty else { return [] }
 
         let members = try await MemberModel.query(on: db)
-            .filter(\.$roomID ~~ roomIDs)
+            .filter(\.$sessionID ~~ sessionIDs)
             .all()
-        let membersByRoom = Dictionary(grouping: members, by: \.roomID)
+        let membersBySession = Dictionary(grouping: members, by: \.sessionID)
 
         let users = try await UserVisibilityService.visibleUsers(members.map(\.userID), on: db)
         let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
@@ -27,96 +27,95 @@ enum SessionResponseBuilder {
         })
 
         let approvals = try await CoLockReleaseApprovalModel.query(on: db)
-            .filter(\.$roomID ~~ roomIDs)
+            .filter(\.$sessionID ~~ sessionIDs)
             .all()
-        let approvalsByRoom = Dictionary(grouping: approvals, by: \.roomID)
+        let approvalsBySession = Dictionary(grouping: approvals, by: \.sessionID)
 
-        let photosByRoom: [UUID: [SessionMemoryPhotoResponse]]
+        let photosBySession: [UUID: [SessionMemoryPhotoResponse]]
         if includePhotos {
             let photos = try await SessionMemoryPhotoModel.query(on: db)
-                .filter(\.$sessionID ~~ roomIDs)
+                .filter(\.$sessionID ~~ sessionIDs)
                 .sort(\.$createdAt, .ascending)
                 .all()
-            photosByRoom = Dictionary(grouping: photos, by: \.sessionID)
+            photosBySession = Dictionary(grouping: photos, by: \.sessionID)
                 .mapValues { $0.compactMap(photoResponse) }
         } else {
-            photosByRoom = [:]
+            photosBySession = [:]
         }
 
-        return try rooms.map { room in
-            let roomID = try room.requireID()
-            let roomMembers = membersByRoom[roomID] ?? []
+        return try sessions.map { session in
+            let sessionID = try session.requireID()
+            let sessionMembers = membersBySession[sessionID] ?? []
             return SessionResponse(
-                session: try session(
-                    room: room,
-                    members: roomMembers,
-                    approvals: approvalsByRoom[roomID] ?? []
+                session: try makeSessionDTO(
+                    session: session,
+                    members: sessionMembers,
+                    approvals: approvalsBySession[sessionID] ?? []
                 ),
                 participants: participantResponses(
-                    room: room,
-                    members: roomMembers,
+                    session: session,
+                    members: sessionMembers,
                     userMap: userMap
                 ),
-                memoryPhotos: photosByRoom[roomID] ?? []
+                memoryPhotos: photosBySession[sessionID] ?? []
             )
         }
     }
 
-    static func session(room: RoomModel, members: [MemberModel], db: Database) async throws -> UnpluggedShared.Session {
-        let roomID = try room.requireID()
+    static func makeSessionDTO(session: SessionModel, members: [MemberModel], db: Database) async throws -> UnpluggedShared.Session {
+        let sessionID = try session.requireID()
         let approvals = try await CoLockReleaseApprovalModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
-        return try session(room: room, members: members, approvals: approvals)
+        return try makeSessionDTO(session: session, members: members, approvals: approvals)
     }
 
-    static func session(
-        room: RoomModel,
+    static func makeSessionDTO(
+        session: SessionModel,
         members: [MemberModel],
         approvals: [CoLockReleaseApprovalModel]
     ) throws -> UnpluggedShared.Session {
-        let roomID = try room.requireID()
+        let sessionID = try session.requireID()
         let state: RoomState
-        if room.endedAt != nil {
+        if session.endedAt != nil {
             state = .ended
-        } else if room.lockedAt != nil {
+        } else if session.lockedAt != nil {
             state = .locked
         } else {
             state = .idle
         }
 
         return UnpluggedShared.Session(
-            id: roomID,
-            code: room.code ?? legacyRoomCode(for: roomID),
-            hostID: room.roomOwner,
+            id: sessionID,
+            code: session.code ?? legacySessionCode(for: sessionID),
+            hostID: session.roomOwner,
             state: state,
-            title: room.title,
-            description: room.description,
-            durationSeconds: room.durationSeconds,
-            lockMode: room.lockMode,
-            startedAt: room.startTime,
-            lockedAt: room.lockedAt,
-            endsAt: room.endsAt,
-            endedAt: room.endedAt,
-            latitude: room.latitude,
-            longitude: room.longitude,
-            weather: weather(from: room),
-            coLockStatus: try coLockStatus(room: room, members: members, approvals: approvals)
+            title: session.title,
+            description: session.description,
+            durationSeconds: session.durationSeconds,
+            lockMode: session.lockMode,
+            startedAt: session.startTime,
+            lockedAt: session.lockedAt,
+            endsAt: session.endsAt,
+            endedAt: session.endedAt,
+            latitude: session.latitude,
+            longitude: session.longitude,
+            coLockStatus: try coLockStatus(session: session, members: members, approvals: approvals)
         )
     }
 
-    static func participantResponses(room: RoomModel, members: [MemberModel], db: Database) async throws -> [ParticipantResponse] {
+    static func participantResponses(session: SessionModel, members: [MemberModel], db: Database) async throws -> [ParticipantResponse] {
         let users = try await UserVisibilityService.visibleUsers(members.map(\.userID), on: db)
         let userMap = Dictionary(uniqueKeysWithValues: users.compactMap { u -> (UUID, UserModel)? in
             guard let id = u.id else { return nil }
             return (id, u)
         })
 
-        return participantResponses(room: room, members: members, userMap: userMap)
+        return participantResponses(session: session, members: members, userMap: userMap)
     }
 
     static func participantResponses(
-        room: RoomModel,
+        session: SessionModel,
         members: [MemberModel],
         userMap: [UUID: UserModel]
     ) -> [ParticipantResponse] {
@@ -129,14 +128,14 @@ enum SessionResponseBuilder {
                 username: user.username,
                 status: member.participantStatus,
                 joinedAt: member.joinedAt,
-                isHost: room.lockMode == .coLock ? false : member.userID == room.roomOwner
+                isHost: session.lockMode == .coLock ? false : member.userID == session.roomOwner
             )
         }
     }
 
-    static func photoResponses(roomID: UUID, db: Database) async throws -> [SessionMemoryPhotoResponse] {
+    static func photoResponses(sessionID: UUID, db: Database) async throws -> [SessionMemoryPhotoResponse] {
         let photos = try await SessionMemoryPhotoModel.query(on: db)
-            .filter(\.$sessionID == roomID)
+            .filter(\.$sessionID == sessionID)
             .sort(\.$createdAt, .ascending)
             .all()
         return photos.compactMap(photoResponse)
@@ -155,47 +154,27 @@ enum SessionResponseBuilder {
         )
     }
 
-    static func weather(from room: RoomModel) -> SessionWeatherSnapshot? {
-        guard let summary = room.weatherSummary,
-              let capturedAt = room.weatherCapturedAt else {
-            return nil
-        }
-        return SessionWeatherSnapshot(
-            summary: summary,
-            temperatureFahrenheit: room.weatherTemperatureF,
-            conditionSymbol: room.weatherSymbol,
-            capturedAt: capturedAt
-        )
-    }
-
-    static func apply(weather: SessionWeatherSnapshot?, to room: RoomModel) {
-        room.weatherSummary = weather?.summary
-        room.weatherTemperatureF = weather?.temperatureFahrenheit
-        room.weatherSymbol = weather?.conditionSymbol
-        room.weatherCapturedAt = weather?.capturedAt
-    }
-
-    static func legacyRoomCode(for roomID: UUID) -> String {
-        String(roomID.uuidString
+    static func legacySessionCode(for sessionID: UUID) -> String {
+        String(sessionID.uuidString
             .filter { $0.isLetter || $0.isNumber }
             .prefix(InputValidation.sessionCodeLength))
             .uppercased()
     }
 
-    private static func coLockStatus(room: RoomModel, members: [MemberModel], db: Database) async throws -> SessionCoLockStatus? {
-        let roomID = try room.requireID()
+    private static func coLockStatus(session: SessionModel, members: [MemberModel], db: Database) async throws -> SessionCoLockStatus? {
+        let sessionID = try session.requireID()
         let approvals = try await CoLockReleaseApprovalModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
-        return try coLockStatus(room: room, members: members, approvals: approvals)
+        return try coLockStatus(session: session, members: members, approvals: approvals)
     }
 
     private static func coLockStatus(
-        room: RoomModel,
+        session: SessionModel,
         members: [MemberModel],
         approvals: [CoLockReleaseApprovalModel]
     ) throws -> SessionCoLockStatus? {
-        guard room.lockMode == .coLock else { return nil }
+        guard session.lockMode == .coLock else { return nil }
         let activeMembers = members.filter { $0.participantStatus == .active }
         let requesterID = approvals.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }.first?.requesterID
         return SessionCoLockStatus(

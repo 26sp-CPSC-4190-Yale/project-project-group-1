@@ -7,8 +7,8 @@ final class CoLockReleaseApprovalModel: Model, @unchecked Sendable {
     @ID(key: .id)
     var id: UUID?
 
-    @Field(key: "room_id")
-    var roomID: UUID
+    @Field(key: "session_id")
+    var sessionID: UUID
 
     @Field(key: "requester_id")
     var requesterID: UUID
@@ -21,11 +21,10 @@ final class CoLockReleaseApprovalModel: Model, @unchecked Sendable {
 
     init() {}
 
-    init(id: UUID? = nil, roomID: UUID, requesterID: UUID, approverID: UUID) {
+    init(id: UUID? = nil, sessionID: UUID, requesterID: UUID, approverID: UUID) {
         self.id = id
-        self.roomID = roomID
+        self.sessionID = sessionID
         self.requesterID = requesterID
         self.approverID = approverID
     }
 }
-
