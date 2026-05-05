@@ -5,11 +5,9 @@ enum ScreenTimeShared {
     static let deviceActivityName = "unpluggedSession"
     static let managedSettingsStoreName = "unpluggedSession"
     static let shieldActionAttemptReason = "shield_action_attempt"
-    static let attemptThrottleSeconds: TimeInterval = 60
 
     private static let activeContextKey = "screenTime.activeContext"
     private static let pendingAttemptsKey = "screenTime.pendingShieldAttempts"
-    private static let lastAttemptPrefix = "screenTime.lastShieldAttemptAt."
 
     struct ActiveContext: Codable, Equatable {
         let sessionID: UUID
@@ -80,22 +78,6 @@ enum ScreenTimeShared {
         components.path = basePath.isEmpty ? "/\(routePath)" : "/\(basePath)/\(routePath)"
         components.queryItems = nil
         return components.url
-    }
-
-    @discardableResult
-    static func claimAttemptReportSlot(
-        sessionID: UUID,
-        now: Date = Date(),
-        defaults: UserDefaults? = Self.defaults
-    ) -> Bool {
-        guard let defaults else { return false }
-        let key = lastAttemptPrefix + sessionID.uuidString
-        let previous = defaults.double(forKey: key)
-        if previous > 0, now.timeIntervalSince1970 - previous < attemptThrottleSeconds {
-            return false
-        }
-        defaults.set(now.timeIntervalSince1970, forKey: key)
-        return true
     }
 
     static func appendPendingShieldAttempt(_ attempt: PendingShieldAttempt, defaults: UserDefaults? = Self.defaults) {

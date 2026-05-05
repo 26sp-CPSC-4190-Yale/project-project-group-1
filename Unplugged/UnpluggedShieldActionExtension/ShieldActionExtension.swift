@@ -27,32 +27,30 @@ final class ShieldActionExtension: ShieldActionDelegate {
     }
 
     private func handle(action: ShieldAction, completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        guard action == .secondaryButtonPressed else {
+        guard action == .primaryButtonPressed else {
             completionHandler(.close)
             return
         }
         guard let context = ScreenTimeShared.loadActiveContext(),
-              !context.isExpired(),
-              ScreenTimeShared.claimAttemptReportSlot(sessionID: context.sessionID) else {
+              !context.isExpired() else {
             completionHandler(.close)
             return
         }
 
         Task {
-            let reported = await reportAttempt(context: context)
+            let attempt = ScreenTimeShared.PendingShieldAttempt(
+                sessionID: context.sessionID,
+                reason: ScreenTimeShared.shieldActionAttemptReason
+            )
+            let reported = await reportAttempt(attempt, context: context)
             if !reported {
-                ScreenTimeShared.appendPendingShieldAttempt(
-                    .init(
-                        sessionID: context.sessionID,
-                        reason: ScreenTimeShared.shieldActionAttemptReason
-                    )
-                )
+                ScreenTimeShared.appendPendingShieldAttempt(attempt)
             }
             completionHandler(.close)
         }
     }
 
-    private func reportAttempt(context: ScreenTimeShared.ActiveContext) async -> Bool {
+    private func reportAttempt(_ attempt: ScreenTimeShared.PendingShieldAttempt, context: ScreenTimeShared.ActiveContext) async -> Bool {
         guard let url = ScreenTimeShared.shieldAttemptURL(baseURL: context.baseURL, sessionID: context.sessionID) else {
             return false
         }
@@ -65,8 +63,8 @@ final class ShieldActionExtension: ShieldActionDelegate {
         request.setValue("Bearer \(context.bearerToken)", forHTTPHeaderField: "Authorization")
 
         let body = ShieldAttemptBody(
-            reason: ScreenTimeShared.shieldActionAttemptReason,
-            occurredAt: Date()
+            reason: attempt.reason,
+            occurredAt: attempt.occurredAt
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
