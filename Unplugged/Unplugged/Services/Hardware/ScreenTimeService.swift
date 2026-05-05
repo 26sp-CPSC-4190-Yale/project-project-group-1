@@ -113,7 +113,11 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
 
         let allowlist = (await allowlistRepository.load()).allowlist
         let emergencySelection = allowlist.selection
+        let alwaysBlockedSelection = allowlist.alwaysBlockedSelection
+            ?? FamilyActivitySelection(includeEntireCategory: false)
         let allowedAppTokens = emergencySelection.applicationTokens
+        let blockedAppTokens = alwaysBlockedSelection.applicationTokens.subtracting(allowedAppTokens)
+        let blockedWebDomainTokens = alwaysBlockedSelection.webDomainTokens.subtracting(emergencySelection.webDomainTokens)
         let allowedWebDomains = emergencySelection.webDomains
 
         let now = Date()
@@ -171,19 +175,19 @@ final class ScreenTimeService: ScreenTimeProviding, @unchecked Sendable {
         }
         await Task.yield()
         AppLogger.measureMainThreadWork(
-            "ScreenTimeService.shieldApplications.clear",
+            "ScreenTimeService.shieldApplications.set",
             category: .screenTime,
             warnAfter: 0.03
         ) {
-            store.shield.applications = nil
+            store.shield.applications = blockedAppTokens.isEmpty ? nil : blockedAppTokens
         }
         await Task.yield()
         AppLogger.measureMainThreadWork(
-            "ScreenTimeService.shieldWebDomains.clear",
+            "ScreenTimeService.shieldWebDomains.set",
             category: .screenTime,
             warnAfter: 0.03
         ) {
-            store.shield.webDomains = nil
+            store.shield.webDomains = blockedWebDomainTokens.isEmpty ? nil : blockedWebDomainTokens
         }
         await Task.yield()
         AppLogger.measureMainThreadWork(

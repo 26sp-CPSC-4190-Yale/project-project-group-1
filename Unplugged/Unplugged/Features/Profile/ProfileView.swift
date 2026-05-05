@@ -205,6 +205,13 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                viewModel.isShowingStrongBlockingSheet = true
+            } label: {
+                settingsLabel(icon: "lock.shield.fill", title: "Strong Blocking", trailing: "Edit")
+            }
+            .buttonStyle(.plain)
+
             Link(destination: LegalFooter.termsURL) {
                 settingsLabel(icon: "doc.text.fill", title: "Terms of Service", trailing: "↗")
             }
@@ -270,6 +277,9 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $viewModel.isShowingEmergencyAppsSheet) {
             EmergencyAppsSettingsSheet(screenTime: deps.screenTime)
+        }
+        .sheet(isPresented: $viewModel.isShowingStrongBlockingSheet) {
+            StrongBlockingSettingsSheet(screenTime: deps.screenTime)
         }
         .sheet(isPresented: $isShowingAboutSheet) {
             AboutSheet()
@@ -390,6 +400,36 @@ private struct EmergencyAppsSettingsSheet: View {
                 }
             }
             .navigationTitle("Emergency Apps")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+}
+
+private struct StrongBlockingSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let screenTime: ScreenTimeService
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.primaryColor
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    StrongBlockingSettingsView(screenTime: screenTime)
+                        .padding(.horizontal, .spacingXl)
+                        .padding(.vertical, .spacingLg)
+                }
+            }
+            .navigationTitle("Strong Blocking")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

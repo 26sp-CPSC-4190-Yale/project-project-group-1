@@ -66,19 +66,109 @@ struct ScreenTimePermissionView: View {
         }
         .errorAlert($viewModel.selectionError)
         #if canImport(FamilyControls)
-        .sheet(isPresented: $viewModel.showPicker) {
+        .sheet(item: $viewModel.activePicker) { mode in
             EmergencySelectionSheet(
+                mode: mode,
                 viewModel: viewModel,
                 onCancel: {
                     viewModel.resetDraftToSavedSelection()
-                    viewModel.showPicker = false
+                    viewModel.activePicker = nil
                 },
                 onSave: {
                     Task {
                         let didSave = await viewModel.confirmSelection(service: screenTime)
                         if didSave {
-                            viewModel.showPicker = false
+                            viewModel.activePicker = nil
                             onDone()
+                        }
+                    }
+                }
+            )
+        }
+        #endif
+    }
+}
+
+struct StrongBlockingSettingsView: View {
+    let screenTime: ScreenTimeService
+
+    @State private var viewModel = ScreenTimePermissionViewModel()
+
+    var body: some View {
+        VStack(spacing: .spacingLg) {
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Color.tertiaryColor)
+
+            VStack(spacing: .spacingMd) {
+                Text("Strong Blocking")
+                    .font(.title2.bold())
+                    .foregroundStyle(Color.tertiaryColor)
+
+                Text("Add specific apps that category blocking misses. Emergency Apps still stay available.")
+                    .font(.body)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
+            if !screenTime.isAvailable {
+                Text("Screen Time is unavailable on this device.")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .multilineTextAlignment(.center)
+            } else {
+                Button {
+                    Task {
+                        await viewModel.beginEditingAlwaysBlockedSelection(service: screenTime)
+                    }
+                } label: {
+                    Group {
+                        if viewModel.isLoadingSelection {
+                            ProgressView()
+                                .tint(Color.tertiaryColor)
+                        } else {
+                            Text(viewModel.hasSavedAlwaysBlockedSelection ? "Edit Strong Blocking Apps" : "Pick Strong Blocking Apps")
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.tertiaryColor)
+                    .foregroundStyle(Color.primaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLoadingSelection)
+
+                Text("Select apps such as Files, Compass, Watch, Clock, and Health directly. Avoid categories here; direct app selections use the stronger shield path.")
+                    .font(.caption)
+                    .foregroundStyle(Color.tertiaryColor.opacity(0.6))
+                    .multilineTextAlignment(.center)
+
+                if viewModel.hasSavedAlwaysBlockedSelection {
+                    AlwaysBlockedSelectionSummary(viewModel: viewModel)
+                }
+            }
+        }
+        .task {
+            await viewModel.loadSavedSelection(service: screenTime)
+        }
+        .errorAlert($viewModel.selectionError)
+        #if canImport(FamilyControls)
+        .sheet(item: $viewModel.activePicker) { mode in
+            EmergencySelectionSheet(
+                mode: mode,
+                viewModel: viewModel,
+                onCancel: {
+                    viewModel.resetDraftToSavedSelection()
+                    viewModel.activePicker = nil
+                },
+                onSave: {
+                    Task {
+                        let didSave = await viewModel.confirmSelection(service: screenTime)
+                        if didSave {
+                            viewModel.activePicker = nil
                         }
                     }
                 }
@@ -201,63 +291,72 @@ private struct EmergencySelectionSummary: View {
     }
 }
 
-private struct EmergencySelectionSheet: View {
+private struct AlwaysBlockedSelectionSummary: View {
     @Bindable var viewModel: ScreenTimePermissionViewModel
-    var onCancel: () -> Void
-    var onSave: () -> Void
-    @State private var showingFamilyPicker = false
 
     private let columns = [
-        GridItem(.adaptive(minimum: 150), spacing: 10)
+        GridItem(.adaptive(minimum: 140), spacing: 8)
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: .spacingMd) {
-                    Text("Add apps, categories, or websites that should stay available.")
-                        .font(.footnote)
-                        .foregroundStyle(Color.tertiaryColor.opacity(0.7))
+        VStack(alignment: .leading, spacing: .spacingSm) {
+            Label("Strong blocking apps saved", systemImage: "lock.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.tertiaryColor)
 
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        addMoreTile
-
-                        ForEach(Array(viewModel.selection.applicationTokens), id: \.self) { token in
-                            emergencyTile(
-                                isSelected: true,
-                                isToken: true,
-                                action: { viewModel.selection.applicationTokens.remove(token) }
-                            ) {
-                                Label(token)
-                            }
-                        }
-
-                        ForEach(Array(viewModel.selection.categoryTokens), id: \.self) { token in
-                            emergencyTile(
-                                isSelected: true,
-                                isToken: true,
-                                action: { viewModel.selection.categoryTokens.remove(token) }
-                            ) {
-                                Label(token)
-                            }
-                        }
-
-                        ForEach(Array(viewModel.selection.webDomainTokens), id: \.self) { token in
-                            emergencyTile(
-                                isSelected: true,
-                                isToken: true,
-                                action: { viewModel.selection.webDomainTokens.remove(token) }
-                            ) {
-                                Label(token)
-                            }
-                        }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                ForEach(Array(viewModel.savedAlwaysBlockedSelection.applicationTokens), id: \.self) { token in
+                    summaryChip(tokenIconTint: Color.tertiaryColor) {
+                        Label(token)
                     }
                 }
-                .padding(.spacingLg)
+
+                ForEach(Array(viewModel.savedAlwaysBlockedSelection.webDomainTokens), id: \.self) { token in
+                    summaryChip(tokenIconTint: Color.tertiaryColor) {
+                        Label(token)
+                    }
+                }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.spacingMd)
+        .background(Color.tertiaryColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func summaryChip<Content: View>(
+        tokenIconTint: Color? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        return content()
+            .emergencyActivityLabelStyle(
+                foreground: Color.tertiaryColor,
+                colorScheme: .dark,
+                iconSize: 18,
+                spacing: 6,
+                font: .caption.weight(.semibold),
+                tokenIconTint: tokenIconTint
+            )
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.tertiaryColor.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct EmergencySelectionSheet: View {
+    let mode: ScreenTimePermissionViewModel.PickerMode
+    @Bindable var viewModel: ScreenTimePermissionViewModel
+    var onCancel: () -> Void
+    var onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            picker
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.primaryColor.ignoresSafeArea())
-            .navigationTitle("Emergency Apps")
+            .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -279,78 +378,38 @@ private struct EmergencySelectionSheet: View {
             }
             .interactiveDismissDisabled()
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .sheet(isPresented: $showingFamilyPicker) {
-                NavigationStack {
-                    FamilyActivityPicker(selection: $viewModel.selection)
-                        .navigationTitle("Other Apps & Websites")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { showingFamilyPicker = false }
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                }
-                .preferredColorScheme(.dark)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .tint(Color.primaryColor)
-            }
         }
     }
 
-    private var addMoreTile: some View {
-        return Button {
-            showingFamilyPicker = true
-        } label: {
-            Label("Add More", systemImage: "plus.circle.fill")
-                .emergencyActivityLabelStyle(
-                    foreground: Color.tertiaryColor,
-                    colorScheme: .dark,
-                    font: .subheadline.weight(.semibold)
-                )
-                .padding(.horizontal, 12)
-                .frame(height: 44)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.tertiaryColor.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4]))
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+    @ViewBuilder
+    private var picker: some View {
+        switch mode {
+        case .emergency:
+            FamilyActivityPicker(
+                headerText: "Choose what stays available during a session.",
+                footerText: "For strongest blocking, remove distracting apps from Settings > Screen Time > Always Allowed.",
+                selection: $viewModel.selection
+            )
+        case .alwaysBlocked:
+            FamilyActivityPicker(
+                headerText: "Choose specific apps that category blocking misses.",
+                footerText: "Emergency Apps still stay available. Select apps such as Files, Compass, Watch, Clock, or Health directly.",
+                selection: $viewModel.alwaysBlockedSelection
+            )
         }
-        .buttonStyle(.plain)
     }
+}
+#endif
 
-    private func emergencyTile<Content: View>(
-        isSelected: Bool,
-        isToken: Bool = false,
-        action: @escaping () -> Void,
-        @ViewBuilder label: () -> Content
-    ) -> some View {
-        let foreground = isSelected ? Color.primaryColor : Color.tertiaryColor
-        let contentColorScheme: ColorScheme = isSelected ? .light : .dark
-        let tokenIconTint: Color? = isToken ? foreground : nil
-
-        return Button(action: action) {
-            HStack(spacing: 8) {
-                label()
-                    .emergencyActivityLabelStyle(
-                        foreground: foreground,
-                        colorScheme: contentColorScheme,
-                        tokenIconTint: tokenIconTint
-                    )
-                Spacer(minLength: 0)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-            .frame(maxWidth: .infinity)
-            .background(isSelected ? Color.tertiaryColor : Color.tertiaryColor.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+#if canImport(FamilyControls)
+private extension ScreenTimePermissionViewModel.PickerMode {
+    var title: String {
+        switch self {
+        case .emergency:
+            "Emergency Apps"
+        case .alwaysBlocked:
+            "Strong Blocking Apps"
         }
-        .buttonStyle(.plain)
     }
 }
 #endif

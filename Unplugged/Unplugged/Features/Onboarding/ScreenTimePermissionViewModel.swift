@@ -10,16 +10,34 @@ final class ScreenTimePermissionViewModel {
     #if canImport(FamilyControls)
     var selection = FamilyActivitySelection(includeEntireCategory: false)
     var savedSelection = FamilyActivitySelection(includeEntireCategory: false)
+    var alwaysBlockedSelection = FamilyActivitySelection(includeEntireCategory: false)
+    var savedAlwaysBlockedSelection = FamilyActivitySelection(includeEntireCategory: false)
     #endif
-    var showPicker = false
+    var activePicker: PickerMode?
     var didConfirm = false
     var isLoadingSelection = false
     var isSavingSelection = false
     var selectionError: String?
 
+    enum PickerMode: String, Identifiable {
+        case emergency
+        case alwaysBlocked
+
+        var id: String { rawValue }
+    }
+
     var hasSavedEmergencySelection: Bool {
         #if canImport(FamilyControls)
         !savedSelection.isEmpty
+        #else
+        false
+        #endif
+    }
+
+    var hasSavedAlwaysBlockedSelection: Bool {
+        #if canImport(FamilyControls)
+        !savedAlwaysBlockedSelection.applicationTokens.isEmpty
+            || !savedAlwaysBlockedSelection.webDomainTokens.isEmpty
         #else
         false
         #endif
@@ -33,6 +51,8 @@ final class ScreenTimePermissionViewModel {
 
         let snapshot = await service.loadEmergencyAllowlistSnapshot()
         savedSelection = snapshot.allowlist.selection
+        savedAlwaysBlockedSelection = snapshot.allowlist.alwaysBlockedSelection
+            ?? FamilyActivitySelection(includeEntireCategory: false)
 
         resetDraftToSavedSelection()
         didConfirm = snapshot.hasStoredValue
@@ -41,12 +61,18 @@ final class ScreenTimePermissionViewModel {
 
     func beginEditingSelection(service: ScreenTimeService) async {
         await loadSavedSelection(service: service)
-        showPicker = true
+        activePicker = .emergency
+    }
+
+    func beginEditingAlwaysBlockedSelection(service: ScreenTimeService) async {
+        await loadSavedSelection(service: service)
+        activePicker = .alwaysBlocked
     }
 
     func resetDraftToSavedSelection() {
         #if canImport(FamilyControls)
         selection = savedSelection
+        alwaysBlockedSelection = savedAlwaysBlockedSelection
         #endif
     }
 
@@ -59,11 +85,13 @@ final class ScreenTimePermissionViewModel {
 
         let allowlist = ScreenTimeEmergencyAllowlist(
             selection: selection,
+            alwaysBlockedSelection: alwaysBlockedSelection,
             allowedSystemApplicationBundleIdentifiers: []
         )
         do {
             try await service.saveEmergencyAllowlist(allowlist)
             savedSelection = selection
+            savedAlwaysBlockedSelection = alwaysBlockedSelection
             didConfirm = true
             selectionError = nil
             return true
@@ -74,7 +102,9 @@ final class ScreenTimePermissionViewModel {
                 context: [
                     "app_tokens": selection.applicationTokens.count,
                     "category_tokens": selection.categoryTokens.count,
-                    "web_domain_tokens": selection.webDomainTokens.count
+                    "web_domain_tokens": selection.webDomainTokens.count,
+                    "always_blocked_app_tokens": alwaysBlockedSelection.applicationTokens.count,
+                    "always_blocked_web_domain_tokens": alwaysBlockedSelection.webDomainTokens.count
                 ]
             )
             selectionError = "Could not save emergency apps."

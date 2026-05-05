@@ -11,6 +11,7 @@ class ProfileViewModel {
     var isLoading = false
     var error: String?
     var isShowingEmergencyAppsSheet = false
+    var isShowingStrongBlockingSheet = false
 
     var isShowingDeleteAccountSheet = false
     var isDeletingAccount = false
