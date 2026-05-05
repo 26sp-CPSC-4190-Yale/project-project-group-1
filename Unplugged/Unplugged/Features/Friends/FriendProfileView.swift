@@ -208,7 +208,7 @@ struct FriendProfileView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: .spacingMd) {
                     ForEach(medals, id: \.medal.id) { userMedal in
-                        FriendMedalBadge(userMedal: userMedal)
+                        MedalBadge(userMedal: userMedal)
                     }
                 }
                 .padding(.horizontal, .spacingLg)
@@ -222,27 +222,6 @@ struct FriendProfileView: View {
 
     private var presenceLabel: String {
         FriendPresenceDisplay.label(for: friend)
-    }
-}
-
-private struct FriendMedalBadge: View {
-    let userMedal: UserMedalResponse
-
-    var body: some View {
-        VStack(spacing: .spacingSm) {
-            Text(userMedal.medal.icon)
-                .font(.system(size: 36))
-                .frame(width: 64, height: 64)
-                .background(Color.surfaceColor)
-                .clipShape(Circle())
-            Text(userMedal.medal.name)
-                .font(.caption)
-                .foregroundStyle(Color.tertiaryColor)
-                .lineLimit(1)
-                .frame(maxWidth: 80)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(userMedal.medal.name). \(userMedal.medal.description)")
     }
 }
 
