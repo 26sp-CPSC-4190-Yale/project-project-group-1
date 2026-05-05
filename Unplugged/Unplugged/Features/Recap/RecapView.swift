@@ -45,8 +45,8 @@ struct RecapView: View {
                         }
                         stats(for: recap)
                         participants(for: recap)
-                        if !recap.jailbreaks.isEmpty {
-                            jailbreaks(for: recap)
+                        if blockedOpenCount(for: recap) > 0 {
+                            blockedOpens(for: recap)
                         }
                     } else if viewModel.isLoading {
                         ProgressView()
@@ -162,8 +162,8 @@ struct RecapView: View {
                 valueSize: 22
             )
             StatBadge(
-                value: "\(recap.jailbreaks.count)",
-                label: "Breaks",
+                value: "\(blockedOpenCount(for: recap))",
+                label: "Blocked Opens",
                 valueSize: 22
             )
             if recap.durationSeconds != nil {
@@ -283,7 +283,7 @@ struct RecapView: View {
         VStack(spacing: .spacingSm) {
             mementoToggleRow(
                 title: "Location",
-                subtitle: "Adds a location chip to the share card",
+                subtitle: "Adds a map image to the share card",
                 systemImage: "location.fill",
                 isOn: Binding(
                     get: { includeLocation },
@@ -384,14 +384,16 @@ struct RecapView: View {
         }
     }
 
-    private func jailbreaks(for recap: SessionRecapResponse) -> some View {
-        VStack(alignment: .leading, spacing: .spacingSm) {
+    private func blockedOpens(for recap: SessionRecapResponse) -> some View {
+        let entries = blockedOpenEntries(for: recap)
+
+        return VStack(alignment: .leading, spacing: .spacingSm) {
             HStack {
-                Text("Breaks from focus")
+                Text("Blocked Opens")
                     .font(.headlineFont)
                     .foregroundColor(.tertiaryColor)
                 Spacer()
-                Text("\(recap.jailbreaks.count)")
+                Text("\(entries.count)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.tertiaryColor.opacity(0.7))
                     .padding(.horizontal, 10)
@@ -400,7 +402,7 @@ struct RecapView: View {
                     .clipShape(Capsule())
             }
 
-            ForEach(recap.jailbreaks) { entry in
+            ForEach(entries) { entry in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.username)
                         .font(.bodyFont)
@@ -417,6 +419,14 @@ struct RecapView: View {
                 .cornerRadius(.cornerRadiusSm)
             }
         }
+    }
+
+    private func blockedOpenEntries(for recap: SessionRecapResponse) -> [JailbreakEntry] {
+        recap.jailbreaks.filter { $0.reason == SessionExitReason.shieldActionAttempt }
+    }
+
+    private func blockedOpenCount(for recap: SessionRecapResponse) -> Int {
+        blockedOpenEntries(for: recap).count
     }
 
     private var canAddFreshLocationWeather: Bool {

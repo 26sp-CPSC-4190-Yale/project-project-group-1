@@ -1130,7 +1130,11 @@ final class SessionOrchestrator {
         var retry: [ScreenTimeShared.PendingShieldAttempt] = []
         for attempt in attempts {
             do {
-                try await sessions.reportShieldAttempt(id: attempt.sessionID, reason: attempt.reason)
+                try await sessions.reportShieldAttempt(
+                    id: attempt.sessionID,
+                    reason: attempt.reason,
+                    occurredAt: attempt.occurredAt
+                )
             } catch {
                 let nsError = error as NSError
                 if nsError.domain == "Vapor", [400, 403, 404, 410].contains(nsError.code) {

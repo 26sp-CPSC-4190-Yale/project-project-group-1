@@ -104,7 +104,14 @@ struct SessionAPIService {
         try await client.sendVoid(.reportProximityExit(id: id))
     }
 
-    func reportShieldAttempt(id: UUID, reason: String = SessionExitReason.shieldActionAttempt) async throws {
-        try await client.sendVoid(.reportShieldAttempt(id: id, body: ShieldActionAttemptRequest(reason: reason)))
+    func reportShieldAttempt(
+        id: UUID,
+        reason: String = SessionExitReason.shieldActionAttempt,
+        occurredAt: Date = Date()
+    ) async throws {
+        try await client.sendVoid(.reportShieldAttempt(
+            id: id,
+            body: ShieldActionAttemptRequest(reason: reason, occurredAt: occurredAt)
+        ))
     }
 }

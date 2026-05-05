@@ -70,6 +70,34 @@ final class NetworkingAndViewModelTests: XCTestCase {
         XCTAssertEqual(seenRequest.request?.value(forHTTPHeaderField: "Authorization"), "Bearer async-jwt-token")
     }
 
+    func testSessionAPIServiceReportShieldAttemptPreservesOccurredAt() async throws {
+        let seenRequest = RequestCapture()
+        let sessionID = UUID()
+        let occurredAt = Date(timeIntervalSince1970: 1_777_800_000)
+        let session = StubSession { request in
+            seenRequest.request = request
+            return (Data(), Self.httpResponse(url: request.url!, status: 204))
+        }
+        let service = SessionAPIService(client: APIClient(
+            baseURL: "https://example.test",
+            cachedToken: { "jwt-token" },
+            session: session
+        ))
+
+        try await service.reportShieldAttempt(id: sessionID, occurredAt: occurredAt)
+
+        let request = try XCTUnwrap(seenRequest.request)
+        let body = try XCTUnwrap(request.httpBody)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(ShieldActionAttemptRequest.self, from: body)
+
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/sessions/\(sessionID)/shield-attempt")
+        XCTAssertEqual(payload.reason, SessionExitReason.shieldActionAttempt)
+        XCTAssertEqual(payload.occurredAt.timeIntervalSince1970, occurredAt.timeIntervalSince1970, accuracy: 0.001)
+    }
+
     func testScreenTimeSharedContextAndPendingAttemptsRoundTrip() throws {
         let suiteName = "screen-time-shared-tests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -89,14 +117,15 @@ final class NetworkingAndViewModelTests: XCTestCase {
 
         XCTAssertTrue(ScreenTimeShared.saveActiveContext(context, defaults: defaults))
         XCTAssertEqual(ScreenTimeShared.loadActiveContext(defaults: defaults), context)
-        XCTAssertTrue(ScreenTimeShared.claimAttemptReportSlot(sessionID: sessionID, now: Date(timeIntervalSince1970: 100), defaults: defaults))
-        XCTAssertFalse(ScreenTimeShared.claimAttemptReportSlot(sessionID: sessionID, now: Date(timeIntervalSince1970: 120), defaults: defaults))
 
+        let occurredAt = Date(timeIntervalSince1970: 1_777_800_000)
         ScreenTimeShared.appendPendingShieldAttempt(
-            .init(sessionID: sessionID, reason: ScreenTimeShared.shieldActionAttemptReason),
+            .init(sessionID: sessionID, reason: ScreenTimeShared.shieldActionAttemptReason, occurredAt: occurredAt),
             defaults: defaults
         )
-        XCTAssertEqual(ScreenTimeShared.drainPendingShieldAttempts(defaults: defaults).count, 1)
+        let drained = ScreenTimeShared.drainPendingShieldAttempts(defaults: defaults)
+        XCTAssertEqual(drained.count, 1)
+        XCTAssertEqual(drained.first?.occurredAt, occurredAt)
         XCTAssertTrue(ScreenTimeShared.drainPendingShieldAttempts(defaults: defaults).isEmpty)
     }
 

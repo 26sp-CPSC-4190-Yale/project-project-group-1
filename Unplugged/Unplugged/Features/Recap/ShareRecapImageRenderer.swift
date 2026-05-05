@@ -223,7 +223,7 @@ enum ShareRecapImageRenderer {
     private static func chipLabels(for recap: SessionRecapResponse) -> [String] {
         var labels = [
             "\(recap.participants.count) \(recap.participants.count == 1 ? "member" : "members")",
-            "\(recap.jailbreaks.count) \(recap.jailbreaks.count == 1 ? "break" : "breaks")",
+            blockedOpenLabel(for: recap),
             plannedLabel(for: recap)
         ]
         if recap.durationSeconds != nil {
@@ -232,10 +232,12 @@ enum ShareRecapImageRenderer {
         if let weather = recap.weather {
             labels.append(weatherLabel(weather))
         }
-        if recap.latitude != nil, recap.longitude != nil {
-            labels.append("Location added")
-        }
         return labels
+    }
+
+    private static func blockedOpenLabel(for recap: SessionRecapResponse) -> String {
+        let count = recap.jailbreaks.filter { $0.reason == SessionExitReason.shieldActionAttempt }.count
+        return "\(count) \(count == 1 ? "blocked open" : "blocked opens")"
     }
 
     private static func chipWidth(for text: String) -> CGFloat {

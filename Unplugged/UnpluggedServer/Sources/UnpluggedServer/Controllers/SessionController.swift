@@ -1057,21 +1057,26 @@ struct SessionController: RouteCollection {
         }
 
         let body = try req.content.decode(ShieldActionAttemptRequest.self)
+        guard InputValidation.isValidJailbreakReason(body.reason) else {
+            throw Abort(.badRequest, reason: "Invalid shield attempt reason.")
+        }
         let reason = InputValidation.normalizedJailbreakReason(body.reason)
-        let cutoff = Date().addingTimeInterval(-Self.shieldAttemptThrottle)
+        let cutoff = body.occurredAt.addingTimeInterval(-Self.shieldAttemptThrottle)
         let recentAttempt = try await JailbreakModel.query(on: req.db)
             .filter(\.$sessionID == roomID)
             .filter(\.$userID == userID)
             .filter(\.$reason == reason)
             .filter(\.$detectedAt > cutoff)
             .first()
-        guard recentAttempt == nil else {
-            return .noContent
-        }
+        let shouldNotify = recentAttempt == nil
 
         let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
-        record.detectedAt = Date()
+        record.detectedAt = body.occurredAt
         try await record.save(on: req.db)
+
+        guard shouldNotify else {
+            return .noContent
+        }
 
         let reporterName = (try await UserVisibilityService.visibleUser(userID, on: req.db))?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
@@ -1088,10 +1093,6 @@ struct SessionController: RouteCollection {
             )
         }
 
-        await req.sessionHub.broadcast(
-            roomID: roomID,
-            message: .jailbreakReported(userID: userID, reason: reason)
-        )
         return .noContent
     }
 

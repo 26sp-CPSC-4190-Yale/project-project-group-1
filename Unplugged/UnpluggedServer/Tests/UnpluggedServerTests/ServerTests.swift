@@ -531,7 +531,7 @@ final class ServerTests: XCTestCase {
         }
     }
 
-    func testShieldAttemptsRequireMembershipAndThrottleNotifications() async throws {
+    func testShieldAttemptsRequireMembershipAndRecordEachAttempt() async throws {
         try await withApp { app, tester in
             let host = try await TestAppFactory.seedUser(on: app, username: "ShieldHost")
             let participant = try await TestAppFactory.seedUser(on: app, username: "ShieldMember")
@@ -588,7 +588,7 @@ final class ServerTests: XCTestCase {
             XCTAssertEqual(intruderResponse.status, .forbidden)
             XCTAssertEqual(firstResponse.status, .noContent)
             XCTAssertEqual(secondResponse.status, .noContent)
-            XCTAssertEqual(records.count, 1)
+            XCTAssertEqual(records.count, 2)
         }
     }
 
