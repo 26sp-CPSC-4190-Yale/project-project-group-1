@@ -45,12 +45,10 @@ struct AddCheckConstraints: AsyncMigration {
         CHECK (status IN ('pending', 'accepted', 'blocked'))
         """).run()
 
+        // co_lock_release_approvals intentionally allows requester_id == approver_id:
+        // SessionController.requestCoLockRelease inserts the requester's own auto-approval
+        // as (requester_id=X, approver_id=X). A <> constraint here would break that flow.
         try await sql.raw("ALTER TABLE co_lock_release_approvals DROP CONSTRAINT IF EXISTS co_lock_release_requester_not_approver").run()
-        try await sql.raw("""
-        ALTER TABLE co_lock_release_approvals
-        ADD CONSTRAINT co_lock_release_requester_not_approver
-        CHECK (requester_id <> approver_id)
-        """).run()
 
         try await sql.raw("ALTER TABLE user_blocks DROP CONSTRAINT IF EXISTS user_blocks_blocker_not_blocked").run()
         try await sql.raw("""
