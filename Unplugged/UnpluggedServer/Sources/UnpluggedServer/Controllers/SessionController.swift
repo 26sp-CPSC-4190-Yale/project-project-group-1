@@ -495,8 +495,6 @@ struct SessionController: RouteCollection {
         let alreadyExited = member.config == MemberModel.voluntaryExitConfig
             || member.config == MemberModel.proximityExitConfig
 
-        // Flag the member, stamp their exit, and credit time-served atomically.
-        // Skipped if already marked so a double-tap doesn't double-award points.
         if !alreadyExited {
             try await req.db.transaction { db in
                 member.config = MemberModel.voluntaryExitConfig
@@ -507,7 +505,7 @@ struct SessionController: RouteCollection {
                 try await member.save(on: db)
 
                 if let lockedAt = room.lockedAt {
-                    try await awardPoints(
+                    try await SessionLifecycleService.awardPoints(
                         to: userID,
                         from: lockedAt,
                         to: now,
@@ -973,9 +971,6 @@ struct SessionController: RouteCollection {
         let alreadyExited = member.config == MemberModel.proximityExitConfig
             || member.config == MemberModel.voluntaryExitConfig
 
-        // Flag the member, stamp their exit, and credit time-served atomically.
-        // Skipped if the user already exited (either path) so a retried request
-        // or a voluntary-then-proximity sequence doesn't double-award points.
         if !alreadyExited {
             try await req.db.transaction { db in
                 member.config = MemberModel.proximityExitConfig
@@ -1095,8 +1090,6 @@ struct SessionController: RouteCollection {
 
         return .noContent
     }
-
-    // MARK: - Helpers
 
     private func requireRoom(req: Request) async throws -> RoomModel {
         guard let idString = req.parameters.get("sessionID") else {
@@ -1220,42 +1213,6 @@ struct SessionController: RouteCollection {
         SessionResponseBuilder.legacyRoomCode(for: roomID)
     }
 
-    // MARK: - Point awarding
-
-    /// Awards points like tax brackets:
-    ///   - first 60 min           → ×1
-    ///   - minutes 60–180         → ×2
-    ///   - minutes beyond 180     → ×3
-    ///
-    /// Uses an atomic SQL increment rather than read-modify-write so concurrent
-    /// session ends for the same user can't lose an update.
-    private func awardPoints(
-        to userID: UUID,
-        from start: Date,
-        to end: Date,
-        on db: Database,
-        logger: Logger
-    ) async throws {
-        let minutes = Int(end.timeIntervalSince(start) / 60)
-        guard minutes > 0 else {
-            logger.info("[Stats] Skipped award for user \(userID): duration < 1 minute")
-            return
-        }
-
-        let tier1 = min(minutes, 60)
-        let tier2 = max(0, min(minutes, 180) - 60)
-        let tier3 = max(0, minutes - 180)
-        let points = tier1 + (tier2 * 2) + (tier3 * 3)
-
-        guard let sql = db as? SQLDatabase else {
-            logger.error("[Stats] Database is not SQL-backed; cannot atomically award points to user \(userID)")
-            throw Abort(.internalServerError, reason: "Points ledger unavailable")
-        }
-        try await sql.raw("""
-            UPDATE users SET points = points + \(bind: points) WHERE id = \(bind: userID)
-            """).run()
-        logger.info("[Stats] Awarded \(points) points to user \(userID) for \(minutes) min (t1=\(tier1), t2=\(tier2), t3=\(tier3))")
-    }
 }
 
 extension SessionRecapResponse: @retroactive Content {}
