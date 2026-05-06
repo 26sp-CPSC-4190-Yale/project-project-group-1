@@ -37,16 +37,6 @@ class ProfileViewModel {
         return "\(Int(mins.rounded()))m"
     }
 
-    var avgPlannedSessionLabel: String {
-        guard let mins = stats?.avgPlannedMinutes, mins > 0 else { return "0m" }
-        if mins >= 60 {
-            return String(format: "%.1fh", mins / 60.0)
-        }
-        return "\(Int(mins.rounded()))m"
-    }
-
-    var avgSessionLength: String { avgFocusedSessionLabel }
-
     func load(stats service: StatsAPIService, medals medalsService: MedalsAPIService, cache: LocalCacheService) async {
         if let cachedUser = cache.readUser() {
             userName = cachedUser.username

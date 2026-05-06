@@ -67,18 +67,6 @@ public struct SessionMetadataRequest: Codable, Sendable {
     }
 }
 
-public struct EndSessionRequest: Codable, Sendable {
-    public init() {}
-}
-
-public struct JoinSessionRequest: Codable, Sendable {
-    public let code: String
-
-    public init(code: String) {
-        self.code = code
-    }
-}
-
 public struct ReportJailbreakRequest: Codable, Sendable {
     public let reason: String
     public let detectedAt: Date
