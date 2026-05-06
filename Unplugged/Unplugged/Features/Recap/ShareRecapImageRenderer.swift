@@ -229,8 +229,8 @@ enum ShareRecapImageRenderer {
         if recap.durationSeconds != nil {
             labels.append("\(Int((recap.completionRate * 100).rounded()))% complete")
         }
-        if let weather = recap.weather {
-            labels.append(weatherLabel(weather))
+        if recap.latitude != nil, recap.longitude != nil {
+            labels.append("Location added")
         }
         return labels
     }
@@ -366,13 +366,6 @@ enum ShareRecapImageRenderer {
             return "\(TimeInterval(recap.actualFocusedSeconds).humanReadable) locked"
         }
         return "\(TimeInterval(duration).humanReadable) planned"
-    }
-
-    private static func weatherLabel(_ weather: SessionWeatherSnapshot) -> String {
-        if let temp = weather.temperatureFahrenheit {
-            return "\(Int(temp.rounded()))°F \(weather.summary)"
-        }
-        return weather.summary
     }
 }
 

@@ -50,8 +50,8 @@ struct ShareRecapCard: View {
                 capsule("\(recap.participants.count) \(recap.participants.count == 1 ? "member" : "members")", systemImage: "person.2.fill")
                 capsule(durationChipLabel, systemImage: durationChipSystemImage)
                 capsule(attemptedBreakoutLabel, systemImage: "exclamationmark.shield.fill")
-                if let weather = recap.weather {
-                    capsule(weatherShortLabel(weather), systemImage: weather.conditionSymbol ?? "cloud.sun.fill")
+                if recap.latitude != nil, recap.longitude != nil {
+                    capsule("Location", systemImage: "location.fill")
                 }
             }
             .padding(.top, 2)
@@ -86,13 +86,6 @@ struct ShareRecapCard: View {
 
     private var attemptedBreakoutLabel: String {
         "\(attemptedBreakoutCount) \(attemptedBreakoutCount == 1 ? "attempted breakout" : "attempted breakouts")"
-    }
-
-    private func weatherShortLabel(_ weather: SessionWeatherSnapshot) -> String {
-        if let temp = weather.temperatureFahrenheit {
-            return "\(Int(temp.rounded()))°F"
-        }
-        return weather.summary
     }
 
     private func capsule(_ text: String, systemImage: String) -> some View {

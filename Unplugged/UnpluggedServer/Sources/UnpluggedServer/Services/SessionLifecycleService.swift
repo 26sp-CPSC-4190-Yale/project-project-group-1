@@ -5,52 +5,62 @@ import Vapor
 
 enum SessionLifecycleService {
     @discardableResult
-    static func expireIfNeeded(room: RoomModel, req: Request) async throws -> Bool {
-        guard room.endedAt == nil,
-              let endsAt = room.endsAt,
+    static func expireIfNeeded(session: SessionModel, req: Request) async throws -> Bool {
+        guard session.endedAt == nil,
+              let endsAt = session.endsAt,
               endsAt <= Date() else {
             return false
         }
 
-        try await finish(room: room, endedAt: endsAt, req: req, reason: "timer_expired")
+        try await finish(session: session, endedAt: endsAt, req: req, reason: "timer_expired")
         return true
     }
 
-    static func expireIfNeeded(rooms: [RoomModel], req: Request) async throws {
-        for room in rooms {
-            try await expireIfNeeded(room: room, req: req)
+    static func expireIfNeeded(sessions: [SessionModel], req: Request) async throws {
+        for session in sessions {
+            try await expireIfNeeded(session: session, req: req)
         }
     }
 
-    static func expireActiveRooms(roomIDs: [UUID], req: Request) async throws {
-        guard !roomIDs.isEmpty else { return }
-        let rooms = try await RoomModel.query(on: req.db)
-            .filter(\.$id ~~ roomIDs)
+    static func expireActiveSessions(sessionIDs: [UUID], req: Request) async throws {
+        guard !sessionIDs.isEmpty else { return }
+        let sessions = try await SessionModel.query(on: req.db)
+            .filter(\.$id ~~ sessionIDs)
             .filter(\.$endedAt == nil)
             .all()
-        try await expireIfNeeded(rooms: rooms, req: req)
+        try await expireIfNeeded(sessions: sessions, req: req)
     }
 
     @discardableResult
     static func closeCoLockIfStranded(
-        room: RoomModel,
+        session: SessionModel,
         req: Request,
         reason: String
     ) async throws -> Bool {
-        guard room.lockMode == .coLock,
-              room.endedAt == nil else {
+        guard session.lockMode == .coLock,
+              session.endedAt == nil else {
             return false
         }
 
-        let roomID = try room.requireID()
+        let sessionID = try session.requireID()
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         let activeMembers = members.filter { $0.participantStatus == .active }
         guard activeMembers.count <= 1 else { return false }
 
-        if room.lockedAt == nil {
-            return false
+        if session.lockedAt == nil {
+            guard members.count > 1 else { return false }
+            try await req.db.transaction { db in
+                try await MemberModel.query(on: db)
+                    .filter(\.$sessionID == sessionID)
+                    .delete()
+                try await session.delete(on: db)
+            }
+
+            req.logger.info("[SessionLifecycle] Closed stranded co-lock lobby \(sessionID) reason=\(reason)")
+            await req.sessionHub.broadcast(sessionID: sessionID, message: .sessionEnded)
+            return true
         }
 
         try await req.db.transaction { db in
@@ -61,26 +71,26 @@ enum SessionLifecycleService {
             }
         }
 
-        try await finish(room: room, endedAt: Date(), req: req, reason: reason)
+        try await finish(session: session, endedAt: Date(), req: req, reason: reason)
         return true
     }
 
     @discardableResult
     static func finish(
-        room: RoomModel,
+        session: SessionModel,
         endedAt: Date,
         req: Request,
         reason: String
     ) async throws -> [MemberModel] {
-        let roomID = try room.requireID()
-        let lockedAt = room.lockedAt
+        let sessionID = try session.requireID()
+        let lockedAt = session.lockedAt
 
         try await req.db.transaction { db in
-            room.endedAt = endedAt
-            try await room.save(on: db)
+            session.endedAt = endedAt
+            try await session.save(on: db)
 
             let members = try await MemberModel.query(on: db)
-                .filter(\.$roomID == roomID)
+                .filter(\.$sessionID == sessionID)
                 .all()
 
             for member in members {
@@ -101,18 +111,18 @@ enum SessionLifecycleService {
             }
         }
 
-        req.logger.info("[SessionLifecycle] Finished room \(roomID) reason=\(reason)")
-        await req.sessionHub.broadcast(roomID: roomID, message: .sessionEnded)
+        req.logger.info("[SessionLifecycle] Finished session \(sessionID) reason=\(reason)")
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .sessionEnded)
 
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
 
         for member in members {
             await NotificationService.sendSilent(
                 to: member.userID,
                 type: NotificationService.NotificationType.sessionEnded,
-                sessionID: roomID,
+                sessionID: sessionID,
                 endsAt: nil,
                 on: req.db,
                 application: req.application
@@ -126,7 +136,7 @@ enum SessionLifecycleService {
         return members
     }
 
-    private static func awardPoints(
+    static func awardPoints(
         to userID: UUID,
         from start: Date,
         to end: Date,

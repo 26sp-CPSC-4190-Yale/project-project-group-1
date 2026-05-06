@@ -28,7 +28,8 @@ enum TestAppFactory {
         )
 
         app.migrations.add(TestCreateUsers())
-        app.migrations.add(TestCreateRooms())
+        app.migrations.add(TestCreateOAuthIdentities())
+        app.migrations.add(TestCreateSessions())
         app.migrations.add(TestCreateMembers())
         app.migrations.add(TestCreateFriendships())
         app.migrations.add(TestCreateJailbreaks())
@@ -158,8 +159,6 @@ struct TestCreateUsers: AsyncMigration {
             .field("device_token", .string)
             .field("last_seen_at", .datetime)
             .field("presence_expires_at", .datetime)
-            .field("apple_subject", .string)
-            .field("google_subject", .string)
             .field("created_at", .datetime)
             .field("deleted_at", .datetime)
             .unique(on: "username")
@@ -171,9 +170,27 @@ struct TestCreateUsers: AsyncMigration {
     }
 }
 
-struct TestCreateRooms: AsyncMigration {
+struct TestCreateOAuthIdentities: AsyncMigration {
     func prepare(on database: Database) async throws {
-        try await database.schema(RoomModel.schema)
+        try await database.schema(OAuthIdentityModel.schema)
+            .id()
+            .field("user_id", .uuid, .required, .references(UserModel.schema, "id", onDelete: .cascade))
+            .field("provider", .string, .required)
+            .field("subject", .string, .required)
+            .field("created_at", .datetime)
+            .unique(on: "user_id", "provider")
+            .unique(on: "provider", "subject")
+            .create()
+    }
+
+    func revert(on database: Database) async throws {
+        try await database.schema(OAuthIdentityModel.schema).delete()
+    }
+}
+
+struct TestCreateSessions: AsyncMigration {
+    func prepare(on database: Database) async throws {
+        try await database.schema(SessionModel.schema)
             .id()
             .field("room_owner", .uuid, .required)
             .field("start_time", .datetime, .required)
@@ -184,10 +201,6 @@ struct TestCreateRooms: AsyncMigration {
             .field("description", .string)
             .field("duration_seconds", .int)
             .field("lock_mode", .string)
-            .field("weather_summary", .string)
-            .field("weather_temperature_f", .double)
-            .field("weather_symbol", .string)
-            .field("weather_captured_at", .datetime)
             .field("locked_at", .datetime)
             .field("ended_at", .datetime)
             .unique(on: "code")
@@ -195,7 +208,7 @@ struct TestCreateRooms: AsyncMigration {
     }
 
     func revert(on database: Database) async throws {
-        try await database.schema(RoomModel.schema).delete()
+        try await database.schema(SessionModel.schema).delete()
     }
 }
 
@@ -204,7 +217,7 @@ struct TestCreateMembers: AsyncMigration {
         try await database.schema(MemberModel.schema)
             .id()
             .field("user_id", .uuid, .required)
-            .field("room_id", .uuid, .required)
+            .field("session_id", .uuid, .required)
             .field("config", .string)
             .field("joined_at", .datetime, .required)
             .field("left_at", .datetime)
@@ -334,11 +347,11 @@ struct TestCreateCoLockReleaseApprovals: AsyncMigration {
     func prepare(on database: Database) async throws {
         try await database.schema(CoLockReleaseApprovalModel.schema)
             .id()
-            .field("room_id", .uuid, .required)
+            .field("session_id", .uuid, .required)
             .field("requester_id", .uuid, .required)
             .field("approver_id", .uuid, .required)
             .field("created_at", .datetime)
-            .unique(on: "room_id", "requester_id", "approver_id")
+            .unique(on: "session_id", "requester_id", "approver_id")
             .create()
     }
 
