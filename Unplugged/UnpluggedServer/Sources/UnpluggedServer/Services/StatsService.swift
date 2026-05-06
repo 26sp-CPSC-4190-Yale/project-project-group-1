@@ -11,26 +11,26 @@ struct StatsService {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships.map { $0.roomID }
+        let sessionIDs = memberships.map { $0.sessionID }
 
-        let endedRooms: [RoomModel]
-        if roomIDs.isEmpty {
-            endedRooms = []
+        let endedSessions: [SessionModel]
+        if sessionIDs.isEmpty {
+            endedSessions = []
         } else {
-            endedRooms = try await RoomModel.query(on: db)
-                .filter(\.$id ~~ roomIDs)
+            endedSessions = try await SessionModel.query(on: db)
+                .filter(\.$id ~~ sessionIDs)
                 .filter(\.$endedAt != nil)
                 .all()
         }
 
-        let endedRoomIDs = endedRooms.compactMap { try? $0.requireID() }
+        let endedSessionIDs = endedSessions.compactMap { try? $0.requireID() }
         let jailbreaks: [JailbreakModel]
-        if endedRoomIDs.isEmpty {
+        if endedSessionIDs.isEmpty {
             jailbreaks = []
         } else {
             jailbreaks = try await JailbreakModel.query(on: db)
                 .filter(\.$userID == userID)
-                .filter(\.$sessionID ~~ endedRoomIDs)
+                .filter(\.$sessionID ~~ endedSessionIDs)
                 .all()
         }
         var earliestLeave: [UUID: Date] = [:]
@@ -39,18 +39,18 @@ struct StatsService {
             earliestLeave[jb.sessionID] = jb.detectedAt
         }
 
-        let totalSessions = endedRooms.count
+        let totalSessions = endedSessions.count
         var focusedSeconds = 0
         var plannedSeconds = 0
         var earlyLeaveCount = 0
 
-        for room in endedRooms {
-            let planned = max(0, room.durationSeconds ?? 0)
+        for session in endedSessions {
+            let planned = max(0, session.durationSeconds ?? 0)
             plannedSeconds += planned
 
             let focused = Self.focusedSeconds(
-                room: room,
-                earliestLeaveAt: room.id.flatMap { earliestLeave[$0] }
+                session: session,
+                earliestLeaveAt: session.id.flatMap { earliestLeave[$0] }
             )
             focusedSeconds += focused
             if focused + earlyLeaveToleranceSeconds < planned {
@@ -68,8 +68,8 @@ struct StatsService {
             : 0
 
         let calendar = Calendar(identifier: .gregorian)
-        let sessionDays: Set<Date> = Set(endedRooms.compactMap { room in
-            guard let ended = room.endedAt else { return nil }
+        let sessionDays: Set<Date> = Set(endedSessions.compactMap { session in
+            guard let ended = session.endedAt else { return nil }
             return calendar.startOfDay(for: ended)
         })
         let sortedDays = sessionDays.sorted()
@@ -152,14 +152,14 @@ struct StatsService {
     }
 
     // earliest jailbreak wins as the exit anchor; finite sessions clamp to planned duration, unlimited sessions report elapsed time.
-    static func focusedSeconds(room: RoomModel, earliestLeaveAt: Date?) -> Int {
-        guard let lockedAt = room.lockedAt else { return 0 }
-        let planned = room.durationSeconds.map { max(0, $0) }
+    static func focusedSeconds(session: SessionModel, earliestLeaveAt: Date?) -> Int {
+        guard let lockedAt = session.lockedAt else { return 0 }
+        let planned = session.durationSeconds.map { max(0, $0) }
         let endAnchor: Date
         if let leave = earliestLeaveAt {
-            endAnchor = min(leave, room.endedAt ?? leave)
+            endAnchor = min(leave, session.endedAt ?? leave)
         } else {
-            endAnchor = room.endedAt ?? lockedAt
+            endAnchor = session.endedAt ?? lockedAt
         }
         let rawElapsed = endAnchor.timeIntervalSince(lockedAt)
         let elapsed = rawElapsed > 0 ? max(1, Int(rawElapsed.rounded())) : 0
@@ -250,44 +250,44 @@ struct StatsService {
         let scopeIDs = Set(userIDs)
         guard !scopeIDs.isEmpty else { return [:] }
 
-        let endedRooms = try await RoomModel.query(on: db)
+        let endedSessions = try await SessionModel.query(on: db)
             .filter(\.$endedAt != nil)
             .all()
-        let endedRoomIDs = endedRooms.compactMap { try? $0.requireID() }
-        guard !endedRoomIDs.isEmpty else {
+        let endedSessionIDs = endedSessions.compactMap { try? $0.requireID() }
+        guard !endedSessionIDs.isEmpty else {
             return Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
         }
 
         let memberships = try await MemberModel.query(on: db)
-            .filter(\.$roomID ~~ endedRoomIDs)
+            .filter(\.$sessionID ~~ endedSessionIDs)
             .filter(\.$userID ~~ Array(scopeIDs))
             .all()
         let jailbreaks = try await JailbreakModel.query(on: db)
-            .filter(\.$sessionID ~~ endedRoomIDs)
+            .filter(\.$sessionID ~~ endedSessionIDs)
             .filter(\.$userID ~~ Array(scopeIDs))
             .all()
 
         var earliestLeave: [UUID: [UUID: Date]] = [:]
         for jailbreak in jailbreaks {
-            var byRoom = earliestLeave[jailbreak.userID] ?? [:]
-            if let previous = byRoom[jailbreak.sessionID], previous <= jailbreak.detectedAt {
+            var bySession = earliestLeave[jailbreak.userID] ?? [:]
+            if let previous = bySession[jailbreak.sessionID], previous <= jailbreak.detectedAt {
                 continue
             }
-            byRoom[jailbreak.sessionID] = jailbreak.detectedAt
-            earliestLeave[jailbreak.userID] = byRoom
+            bySession[jailbreak.sessionID] = jailbreak.detectedAt
+            earliestLeave[jailbreak.userID] = bySession
         }
 
-        let roomsByID = Dictionary(uniqueKeysWithValues: endedRooms.compactMap { room -> (UUID, RoomModel)? in
-            guard let id = room.id else { return nil }
-            return (id, room)
+        let sessionsByID = Dictionary(uniqueKeysWithValues: endedSessions.compactMap { session -> (UUID, SessionModel)? in
+            guard let id = session.id else { return nil }
+            return (id, session)
         })
 
         var minutes = Dictionary(uniqueKeysWithValues: scopeIDs.map { ($0, 0) })
         for member in memberships {
-            guard let room = roomsByID[member.roomID] else { continue }
+            guard let session = sessionsByID[member.sessionID] else { continue }
             let focused = focusedSeconds(
-                room: room,
-                earliestLeaveAt: earliestLeave[member.userID]?[member.roomID]
+                session: session,
+                earliestLeaveAt: earliestLeave[member.userID]?[member.sessionID]
             )
             minutes[member.userID, default: 0] += focused / 60
         }

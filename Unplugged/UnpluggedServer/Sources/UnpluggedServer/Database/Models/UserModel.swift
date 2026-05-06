@@ -28,11 +28,8 @@ final class UserModel: Model, @unchecked Sendable {
     @OptionalField(key: "presence_expires_at")
     var presenceExpiresAt: Date?
 
-    @OptionalField(key: "apple_subject")
-    var appleSubject: String?
-
-    @OptionalField(key: "google_subject")
-    var googleSubject: String?
+    @Children(for: \.$user)
+    var oauthIdentities: [OAuthIdentityModel]
 
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?

@@ -112,7 +112,10 @@ struct UserController: RouteCollection {
             return .noContent
         }
 
-        if user.appleSubject == nil && user.googleSubject == nil {
+        let oauthCount = try await OAuthIdentityModel.query(on: req.db)
+            .filter(\.$user.$id == userID)
+            .count()
+        if oauthCount == 0 {
             let body = try? req.content.decode(DeleteAccountRequest.self)
             guard let password = body?.password else {
                 throw Abort(.badRequest, reason: "Password required to delete account.")

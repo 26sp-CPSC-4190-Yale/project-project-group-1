@@ -99,9 +99,7 @@ struct AuthController: RouteCollection {
 
         let subject = appleToken.subject.value
 
-        if let existing = try await UserModel.query(on: req.db)
-            .filter(\.$appleSubject == subject)
-            .first() {
+        if let existing = try await userByOAuth(provider: OAuthIdentityModel.appleProvider, subject: subject, on: req.db) {
             if existing.isDeleted {
                 throw Abort(.gone, reason: "This account was deleted. Contact support to restore it.")
             }
@@ -120,8 +118,17 @@ struct AuthController: RouteCollection {
         user.username = username
         // OAuth accounts have no password, store a random unusable hash so the column constraint is satisfied
         user.passwordHash = try await req.password.async.hash(UUID().uuidString)
-        user.appleSubject = subject
-        try await user.save(on: req.db)
+
+        // user + identity must save atomically, otherwise a half-saved user has no provider link and any retry creates a duplicate
+        try await req.db.transaction { db in
+            try await user.save(on: db)
+            let identity = OAuthIdentityModel(
+                userID: try user.requireID(),
+                provider: OAuthIdentityModel.appleProvider,
+                subject: subject
+            )
+            try await identity.save(on: db)
+        }
 
         return try await issueToken(for: user, req: req)
     }
@@ -143,9 +150,7 @@ struct AuthController: RouteCollection {
 
         let subject = googleToken.subject.value
 
-        if let existing = try await UserModel.query(on: req.db)
-            .filter(\.$googleSubject == subject)
-            .first() {
+        if let existing = try await userByOAuth(provider: OAuthIdentityModel.googleProvider, subject: subject, on: req.db) {
             if existing.isDeleted {
                 throw Abort(.gone, reason: "This account was deleted. Contact support to restore it.")
             }
@@ -162,13 +167,30 @@ struct AuthController: RouteCollection {
         let user = UserModel()
         user.username = username
         user.passwordHash = try await req.password.async.hash(UUID().uuidString)
-        user.googleSubject = subject
-        try await user.save(on: req.db)
+
+        try await req.db.transaction { db in
+            try await user.save(on: db)
+            let identity = OAuthIdentityModel(
+                userID: try user.requireID(),
+                provider: OAuthIdentityModel.googleProvider,
+                subject: subject
+            )
+            try await identity.save(on: db)
+        }
 
         return try await issueToken(for: user, req: req)
     }
 
     // MARK: - OAuth helpers
+
+    private func userByOAuth(provider: String, subject: String, on db: Database) async throws -> UserModel? {
+        let identity = try await OAuthIdentityModel.query(on: db)
+            .filter(\.$provider == provider)
+            .filter(\.$subject == subject)
+            .with(\.$user)
+            .first()
+        return identity?.user
+    }
 
     private func issueToken(for user: UserModel, req: Request) async throws -> AuthResponse {
         let userID = try user.requireID()

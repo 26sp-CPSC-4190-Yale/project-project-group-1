@@ -1,14 +1,9 @@
 import CoreLocation
 import Foundation
 import UnpluggedShared
-#if canImport(WeatherKit)
-import WeatherKit
-#endif
 
 struct LockInLocationSnapshot: Sendable {
     let coordinate: CLLocationCoordinate2D
-    let weather: SessionWeatherSnapshot?
-    let warning: String?
 }
 
 enum LocationSnapshotError: LocalizedError {
@@ -54,12 +49,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         guard let location = await requestLocation() ?? manager.location else {
             throw LocationSnapshotError.locationUnavailable
         }
-        let weather = await weatherSnapshot(for: location)
-        return LockInLocationSnapshot(
-            coordinate: location.coordinate,
-            weather: weather.snapshot,
-            warning: weather.warning
-        )
+        return LockInLocationSnapshot(coordinate: location.coordinate)
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -111,31 +101,5 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 continuation = nil
             }
         }
-    }
-
-    private func weatherSnapshot(for location: CLLocation) async -> (snapshot: SessionWeatherSnapshot?, warning: String?) {
-        #if canImport(WeatherKit)
-        if #available(iOS 16.0, *) {
-            do {
-                let weather = try await WeatherService.shared.weather(for: location)
-                return (
-                    SessionWeatherSnapshot(
-                        summary: weather.currentWeather.condition.description,
-                        temperatureFahrenheit: weather.currentWeather.temperature.converted(to: .fahrenheit).value,
-                        conditionSymbol: weather.currentWeather.symbolName,
-                        capturedAt: Date()
-                    ),
-                    nil
-                )
-            } catch {
-                AppLogger.room.warning(
-                    "WeatherKit snapshot failed",
-                    context: ["error": String(describing: error)]
-                )
-                return (nil, "Weather couldn't be loaded. Try again in a moment.")
-            }
-        }
-        #endif
-        return (nil, "Weather isn't available on this device.")
     }
 }

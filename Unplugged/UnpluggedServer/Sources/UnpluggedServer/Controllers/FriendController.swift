@@ -689,19 +689,19 @@ struct FriendController: RouteCollection {
         let memberships = try await MemberModel.query(on: db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships
+        let sessionIDs = memberships
             .filter { $0.participantStatus == .active }
-            .map { $0.roomID }
+            .map { $0.sessionID }
 
-        if !roomIDs.isEmpty {
+        if !sessionIDs.isEmpty {
             let now = Date()
-            let lockedRooms = try await RoomModel.query(on: db)
-                .filter(\.$id ~~ roomIDs)
+            let lockedSessions = try await SessionModel.query(on: db)
+                .filter(\.$id ~~ sessionIDs)
                 .filter(\.$lockedAt != nil)
                 .filter(\.$endedAt == nil)
                 .all()
-            if lockedRooms.contains(where: { room in
-                guard let endsAt = room.endsAt else { return false }
+            if lockedSessions.contains(where: { session in
+                guard let endsAt = session.endsAt else { return false }
                 return endsAt > now
             }) {
                 return .unplugged

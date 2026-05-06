@@ -415,10 +415,10 @@ final class ServerTests: XCTestCase {
             friends = try TestAppFactory.decode([FriendResponse].self, from: friendsResponse)
             XCTAssertNotEqual(friends.first(where: { $0.id == bob.id })?.presence, .unplugged)
 
-            let expiredRoom = RoomModel(roomOwner: host.id, title: "Expired", durationSeconds: 60)
+            let expiredRoom = SessionModel(roomOwner: host.id, title: "Expired", durationSeconds: 60)
             expiredRoom.lockedAt = Date().addingTimeInterval(-3_600)
             try await expiredRoom.save(on: app.db)
-            let expiredMember = MemberModel(userID: bob.id, roomID: try expiredRoom.requireID())
+            let expiredMember = MemberModel(userID: bob.id, sessionID: try expiredRoom.requireID())
             try await expiredMember.save(on: app.db)
 
             friendsResponse = try await TestAppFactory.sendRequest(
@@ -473,7 +473,7 @@ final class ServerTests: XCTestCase {
             )
             let session = try TestAppFactory.decode(SessionResponse.self, from: sessionResponse)
             let member = try await MemberModel.query(on: app.db)
-                .filter(\.$roomID == created.id)
+                .filter(\.$sessionID == created.id)
                 .filter(\.$userID == participant.id)
                 .first()
 
@@ -724,7 +724,7 @@ final class ServerTests: XCTestCase {
             let rejoined = try TestAppFactory.decode(SessionResponse.self, from: rejoinResponse)
             let left = try TestAppFactory.decode(SessionResponse.self, from: leftResponse)
             let member = try await MemberModel.query(on: app.db)
-                .filter(\.$roomID == created.id)
+                .filter(\.$sessionID == created.id)
                 .filter(\.$userID == participant.id)
                 .first()
             let exitReports = try await JailbreakModel.query(on: app.db)
@@ -829,9 +829,9 @@ final class ServerTests: XCTestCase {
                 "/sessions",
                 token: first.token
             )
-            let room = try await RoomModel.find(created.id, on: app.db)
+            let room = try await SessionModel.find(created.id, on: app.db)
             let members = try await MemberModel.query(on: app.db)
-                .filter(\.$roomID == created.id)
+                .filter(\.$sessionID == created.id)
                 .all()
             let firstSessions = try TestAppFactory.decode([SessionResponse].self, from: firstSessionsResponse)
             let firstMember = members.first { $0.userID == first.id }
@@ -899,10 +899,10 @@ final class ServerTests: XCTestCase {
                 "/sessions/\(created.id)/proximity-exit",
                 token: second.token
             )
-            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let roomRecord = try await SessionModel.find(created.id, on: app.db)
             let room = try XCTUnwrap(roomRecord)
             let firstMember = try await MemberModel.query(on: app.db)
-                .filter(\.$roomID == created.id)
+                .filter(\.$sessionID == created.id)
                 .filter(\.$userID == first.id)
                 .first()
             let firstSessionsResponse = try await TestAppFactory.sendRequest(
@@ -947,7 +947,7 @@ final class ServerTests: XCTestCase {
                 "/sessions/\(created.id)/start",
                 token: host.token
             )
-            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let roomRecord = try await SessionModel.find(created.id, on: app.db)
             let room = try XCTUnwrap(roomRecord)
             room.lockedAt = Date().addingTimeInterval(-4_000)
             try await room.save(on: app.db)
@@ -1017,7 +1017,7 @@ final class ServerTests: XCTestCase {
                 token: host.token
             )
 
-            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let roomRecord = try await SessionModel.find(created.id, on: app.db)
             let room = try XCTUnwrap(roomRecord)
             let lockedAt = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 120)
             let expectedEndedAt = lockedAt.addingTimeInterval(60)
@@ -1075,7 +1075,7 @@ final class ServerTests: XCTestCase {
                 "/sessions/\(created.id)/start",
                 token: host.token
             )
-            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let roomRecord = try await SessionModel.find(created.id, on: app.db)
             let room = try XCTUnwrap(roomRecord)
             room.lockedAt = Date().addingTimeInterval(-125)
             try await room.save(on: app.db)
@@ -1124,12 +1124,6 @@ final class ServerTests: XCTestCase {
     func testMementoMetadataAndPhotosArePostSessionOnly() async throws {
         try await withApp { app, tester in
             let host = try await TestAppFactory.seedUser(on: app, username: "MementoHost")
-            let weather = SessionWeatherSnapshot(
-                summary: "Cloudy",
-                temperatureFahrenheit: 62,
-                conditionSymbol: "cloud.fill",
-                capturedAt: Date(timeIntervalSince1970: 1_700_000_000)
-            )
 
             let createResponse = try await TestAppFactory.sendRequest(
                 with: tester,
@@ -1141,14 +1135,12 @@ final class ServerTests: XCTestCase {
                     durationSeconds: 1_800,
                     description: "should not be saved",
                     latitude: 1,
-                    longitude: 2,
-                    weather: weather
+                    longitude: 2
                 )
             )
             let created = try TestAppFactory.decode(SessionResponse.self, from: createResponse)
             XCTAssertNil(created.session.description)
             XCTAssertNil(created.session.latitude)
-            XCTAssertNil(created.session.weather)
 
             let preEndMetadata = try await TestAppFactory.sendRequest(
                 with: tester,
@@ -1192,8 +1184,7 @@ final class ServerTests: XCTestCase {
                 body: SessionMetadataRequest(
                     description: "Library grind",
                     latitude: 37.3349,
-                    longitude: -122.009,
-                    weather: weather
+                    longitude: -122.009
                 )
             )
             let photoResponse = try await TestAppFactory.sendRequest(
@@ -1220,7 +1211,6 @@ final class ServerTests: XCTestCase {
 
             XCTAssertEqual(metadata.session.description, "Library grind")
             XCTAssertEqual(metadata.session.latitude, 37.3349)
-            XCTAssertEqual(metadata.session.weather?.summary, "Cloudy")
             XCTAssertEqual(photo.byteCount, 24_000)
             XCTAssertEqual(recap.description, "Library grind")
             XCTAssertEqual(recap.memoryPhotos.count, 1)
@@ -1254,7 +1244,7 @@ final class ServerTests: XCTestCase {
                 "/sessions/\(created.id)/start",
                 token: host.token
             )
-            let roomRecord = try await RoomModel.find(created.id, on: app.db)
+            let roomRecord = try await SessionModel.find(created.id, on: app.db)
             let room = try XCTUnwrap(roomRecord)
             room.lockedAt = Date().addingTimeInterval(-900)
             try await room.save(on: app.db)

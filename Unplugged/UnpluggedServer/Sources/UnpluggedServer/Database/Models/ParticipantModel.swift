@@ -14,8 +14,8 @@ final class MemberModel: Model, @unchecked Sendable {
     @Field(key: "user_id")
     var userID: UUID
 
-    @Field(key: "room_id")
-    var roomID: UUID
+    @Field(key: "session_id")
+    var sessionID: UUID
 
     @OptionalField(key: "config")
     var config: String?
@@ -40,10 +40,10 @@ final class MemberModel: Model, @unchecked Sendable {
         self.coLockReady = false
     }
 
-    init(id: UUID? = nil, userID: UUID, roomID: UUID, config: String? = nil, coLockReady: Bool = false) {
+    init(id: UUID? = nil, userID: UUID, sessionID: UUID, config: String? = nil, coLockReady: Bool = false) {
         self.id = id
         self.userID = userID
-        self.roomID = roomID
+        self.sessionID = sessionID
         self.config = config
         self.joinedAt = Date()
         self.leftEarly = false

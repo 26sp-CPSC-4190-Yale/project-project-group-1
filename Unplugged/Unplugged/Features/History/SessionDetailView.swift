@@ -29,12 +29,6 @@ struct SessionDetailView: View {
                         metaTextCard(icon: "text.alignleft", label: "Description", value: description)
                     }
 
-                    if let weather = session.weather {
-                        metaRow(icon: weather.conditionSymbol ?? "cloud.sun.fill",
-                                label: "Weather",
-                                value: weatherLabel(weather))
-                    }
-
                     if let latitude = session.latitude, let longitude = session.longitude {
                         SessionMapView(latitude: latitude, longitude: longitude)
                     }
@@ -231,13 +225,6 @@ struct SessionDetailView: View {
         .padding(.spacingMd)
         .background(Color.surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: .cornerRadius))
-    }
-
-    private func weatherLabel(_ weather: SessionWeatherSnapshot) -> String {
-        if let temp = weather.temperatureFahrenheit {
-            return "\(weather.summary), \(Int(temp.rounded()))°F"
-        }
-        return weather.summary
     }
 
     private func memoryPhotos(_ photos: [SessionMemoryPhotoResponse]) -> some View {

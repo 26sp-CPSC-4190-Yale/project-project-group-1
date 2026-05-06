@@ -1,24 +1,5 @@
 import Foundation
 
-public struct SessionWeatherSnapshot: Codable, Sendable, Hashable {
-    public let summary: String
-    public let temperatureFahrenheit: Double?
-    public let conditionSymbol: String?
-    public let capturedAt: Date
-
-    public init(
-        summary: String,
-        temperatureFahrenheit: Double? = nil,
-        conditionSymbol: String? = nil,
-        capturedAt: Date = Date()
-    ) {
-        self.summary = summary
-        self.temperatureFahrenheit = temperatureFahrenheit
-        self.conditionSymbol = conditionSymbol
-        self.capturedAt = capturedAt
-    }
-}
-
 public struct SessionMemoryPhotoResponse: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let sessionID: UUID

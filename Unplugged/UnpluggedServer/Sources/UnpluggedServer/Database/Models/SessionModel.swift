@@ -2,8 +2,8 @@ import Fluent
 import UnpluggedShared
 import Vapor
 
-final class RoomModel: Model, @unchecked Sendable {
-    static let schema = "rooms"
+final class SessionModel: Model, @unchecked Sendable {
+    static let schema = "sessions"
 
     @ID(key: .id)
     var id: UUID?
@@ -35,18 +35,6 @@ final class RoomModel: Model, @unchecked Sendable {
     @OptionalField(key: "lock_mode")
     var lockModeRaw: String?
 
-    @OptionalField(key: "weather_summary")
-    var weatherSummary: String?
-
-    @OptionalField(key: "weather_temperature_f")
-    var weatherTemperatureF: Double?
-
-    @OptionalField(key: "weather_symbol")
-    var weatherSymbol: String?
-
-    @OptionalField(key: "weather_captured_at")
-    var weatherCapturedAt: Date?
-
     @OptionalField(key: "locked_at")
     var lockedAt: Date?
 
@@ -74,8 +62,7 @@ final class RoomModel: Model, @unchecked Sendable {
         durationSeconds: Int? = nil,
         lockMode: SessionLockMode = .standard,
         latitude: Double? = nil,
-        longitude: Double? = nil,
-        weather: SessionWeatherSnapshot? = nil
+        longitude: Double? = nil
     ) {
         self.id = id
         self.roomOwner = roomOwner
@@ -87,9 +74,5 @@ final class RoomModel: Model, @unchecked Sendable {
         self.lockModeRaw = lockMode.rawValue
         self.latitude = latitude
         self.longitude = longitude
-        self.weatherSummary = weather?.summary
-        self.weatherTemperatureF = weather?.temperatureFahrenheit
-        self.weatherSymbol = weather?.conditionSymbol
-        self.weatherCapturedAt = weather?.capturedAt
     }
 }

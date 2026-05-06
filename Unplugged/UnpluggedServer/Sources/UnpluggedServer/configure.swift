@@ -78,6 +78,12 @@ public func configure(_ app: Application) async throws {
     app.migrations.add(AddTimestampsToMembers())
     app.migrations.add(SeedMedals())
     app.migrations.add(SeedMoreMedals())
+    app.migrations.add(AddCheckConstraints())
+    app.migrations.add(DropWeatherFromSessions())
+    app.migrations.add(CreateOAuthIdentities())
+    app.migrations.add(BackfillOAuthIdentities())
+    app.migrations.add(DropOAuthSubjectsFromUsers())
+    app.migrations.add(RenameRoomsToSessions())
 
     try await app.autoMigrate()
 

@@ -122,28 +122,28 @@ struct MedalService {
             let myMemberships = try await MemberModel.query(on: db)
                 .filter(\.$userID == userID)
                 .all()
-            let myRoomIDs = myMemberships.map { $0.roomID }
-            guard !myRoomIDs.isEmpty else { return }
+            let mySessionIDs = myMemberships.map { $0.sessionID }
+            guard !mySessionIDs.isEmpty else { return }
 
-            let endedRoomIDs: [UUID] = try await RoomModel.query(on: db)
-                .filter(\.$id ~~ myRoomIDs)
+            let endedSessionIDs: [UUID] = try await SessionModel.query(on: db)
+                .filter(\.$id ~~ mySessionIDs)
                 .filter(\.$endedAt != nil)
                 .all()
                 .compactMap { try? $0.requireID() }
-            guard !endedRoomIDs.isEmpty else { return }
+            guard !endedSessionIDs.isEmpty else { return }
 
             let allMembers = try await MemberModel.query(on: db)
-                .filter(\.$roomID ~~ endedRoomIDs)
+                .filter(\.$sessionID ~~ endedSessionIDs)
                 .all()
 
-            var friendCountByRoom: [UUID: Int] = [:]
+            var friendCountBySession: [UUID: Int] = [:]
             for member in allMembers where member.userID != userID {
                 if friendIDs.contains(member.userID) {
-                    friendCountByRoom[member.roomID, default: 0] += 1
+                    friendCountBySession[member.sessionID, default: 0] += 1
                 }
             }
 
-            let maxFriendsInAnySession = friendCountByRoom.values.max() ?? 0
+            let maxFriendsInAnySession = friendCountBySession.values.max() ?? 0
 
             if maxFriendsInAnySession >= 1 {
                 await awardIfEligible(userID: userID, medalName: "Better Together", on: db, logger: logger)

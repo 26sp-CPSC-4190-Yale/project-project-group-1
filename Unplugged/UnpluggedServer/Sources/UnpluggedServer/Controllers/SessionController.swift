@@ -12,7 +12,6 @@ private struct UpdateSessionRequest: Content {
     var description: String?
     var latitude: Double?
     var longitude: Double?
-    var weather: SessionWeatherSnapshot?
 }
 
 struct SessionController: RouteCollection {
@@ -64,8 +63,8 @@ struct SessionController: RouteCollection {
             throw Abort(.badRequest, reason: "Invalid coordinates.")
         }
 
-        let code = try await Self.generateRoomCode(on: req.db)
-        let room = RoomModel(
+        let code = try await Self.generateSessionCode(on: req.db)
+        let session = SessionModel(
             roomOwner: userID,
             code: code,
             title: InputValidation.normalizedOptionalText(body.title, maxLength: InputValidation.sessionTitleMaxLength) ?? body.title,
@@ -73,20 +72,19 @@ struct SessionController: RouteCollection {
             durationSeconds: body.durationSeconds,
             lockMode: body.lockMode,
             latitude: nil,
-            longitude: nil,
-            weather: nil
+            longitude: nil
         )
 
-        // room plus owner-membership must be atomic, otherwise a ghost room passes auth checks but cannot be joined or ended
+        // session plus owner-membership must be atomic, otherwise a ghost session passes auth checks but cannot be joined or ended
         try await req.db.transaction { db in
-            try await room.save(on: db)
+            try await session.save(on: db)
             let member = MemberModel()
             member.userID = userID
-            member.roomID = try room.requireID()
+            member.sessionID = try session.requireID()
             try await member.save(on: db)
         }
 
-        return try await buildSessionResponse(room: room, db: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
@@ -97,19 +95,19 @@ struct SessionController: RouteCollection {
         let memberships = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships
+        let sessionIDs = memberships
             .filter { $0.participantStatus == .active }
-            .map { $0.roomID }
+            .map { $0.sessionID }
 
-        guard !roomIDs.isEmpty else { return [] }
+        guard !sessionIDs.isEmpty else { return [] }
 
-        let rooms = try await RoomModel.query(on: req.db)
-            .filter(\.$id ~~ roomIDs)
+        let sessions = try await SessionModel.query(on: req.db)
+            .filter(\.$id ~~ sessionIDs)
             .filter(\.$endedAt == nil)
             .all()
 
-        try await SessionLifecycleService.expireIfNeeded(rooms: rooms, req: req)
-        return try await buildSessionResponses(rooms: rooms.filter { $0.endedAt == nil }, db: req.db)
+        try await SessionLifecycleService.expireIfNeeded(sessions: sessions, req: req)
+        return try await buildSessionResponses(sessions: sessions.filter { $0.endedAt == nil }, db: req.db)
     }
 
     @Sendable
@@ -123,30 +121,30 @@ struct SessionController: RouteCollection {
         let memberships = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
             .all()
-        let roomIDs = memberships.map { $0.roomID }
+        let sessionIDs = memberships.map { $0.sessionID }
 
-        guard !roomIDs.isEmpty else { return [] }
-        try await SessionLifecycleService.expireActiveRooms(roomIDs: roomIDs, req: req)
+        guard !sessionIDs.isEmpty else { return [] }
+        try await SessionLifecycleService.expireActiveSessions(sessionIDs: sessionIDs, req: req)
 
-        var query = RoomModel.query(on: req.db)
-            .filter(\.$id ~~ roomIDs)
+        var query = SessionModel.query(on: req.db)
+            .filter(\.$id ~~ sessionIDs)
             .filter(\.$endedAt != nil)
         if let before {
             query = query.filter(\.$endedAt < before)
         }
-        let rooms = try await query
+        let sessions = try await query
             .sort(\.$endedAt, .descending)
             .limit(limit)
             .all()
 
-        let returnedRoomIDs = rooms.compactMap { try? $0.requireID() }
+        let returnedSessionIDs = sessions.compactMap { try? $0.requireID() }
         let jailbreaks: [JailbreakModel]
-        if returnedRoomIDs.isEmpty {
+        if returnedSessionIDs.isEmpty {
             jailbreaks = []
         } else {
             jailbreaks = try await JailbreakModel.query(on: req.db)
                 .filter(\.$userID == userID)
-                .filter(\.$sessionID ~~ returnedRoomIDs)
+                .filter(\.$sessionID ~~ returnedSessionIDs)
                 .all()
         }
         var leaveMap: [UUID: (at: Date, reason: String?)] = [:]
@@ -159,43 +157,42 @@ struct SessionController: RouteCollection {
 
         let allMembers: [MemberModel]
         let allPhotos: [SessionMemoryPhotoModel]
-        if returnedRoomIDs.isEmpty {
+        if returnedSessionIDs.isEmpty {
             allMembers = []
             allPhotos = []
         } else {
             allMembers = try await MemberModel.query(on: req.db)
-                .filter(\.$roomID ~~ returnedRoomIDs)
+                .filter(\.$sessionID ~~ returnedSessionIDs)
                 .all()
             allPhotos = try await SessionMemoryPhotoModel.query(on: req.db)
-                .filter(\.$sessionID ~~ returnedRoomIDs)
+                .filter(\.$sessionID ~~ returnedSessionIDs)
                 .sort(\.$createdAt, .ascending)
                 .all()
         }
-        let participantCounts = Dictionary(grouping: allMembers, by: \.roomID).mapValues(\.count)
-        let photosByRoom = Dictionary(grouping: allPhotos, by: \.sessionID)
+        let participantCounts = Dictionary(grouping: allMembers, by: \.sessionID).mapValues(\.count)
+        let photosBySession = Dictionary(grouping: allPhotos, by: \.sessionID)
             .mapValues { $0.compactMap(SessionResponseBuilder.photoResponse) }
 
         var results: [SessionHistoryResponse] = []
-        for room in rooms {
-            let roomID = try room.requireID()
-            let leave = leaveMap[roomID]
-            let focused = StatsService.focusedSeconds(room: room, earliestLeaveAt: leave?.at)
-            let planned = max(0, room.durationSeconds ?? 0)
+        for session in sessions {
+            let sessionID = try session.requireID()
+            let leave = leaveMap[sessionID]
+            let focused = StatsService.focusedSeconds(session: session, earliestLeaveAt: leave?.at)
+            let planned = max(0, session.durationSeconds ?? 0)
             let leftEarly = focused + StatsService.earlyLeaveToleranceSeconds < planned
 
             results.append(
                 SessionHistoryResponse(
-                    id: roomID,
-                    title: room.title,
-                    description: room.description,
-                    startedAt: room.lockedAt ?? room.startTime,
-                    endedAt: room.endedAt,
-                    durationSeconds: room.durationSeconds,
-                    participantCount: participantCounts[roomID] ?? 0,
-                    latitude: room.latitude,
-                    longitude: room.longitude,
-                    weather: SessionResponseBuilder.weather(from: room),
-                    memoryPhotos: photosByRoom[roomID] ?? [],
+                    id: sessionID,
+                    title: session.title,
+                    description: session.description,
+                    startedAt: session.lockedAt ?? session.startTime,
+                    endedAt: session.endedAt,
+                    durationSeconds: session.durationSeconds,
+                    participantCount: participantCounts[sessionID] ?? 0,
+                    latitude: session.latitude,
+                    longitude: session.longitude,
+                    memoryPhotos: photosBySession[sessionID] ?? [],
                     actualFocusedSeconds: focused,
                     leftEarly: leftEarly,
                     leftAt: leave?.at,
@@ -208,50 +205,50 @@ struct SessionController: RouteCollection {
 
     @Sendable
     func get(req: Request) async throws -> SessionResponse {
-        let room = try await requireRoom(req: req)
+        let session = try await requireSession(req: req)
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let roomID = try room.requireID()
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        let sessionID = try session.requireID()
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        return try await buildSessionResponse(room: room, db: req.db)
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
     func update(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
+        let session = try await requireSession(req: req)
 
-        guard room.roomOwner == userID else {
+        guard session.roomOwner == userID else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
 
         let body = try req.content.decode(UpdateSessionRequest.self)
-        if room.endedAt == nil,
-           body.description != nil || body.latitude != nil || body.longitude != nil || body.weather != nil {
+        if session.endedAt == nil,
+           body.description != nil || body.latitude != nil || body.longitude != nil {
             throw Abort(.conflict, reason: "Mementos can be edited after the session ends.")
         }
-        try applyUpdateBody(body, to: room)
-        try await room.save(on: req.db)
-        return try await buildSessionResponse(room: room, db: req.db)
+        try applyUpdateBody(body, to: session)
+        try await session.save(on: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
     func updateMetadata(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt != nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt != nil else {
             throw Abort(.conflict, reason: "Mementos can be edited after the session ends.")
         }
 
@@ -262,29 +259,28 @@ struct SessionController: RouteCollection {
         guard InputValidation.isValidLatitude(body.latitude), InputValidation.isValidLongitude(body.longitude) else {
             throw Abort(.badRequest, reason: "Invalid coordinates.")
         }
-        room.description = InputValidation.normalizedOptionalText(body.description, maxLength: InputValidation.sessionDescriptionMaxLength)
-        room.latitude = body.latitude
-        room.longitude = body.longitude
-        SessionResponseBuilder.apply(weather: body.weather, to: room)
-        try await room.save(on: req.db)
-        return try await buildSessionResponse(room: room, db: req.db)
+        session.description = InputValidation.normalizedOptionalText(body.description, maxLength: InputValidation.sessionDescriptionMaxLength)
+        session.latitude = body.latitude
+        session.longitude = body.longitude
+        try await session.save(on: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
     func delete(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
+        let session = try await requireSession(req: req)
 
-        guard room.roomOwner == userID else {
+        guard session.roomOwner == userID else {
             throw Abort(.forbidden)
         }
 
-        let roomID = try room.requireID()
+        let sessionID = try session.requireID()
         try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .delete()
-        try await room.delete(on: req.db)
+        try await session.delete(on: req.db)
         return .noContent
     }
 
@@ -292,19 +288,19 @@ struct SessionController: RouteCollection {
     func join(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
+        let session = try await requireSession(req: req)
 
-        guard room.endedAt == nil else {
-            throw Abort(.gone, reason: "Room is no longer active")
+        guard session.endedAt == nil else {
+            throw Abort(.gone, reason: "Session is no longer active")
         }
-        guard room.lockedAt == nil else {
-            throw Abort(.forbidden, reason: "Room is locked; cannot join an in-progress session.")
+        guard session.lockedAt == nil else {
+            throw Abort(.forbidden, reason: "Session is locked; cannot join an in-progress session.")
         }
 
-        let roomID = try room.requireID()
+        let sessionID = try session.requireID()
         let existing = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .first()
 
         var reactivatedExistingMember = false
@@ -319,7 +315,7 @@ struct SessionController: RouteCollection {
                     try await existing.save(on: db)
 
                     try await JailbreakModel.query(on: db)
-                        .filter(\.$sessionID == roomID)
+                        .filter(\.$sessionID == sessionID)
                         .filter(\.$userID == userID)
                         .group(.or) { group in
                             group.filter(\.$reason == SessionExitReason.leftVoluntarily)
@@ -330,7 +326,7 @@ struct SessionController: RouteCollection {
                 reactivatedExistingMember = true
             }
         } else {
-            let member = MemberModel(userID: userID, roomID: roomID)
+            let member = MemberModel(userID: userID, sessionID: sessionID)
             try await member.save(on: req.db)
 
             if let user = try await UserModel.find(userID, on: req.db) {
@@ -342,14 +338,14 @@ struct SessionController: RouteCollection {
                     joinedAt: Date(),
                     isHost: false
                 )
-                await req.sessionHub.broadcast(roomID: roomID, message: .participantJoined(response))
+                await req.sessionHub.broadcast(sessionID: sessionID, message: .participantJoined(response))
             }
         }
 
         if reactivatedExistingMember,
            let member = try await MemberModel.query(on: req.db)
             .filter(\.$userID == userID)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .first(),
            let user = try await UserModel.find(userID, on: req.db) {
             let response = ParticipantResponse(
@@ -358,12 +354,12 @@ struct SessionController: RouteCollection {
                 username: user.username,
                 status: member.participantStatus,
                 joinedAt: member.joinedAt,
-                isHost: room.lockMode == .coLock ? false : userID == room.roomOwner
+                isHost: session.lockMode == .coLock ? false : userID == session.roomOwner
             )
-            await req.sessionHub.broadcast(roomID: roomID, message: .participantJoined(response))
+            await req.sessionHub.broadcast(sessionID: sessionID, message: .participantJoined(response))
         }
 
-        return try await buildSessionResponse(room: room, db: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     // MARK: - Lifecycle: start / end
@@ -372,15 +368,15 @@ struct SessionController: RouteCollection {
     func start(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        if room.lockMode == .coLock {
-            guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        if session.lockMode == .coLock {
+            guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
                 throw Abort(.forbidden)
             }
             let activeMembers = try await MemberModel.query(on: req.db)
-                .filter(\.$roomID == roomID)
+                .filter(\.$sessionID == sessionID)
                 .all()
                 .filter { $0.participantStatus == .active }
             guard activeMembers.count >= 2 else {
@@ -390,88 +386,88 @@ struct SessionController: RouteCollection {
                 throw Abort(.conflict, reason: "Everyone must be ready before a co-lock can start.")
             }
         } else {
-            guard room.roomOwner == userID else {
+            guard session.roomOwner == userID else {
                 throw Abort(.forbidden, reason: "Only the host can start the session.")
             }
         }
-        guard room.endedAt == nil else {
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session has already ended.")
         }
-        guard room.lockedAt == nil else {
+        guard session.lockedAt == nil else {
             throw Abort(.conflict, reason: "Session is already locked.")
         }
 
         let now = Date()
-        room.lockedAt = now
-        try await room.save(on: req.db)
+        session.lockedAt = now
+        try await session.save(on: req.db)
 
-        let endsAt = room.endsAt ?? Date.distantFuture
-        await req.sessionHub.broadcast(roomID: roomID, message: .sessionLocked(endsAt: endsAt))
+        let endsAt = session.endsAt ?? Date.distantFuture
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .sessionLocked(endsAt: endsAt))
 
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         for member in members {
             await NotificationService.sendSilent(
                 to: member.userID,
                 type: NotificationService.NotificationType.sessionLocked,
-                sessionID: roomID,
-                endsAt: room.endsAt,
+                sessionID: sessionID,
+                endsAt: session.endsAt,
                 on: req.db,
                 application: req.application
             )
         }
 
-        return try await buildSessionResponse(room: room, db: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
     func end(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        if room.lockMode == .coLock {
-            guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        if session.lockMode == .coLock {
+            guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
                 throw Abort(.forbidden)
             }
-            guard try await hasUnanimousCoLockRelease(roomID: roomID, db: req.db) else {
+            guard try await hasUnanimousCoLockRelease(sessionID: sessionID, db: req.db) else {
                 throw Abort(.conflict, reason: "Everyone must approve ending this co-lock.")
             }
         } else {
-            guard room.roomOwner == userID else {
+            guard session.roomOwner == userID else {
                 throw Abort(.forbidden, reason: "Only the host can end the session.")
             }
         }
-        guard room.endedAt == nil else {
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
 
         try await SessionLifecycleService.finish(
-            room: room,
+            session: session,
             endedAt: Date(),
             req: req,
             reason: "manual_end"
         )
 
-        return try await buildSessionResponse(room: room, db: req.db)
+        return try await buildSessionResponse(session: session, db: req.db)
     }
 
     @Sendable
     func leave(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt == nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        if room.lockMode == .coLock, room.lockedAt != nil {
+        if session.lockMode == .coLock, session.lockedAt != nil {
             if try await SessionLifecycleService.closeCoLockIfStranded(
-                room: room,
+                session: session,
                 req: req,
                 reason: "co_lock_last_member_leave"
             ) {
@@ -479,13 +475,13 @@ struct SessionController: RouteCollection {
             }
             throw Abort(.conflict, reason: "Co-lock sessions require everyone to approve release.")
         }
-        // hosts must end via /end, letting the host leave here silently drops the room without notifying members
-        guard room.lockMode == .coLock || room.roomOwner != userID else {
+        // hosts must end via /end, letting the host leave here silently drops the session without notifying members
+        guard session.lockMode == .coLock || session.roomOwner != userID else {
             throw Abort(.forbidden, reason: "Hosts must end the session instead of leaving.")
         }
 
         guard let member = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first() else {
             throw Abort(.forbidden)
@@ -500,11 +496,11 @@ struct SessionController: RouteCollection {
                 member.config = MemberModel.voluntaryExitConfig
                 if member.leftAt == nil {
                     member.leftAt = now
-                    member.leftEarly = room.lockedAt != nil
+                    member.leftEarly = session.lockedAt != nil
                 }
                 try await member.save(on: db)
 
-                if let lockedAt = room.lockedAt {
+                if let lockedAt = session.lockedAt {
                     try await SessionLifecycleService.awardPoints(
                         to: userID,
                         from: lockedAt,
@@ -516,10 +512,10 @@ struct SessionController: RouteCollection {
             }
         }
 
-        if room.lockMode == .coLock, room.lockedAt == nil {
-            try await clearCoLockReadinessIfBelowStartMinimum(roomID: roomID, db: req.db)
+        if session.lockMode == .coLock, session.lockedAt == nil {
+            try await clearCoLockReadinessIfBelowStartMinimum(sessionID: sessionID, db: req.db)
         } else if try await SessionLifecycleService.closeCoLockIfStranded(
-            room: room,
+            session: session,
             req: req,
             reason: "co_lock_lobby_stranded"
         ) {
@@ -528,31 +524,31 @@ struct SessionController: RouteCollection {
 
         // recap and history read left-early from JailbreakModel rows, skip on duplicate so a double-tap does not double-count
         let reason = SessionExitReason.leftVoluntarily
-        if room.lockedAt != nil {
+        if session.lockedAt != nil {
             let existingReport = try await JailbreakModel.query(on: req.db)
-                .filter(\.$sessionID == roomID)
+                .filter(\.$sessionID == sessionID)
                 .filter(\.$userID == userID)
                 .filter(\.$reason == reason)
                 .first()
             if existingReport == nil {
-                let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+                let record = JailbreakModel(sessionID: sessionID, userID: userID, reason: reason)
                 record.detectedAt = now
                 try await record.save(on: req.db)
             }
         }
 
-        if room.lockMode == .coLock, room.lockedAt == nil {
-            let response = try await buildSessionResponse(room: room, db: req.db)
-            await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
+        if session.lockMode == .coLock, session.lockedAt == nil {
+            let response = try await buildSessionResponse(session: session, db: req.db)
+            await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(response))
         } else {
-            await req.sessionHub.broadcast(roomID: roomID, message: .participantLeft(userID: userID))
+            await req.sessionHub.broadcast(sessionID: sessionID, message: .participantLeft(userID: userID))
         }
 
         let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
-        if room.lockedAt != nil {
+        if session.lockedAt != nil {
             for recipient in members where recipient.userID != userID && recipient.config != MemberModel.voluntaryExitConfig {
                 await NotificationService.send(
                     to: recipient.userID,
@@ -574,15 +570,15 @@ struct SessionController: RouteCollection {
     func setCoLockReady(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard room.lockMode == .coLock else {
-            throw Abort(.badRequest, reason: "This room is not a co-lock.")
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard session.lockMode == .coLock else {
+            throw Abort(.badRequest, reason: "This session is not a co-lock.")
         }
-        guard room.lockedAt == nil, room.endedAt == nil else {
+        guard session.lockedAt == nil, session.endedAt == nil else {
             throw Abort(.conflict, reason: "Readiness can only change before lock-in starts.")
         }
-        guard let member = try await membership(userID: userID, roomID: roomID, db: req.db) else {
+        guard let member = try await membership(userID: userID, sessionID: sessionID, db: req.db) else {
             throw Abort(.forbidden)
         }
         let body = try req.content.decode(CoLockReadyRequest.self)
@@ -591,7 +587,7 @@ struct SessionController: RouteCollection {
         }
         if body.isReady {
             let activeCount = try await MemberModel.query(on: req.db)
-                .filter(\.$roomID == roomID)
+                .filter(\.$sessionID == sessionID)
                 .all()
                 .filter { $0.participantStatus == .active }
                 .count
@@ -601,8 +597,8 @@ struct SessionController: RouteCollection {
         }
         member.coLockReady = body.isReady
         try await member.save(on: req.db)
-        let response = try await buildSessionResponse(room: room, db: req.db)
-        await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
+        let response = try await buildSessionResponse(session: session, db: req.db)
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(response))
         return response
     }
 
@@ -610,37 +606,37 @@ struct SessionController: RouteCollection {
     func requestCoLockRelease(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard room.lockMode == .coLock else {
-            throw Abort(.badRequest, reason: "This room is not a co-lock.")
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard session.lockMode == .coLock else {
+            throw Abort(.badRequest, reason: "This session is not a co-lock.")
         }
-        guard room.endedAt == nil else {
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
 
         try await CoLockReleaseApprovalModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .delete()
-        let approval = CoLockReleaseApprovalModel(roomID: roomID, requesterID: userID, approverID: userID)
+        let approval = CoLockReleaseApprovalModel(sessionID: sessionID, requesterID: userID, approverID: userID)
         try await approval.save(on: req.db)
 
-        if room.lockedAt != nil,
-           try await hasUnanimousCoLockRelease(roomID: roomID, db: req.db) {
+        if session.lockedAt != nil,
+           try await hasUnanimousCoLockRelease(sessionID: sessionID, db: req.db) {
             try await SessionLifecycleService.finish(
-                room: room,
+                session: session,
                 endedAt: Date(),
                 req: req,
                 reason: "co_lock_release_approved"
             )
-            return try await buildSessionResponse(room: room, db: req.db)
+            return try await buildSessionResponse(session: session, db: req.db)
         }
 
-        let response = try await buildSessionResponse(room: room, db: req.db)
-        await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
+        let response = try await buildSessionResponse(session: session, db: req.db)
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(response))
         return response
     }
 
@@ -648,19 +644,19 @@ struct SessionController: RouteCollection {
     func approveCoLockRelease(req: Request) async throws -> SessionResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard room.lockMode == .coLock else {
-            throw Abort(.badRequest, reason: "This room is not a co-lock.")
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard session.lockMode == .coLock else {
+            throw Abort(.badRequest, reason: "This session is not a co-lock.")
         }
-        guard room.endedAt == nil else {
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
         guard let releaseRequest = try await CoLockReleaseApprovalModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .sort(\.$createdAt, .ascending)
             .first() else {
             throw Abort(.conflict, reason: "No co-lock release has been requested.")
@@ -668,21 +664,21 @@ struct SessionController: RouteCollection {
         let requesterID = releaseRequest.requesterID
 
         let existing = try await CoLockReleaseApprovalModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$requesterID == requesterID)
             .filter(\.$approverID == userID)
             .first()
         if existing == nil {
-            try await CoLockReleaseApprovalModel(roomID: roomID, requesterID: requesterID, approverID: userID)
+            try await CoLockReleaseApprovalModel(sessionID: sessionID, requesterID: requesterID, approverID: userID)
                 .save(on: req.db)
         }
 
-        if try await hasUnanimousCoLockRelease(roomID: roomID, db: req.db) {
+        if try await hasUnanimousCoLockRelease(sessionID: sessionID, db: req.db) {
             return try await end(req: req)
         }
 
-        let response = try await buildSessionResponse(room: room, db: req.db)
-        await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(response))
+        let response = try await buildSessionResponse(session: session, db: req.db)
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(response))
         return response
     }
 
@@ -692,26 +688,26 @@ struct SessionController: RouteCollection {
     func listPhotos(req: Request) async throws -> [SessionMemoryPhotoResponse] {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        return try await SessionResponseBuilder.photoResponses(roomID: roomID, db: req.db)
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        return try await SessionResponseBuilder.photoResponses(sessionID: sessionID, db: req.db)
     }
 
     @Sendable
     func uploadPhoto(req: Request) async throws -> SessionMemoryPhotoResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt != nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt != nil else {
             throw Abort(.conflict, reason: "Photos can be added after the session ends.")
         }
         let body = try req.content.decode(UploadSessionPhotoRequest.self)
@@ -723,7 +719,7 @@ struct SessionController: RouteCollection {
             throw Abort(.payloadTooLarge, reason: "Photo is too large.")
         }
         let photo = SessionMemoryPhotoModel(
-            sessionID: roomID,
+            sessionID: sessionID,
             uploaderID: userID,
             mimeType: body.mimeType,
             imageData: body.imageData,
@@ -732,15 +728,15 @@ struct SessionController: RouteCollection {
         try await photo.save(on: req.db)
         let response = SessionMemoryPhotoResponse(
             id: try photo.requireID(),
-            sessionID: roomID,
+            sessionID: sessionID,
             uploaderID: userID,
             mimeType: photo.mimeType,
             byteCount: photo.imageData.count,
             thumbnailData: photo.thumbnailData,
             createdAt: photo.createdAt ?? Date()
         )
-        let updated = try await buildSessionResponse(room: room, db: req.db)
-        await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(updated))
+        let updated = try await buildSessionResponse(session: session, db: req.db)
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(updated))
         return response
     }
 
@@ -748,26 +744,26 @@ struct SessionController: RouteCollection {
     func deletePhoto(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt != nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt != nil else {
             throw Abort(.conflict, reason: "Photos can be edited after the session ends.")
         }
         guard let photoID = req.parameters.get("photoID", as: UUID.self),
               let photo = try await SessionMemoryPhotoModel.find(photoID, on: req.db),
-              photo.sessionID == roomID else {
+              photo.sessionID == sessionID else {
             throw Abort(.notFound)
         }
-        guard photo.uploaderID == userID || room.roomOwner == userID else {
+        guard photo.uploaderID == userID || session.roomOwner == userID else {
             throw Abort(.forbidden)
         }
         try await photo.delete(on: req.db)
-        let updated = try await buildSessionResponse(room: room, db: req.db)
-        await req.sessionHub.broadcast(roomID: roomID, message: .stateSync(updated))
+        let updated = try await buildSessionResponse(session: session, db: req.db)
+        await req.sessionHub.broadcast(sessionID: sessionID, message: .stateSync(updated))
         return .noContent
     }
 
@@ -777,23 +773,23 @@ struct SessionController: RouteCollection {
     func recap(req: Request) async throws -> SessionRecapResponse {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
         let membership = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first()
         guard membership != nil else {
             throw Abort(.forbidden)
         }
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt != nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt != nil else {
             throw Abort(.badRequest, reason: "Session has not ended yet.")
         }
 
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         let userIDs = members.map { $0.userID }
         let users = try await UserModel.query(on: req.db)
@@ -814,12 +810,12 @@ struct SessionController: RouteCollection {
                 username: user.username,
                 status: member.participantStatus,
                 joinedAt: nil,
-                isHost: room.lockMode == .coLock ? false : member.userID == room.roomOwner
+                isHost: session.lockMode == .coLock ? false : member.userID == session.roomOwner
             )
         }
 
         let jbRecords = try await JailbreakModel.query(on: req.db)
-            .filter(\.$sessionID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         let jailbreaks: [JailbreakEntry] = jbRecords.compactMap { jb in
             guard let id = jb.id else { return nil }
@@ -833,10 +829,10 @@ struct SessionController: RouteCollection {
             )
         }
 
-        let planned = room.durationSeconds.map { max(0, $0) }
-        // room-lifetime metric, not per-user, ignore jailbreak rows so host-ending-early is the only shortener
+        let planned = session.durationSeconds.map { max(0, $0) }
+        // session-lifetime metric, not per-user, ignore jailbreak rows so host-ending-early is the only shortener
         let actualFocusedSeconds = StatsService.focusedSeconds(
-            room: room,
+            session: session,
             earliestLeaveAt: nil
         )
         let endedEarly = planned.map {
@@ -845,23 +841,22 @@ struct SessionController: RouteCollection {
         let completionRate: Double = (planned ?? 0) > 0
             ? min(1.0, Double(actualFocusedSeconds) / Double(planned ?? 1))
             : 0
-        let photos = try await SessionResponseBuilder.photoResponses(roomID: roomID, db: req.db)
+        let photos = try await SessionResponseBuilder.photoResponses(sessionID: sessionID, db: req.db)
 
         return SessionRecapResponse(
-            sessionID: roomID,
-            title: room.title,
-            description: room.description,
-            startedAt: room.lockedAt ?? room.startTime,
-            endedAt: room.endedAt,
+            sessionID: sessionID,
+            title: session.title,
+            description: session.description,
+            startedAt: session.lockedAt ?? session.startTime,
+            endedAt: session.endedAt,
             durationSeconds: planned,
             actualFocusedSeconds: actualFocusedSeconds,
             endedEarly: endedEarly,
             participants: participants,
             jailbreaks: jailbreaks,
             completionRate: completionRate,
-            latitude: room.latitude,
-            longitude: room.longitude,
-            weather: SessionResponseBuilder.weather(from: room),
+            latitude: session.latitude,
+            longitude: session.longitude,
             memoryPhotos: photos
         )
     }
@@ -872,14 +867,14 @@ struct SessionController: RouteCollection {
     func reportJailbreak(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt == nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard room.lockedAt != nil else {
+        guard session.lockedAt != nil else {
             throw Abort(.badRequest, reason: "Jailbreak reports only apply to locked sessions.")
         }
 
@@ -891,7 +886,7 @@ struct SessionController: RouteCollection {
         let reason = InputValidation.normalizedJailbreakReason(body.reason)
 
         guard let member = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first() else {
             throw Abort(.forbidden)
@@ -905,29 +900,29 @@ struct SessionController: RouteCollection {
                 try await member.save(on: db)
             }
 
-            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+            let record = JailbreakModel(sessionID: sessionID, userID: userID, reason: reason)
             record.detectedAt = detectedAt
             try await record.save(on: db)
         }
 
         await req.sessionHub.broadcast(
-            roomID: roomID,
+            sessionID: sessionID,
             message: .jailbreakReported(userID: userID, reason: reason)
         )
 
         if try await SessionLifecycleService.closeCoLockIfStranded(
-            room: room,
+            session: session,
             req: req,
             reason: "co_lock_jailbreak_stranded"
         ) {
             return .noContent
         }
 
-        // notify everyone still in the room, already-exited members are skipped so they are not pinged after detaching
+        // notify everyone still in the session, already-exited members are skipped so they are not pinged after detaching
         let reporter = try await UserModel.find(userID, on: req.db)
         let reporterName = reporter?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         for recipient in members where recipient.userID != userID
             && recipient.config != MemberModel.voluntaryExitConfig
@@ -949,19 +944,19 @@ struct SessionController: RouteCollection {
     func reportProximityExit(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt == nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard let lockedAt = room.lockedAt else {
+        guard let lockedAt = session.lockedAt else {
             throw Abort(.badRequest, reason: "Proximity exits only apply to locked sessions.")
         }
 
         guard let member = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first() else {
             throw Abort(.forbidden)
@@ -980,7 +975,7 @@ struct SessionController: RouteCollection {
                 }
                 try await member.save(on: db)
 
-                try await awardPoints(
+                try await SessionLifecycleService.awardPoints(
                     to: userID,
                     from: lockedAt,
                     to: now,
@@ -992,24 +987,24 @@ struct SessionController: RouteCollection {
 
         let reason = SessionExitReason.leftDueToProximity
         let existingReport = try await JailbreakModel.query(on: req.db)
-            .filter(\.$sessionID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .filter(\.$reason == reason)
             .first()
         if existingReport == nil {
-            let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+            let record = JailbreakModel(sessionID: sessionID, userID: userID, reason: reason)
             record.detectedAt = now
             try await record.save(on: req.db)
         }
 
         let username = (try await UserModel.find(userID, on: req.db))?.username ?? "A participant"
         await req.sessionHub.broadcast(
-            roomID: roomID,
+            sessionID: sessionID,
             message: .participantLeftDueToProximity(userID: userID, username: username)
         )
 
         if try await SessionLifecycleService.closeCoLockIfStranded(
-            room: room,
+            session: session,
             req: req,
             reason: "co_lock_proximity_stranded"
         ) {
@@ -1017,7 +1012,7 @@ struct SessionController: RouteCollection {
         }
 
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         for recipient in members where recipient.userID != userID && recipient.config != MemberModel.proximityExitConfig {
             await NotificationService.send(
@@ -1037,17 +1032,17 @@ struct SessionController: RouteCollection {
     func reportShieldAttempt(req: Request) async throws -> HTTPStatus {
         let payload = try req.auth.require(UserPayload.self)
         let userID = try payload.userID
-        let room = try await requireRoom(req: req)
-        let roomID = try room.requireID()
+        let session = try await requireSession(req: req)
+        let sessionID = try session.requireID()
 
-        try await SessionLifecycleService.expireIfNeeded(room: room, req: req)
-        guard room.endedAt == nil else {
+        try await SessionLifecycleService.expireIfNeeded(session: session, req: req)
+        guard session.endedAt == nil else {
             throw Abort(.gone, reason: "Session already ended.")
         }
-        guard room.lockedAt != nil else {
+        guard session.lockedAt != nil else {
             throw Abort(.badRequest, reason: "Shield attempts only apply to locked sessions.")
         }
-        guard try await membership(userID: userID, roomID: roomID, db: req.db) != nil else {
+        guard try await membership(userID: userID, sessionID: sessionID, db: req.db) != nil else {
             throw Abort(.forbidden)
         }
 
@@ -1058,14 +1053,14 @@ struct SessionController: RouteCollection {
         let reason = InputValidation.normalizedJailbreakReason(body.reason)
         let cutoff = body.occurredAt.addingTimeInterval(-Self.shieldAttemptThrottle)
         let recentAttempt = try await JailbreakModel.query(on: req.db)
-            .filter(\.$sessionID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .filter(\.$reason == reason)
             .filter(\.$detectedAt > cutoff)
             .first()
         let shouldNotify = recentAttempt == nil
 
-        let record = JailbreakModel(sessionID: roomID, userID: userID, reason: reason)
+        let record = JailbreakModel(sessionID: sessionID, userID: userID, reason: reason)
         record.detectedAt = body.occurredAt
         try await record.save(on: req.db)
 
@@ -1075,7 +1070,7 @@ struct SessionController: RouteCollection {
 
         let reporterName = (try await UserVisibilityService.visibleUser(userID, on: req.db))?.username ?? "A participant"
         let members = try await MemberModel.query(on: req.db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         for recipient in members where recipient.userID != userID && recipient.participantStatus == .active {
             await NotificationService.send(
@@ -1088,39 +1083,45 @@ struct SessionController: RouteCollection {
             )
         }
 
+        await req.sessionHub.broadcast(
+            sessionID: sessionID,
+            message: .jailbreakReported(userID: userID, reason: reason)
+        )
         return .noContent
     }
 
-    private func requireRoom(req: Request) async throws -> RoomModel {
+    // MARK: - Helpers
+
+    private func requireSession(req: Request) async throws -> SessionModel {
         guard let idString = req.parameters.get("sessionID") else {
             throw Abort(.badRequest)
         }
-        if let roomID = UUID(uuidString: idString) {
-            if let room = try await RoomModel.find(roomID, on: req.db) {
-                return room
+        if let sessionID = UUID(uuidString: idString) {
+            if let session = try await SessionModel.find(sessionID, on: req.db) {
+                return session
             }
         } else {
             let normalizedCode = idString.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             if InputValidation.isValidSessionCode(normalizedCode) {
-                if let room = try await RoomModel.query(on: req.db)
+                if let session = try await SessionModel.query(on: req.db)
                     .filter(\.$code == normalizedCode)
                     .filter(\.$endedAt == nil)
                     .first() {
-                    return room
+                    return session
                 }
             }
         }
         throw Abort(.notFound)
     }
 
-    private static let roomCodeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+    private static let sessionCodeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
-    private static func generateRoomCode(on db: Database) async throws -> String {
+    private static func generateSessionCode(on db: Database) async throws -> String {
         for _ in 0..<10 {
             let code = String((0..<InputValidation.sessionCodeLength).compactMap { _ in
-                roomCodeAlphabet.randomElement()
+                sessionCodeAlphabet.randomElement()
             })
-            let existing = try await RoomModel.query(on: db)
+            let existing = try await SessionModel.query(on: db)
                 .filter(\.$code == code)
                 .first()
             if existing == nil {
@@ -1128,19 +1129,19 @@ struct SessionController: RouteCollection {
             }
         }
 
-        throw Abort(.internalServerError, reason: "Could not generate a room code.")
+        throw Abort(.internalServerError, reason: "Could not generate a session code.")
     }
 
-    private func membership(userID: UUID, roomID: UUID, db: Database) async throws -> MemberModel? {
+    private func membership(userID: UUID, sessionID: UUID, db: Database) async throws -> MemberModel? {
         try await MemberModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$userID == userID)
             .first()
     }
 
-    private func clearCoLockReadinessIfBelowStartMinimum(roomID: UUID, db: Database) async throws {
+    private func clearCoLockReadinessIfBelowStartMinimum(sessionID: UUID, db: Database) async throws {
         let members = try await MemberModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
         let activeMembers = members.filter { $0.participantStatus == .active }
         guard activeMembers.count < 2 else { return }
@@ -1150,67 +1151,64 @@ struct SessionController: RouteCollection {
         }
     }
 
-    private func applyUpdateBody(_ body: UpdateSessionRequest, to room: RoomModel) throws {
+    private func applyUpdateBody(_ body: UpdateSessionRequest, to session: SessionModel) throws {
         if let title = body.title {
             guard InputValidation.isValidSessionTitle(title) else {
                 throw Abort(.badRequest, reason: "Title must be 1-\(InputValidation.sessionTitleMaxLength) characters.")
             }
-            room.title = InputValidation.normalizedOptionalText(title, maxLength: InputValidation.sessionTitleMaxLength)
+            session.title = InputValidation.normalizedOptionalText(title, maxLength: InputValidation.sessionTitleMaxLength)
         }
         if let description = body.description {
             guard InputValidation.isValidSessionDescription(description) else {
                 throw Abort(.badRequest, reason: "Description is too long.")
             }
-            room.description = InputValidation.normalizedOptionalText(description, maxLength: InputValidation.sessionDescriptionMaxLength)
+            session.description = InputValidation.normalizedOptionalText(description, maxLength: InputValidation.sessionDescriptionMaxLength)
         }
         if let lat = body.latitude {
             guard InputValidation.isValidLatitude(lat) else {
                 throw Abort(.badRequest, reason: "Invalid latitude.")
             }
-            room.latitude = lat
+            session.latitude = lat
         }
         if let lng = body.longitude {
             guard InputValidation.isValidLongitude(lng) else {
                 throw Abort(.badRequest, reason: "Invalid longitude.")
             }
-            room.longitude = lng
-        }
-        if body.weather != nil {
-            SessionResponseBuilder.apply(weather: body.weather, to: room)
+            session.longitude = lng
         }
     }
 
-    private func hasUnanimousCoLockRelease(roomID: UUID, db: Database) async throws -> Bool {
+    private func hasUnanimousCoLockRelease(sessionID: UUID, db: Database) async throws -> Bool {
         let activeMembers = try await MemberModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .all()
             .filter { $0.participantStatus == .active }
         guard !activeMembers.isEmpty else { return false }
         guard let releaseRequest = try await CoLockReleaseApprovalModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .sort(\.$createdAt, .ascending)
             .first() else {
             return false
         }
         let requesterID = releaseRequest.requesterID
         let approvals = try await CoLockReleaseApprovalModel.query(on: db)
-            .filter(\.$roomID == roomID)
+            .filter(\.$sessionID == sessionID)
             .filter(\.$requesterID == requesterID)
             .all()
         let approved = Set(approvals.map(\.approverID))
         return activeMembers.allSatisfy { approved.contains($0.userID) }
     }
 
-    private func buildSessionResponse(room: RoomModel, db: Database) async throws -> SessionResponse {
-        try await SessionResponseBuilder.build(room: room, db: db)
+    private func buildSessionResponse(session: SessionModel, db: Database) async throws -> SessionResponse {
+        try await SessionResponseBuilder.build(session: session, db: db)
     }
 
-    private func buildSessionResponses(rooms: [RoomModel], db: Database) async throws -> [SessionResponse] {
-        try await SessionResponseBuilder.build(rooms: rooms, db: db)
+    private func buildSessionResponses(sessions: [SessionModel], db: Database) async throws -> [SessionResponse] {
+        try await SessionResponseBuilder.build(sessions: sessions, db: db)
     }
 
-    private static func legacyRoomCode(for roomID: UUID) -> String {
-        SessionResponseBuilder.legacyRoomCode(for: roomID)
+    private static func legacySessionCode(for sessionID: UUID) -> String {
+        SessionResponseBuilder.legacySessionCode(for: sessionID)
     }
 
 }
